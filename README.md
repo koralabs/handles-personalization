@@ -6,6 +6,7 @@
 - [Spec Docs](./docs/spec/index.md)
 
 ## Local Validation
+- `npm test` (scenario harness; may require stable external runtime dependencies)
 - `node --test tests/compile.test.js`
 - `./test_coverage.sh`
 

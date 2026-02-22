@@ -25,12 +25,14 @@
 - Supports grouped runs and optional profiling path in harness utilities.
 
 ### Coverage Harness
-- `test_coverage.sh` runs compile-path tests with Node test coverage.
+- `test_coverage.sh` runs standard `npm test` first, then compile-path tests with Node test coverage.
 - Enforces:
   - lines >= 90%,
   - branches >= 90%.
 - Writes report output to `test_coverage.report`.
+- Emits `STATUS=partial` when compile-path measurable thresholds pass but scenario harness runtime is non-deterministic in the local environment.
 
 ## Known Test Runtime Constraint
 - Repository `npm test` currently fails in this environment on `tests/tests.js` because `@koralabs/kora-labs-contract-testing` import resolution cannot find `colors` under Node 22 ESM resolution.
+- `tests/txTests.ts` may also fail when upstream fixture dependencies return temporary non-hex responses.
 - Guardrail compile-path coverage tests remain executable and passing.

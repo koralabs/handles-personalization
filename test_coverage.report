@@ -1,32 +1,60 @@
 FORMAT_VERSION=1
 REPO=handles-personalization
-TIMESTAMP_UTC=2026-02-22T16:35:01Z
+TIMESTAMP_UTC=2026-02-22T20:21:39Z
 THRESHOLD_LINES=90
 THRESHOLD_BRANCHES=90
 TOTAL_LINES_PCT=99.10
 TOTAL_BRANCHES_PCT=92.86
-STATUS=pass
+STATUS=partial
 SOURCE_PATHS=compile.js,compileHelpers.js
-EXCLUDED_PATHS=NON_CRITICAL_RUNTIME_PATHS:covered_by_separate_suites
-LANGUAGE_SUMMARY=nodejs:lines=99.10,branches=92.86,tool=node-test-coverage,status=pass
+EXCLUDED_PATHS=contract.helios,testingCode.helios:validator-source-covered-by-scenario-harness-not-branch-measurable-via-node-built-in-coverage; tests/{tests.js,txTests.ts,fixtures.ts,contractTesting.js,testClasses.js}:scenario-harness-paths-rely-on-external-runtime-and-upstream-availability
+LANGUAGE_SUMMARY=nodejs-compile:lines=99.10,branches=92.86,tool=node-test-coverage,status=pass;nodejs-scenarios:lines=NA,branches=NA,tool=npm-test,status=na,note=scenario-tests-require-external-runtime-and-stable-node-module-resolution
 
-=== RAW_OUTPUT_NODE_TEST ===
+=== RAW_OUTPUT_NPM_TEST ===
+
+> handles-personalization@1.0.0 test
+> npm run test:old && npm run test:new
+
+
+> handles-personalization@1.0.0 test:old
+> node --es-module-specifier-resolution=node tests/tests.js
+
+node:internal/modules/esm/resolve:275
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/kora-labs-contract-testing/colors' imported from /home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/kora-labs-contract-testing/index.js
+    at finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    at moduleResolve (node:internal/modules/esm/resolve:932:10)
+    at defaultResolve (node:internal/modules/esm/resolve:1056:11)
+    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:654:12)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:603:25)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:586:38)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:242:38)
+    at ModuleJob._link (node:internal/modules/esm/module_job:135:49) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/kora-labs-contract-testing/colors'
+}
+
+Node.js v22.13.1
+
+=== RAW_OUTPUT_NODE_COMPILE_COVERAGE ===
 TAP version 13
 # Subtest: resolveOptimizeFlag handles both false and truthy values
 ok 1 - resolveOptimizeFlag handles both false and truthy values
   ---
-  duration_ms: 0.473191
+  duration_ms: 0.532142
   ...
 # Subtest: getContractArtifactPaths handles trailing and non-trailing slash
 ok 2 - getContractArtifactPaths handles trailing and non-trailing slash
   ---
-  duration_ms: 0.198357
+  duration_ms: 0.105902
   ...
 # OPTIMIZE is set to false
 # Subtest: compile.js creates contract artifacts with optimize disabled
 ok 3 - compile.js creates contract artifacts with optimize disabled
   ---
-  duration_ms: 462.160321
+  duration_ms: 445.006178
   ...
 1..3
 # tests 3
@@ -36,7 +64,7 @@ ok 3 - compile.js creates contract artifacts with optimize disabled
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 509.644841
+# duration_ms 496.244534
 # start of coverage report
 # -------------------------------------------------------------------
 # file               | line % | branch % | funcs % | uncovered lines
