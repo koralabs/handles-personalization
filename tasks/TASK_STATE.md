@@ -10,7 +10,7 @@
 - completed_tasks: `18`
 - blocked_tasks: `0`
 - overall_status: `done`
-- last_updated_utc: `2026-02-23T06:15:09Z`
+- last_updated_utc: `2026-02-23T06:16:03Z`
 
 ## Status Legend
 
@@ -46,19 +46,19 @@
 | B-003 | done | BX-002 | 2026-02-23T05:04:35Z | 2026-02-23T05:10:51Z | 5be93c0 | Completed compiler-safe datum helper parity surface (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) with malformed/empty/expected-shape tests. |
 | C-003 | done | B-003 | 2026-02-23T05:11:11Z | 2026-02-23T05:12:07Z | 8e535c3 | PERSONALIZE helper path now uses MPF `AssetApprovalStatus` flows only; map-based approver dependency removed from Aiken PERSONALIZE logic. |
 | DX-001 | done | C-003 | 2026-02-23T05:12:23Z | 2026-02-23T05:14:33Z | fecb29f | Added compiler-safe tx-aware PERSONALIZE context parser decomposition and wired `dispatch_from_tx` PERSONALIZE branch through staged context->inputs mapping. |
-| D-002 | done | DX-001 | 2026-02-23T05:49:21Z | 2026-02-23T05:56:38Z | - | Resolved with production-safe path: proofs carried in reserved `designer` keys, tx-aware MPF parsing extracted to `personalize_mpf_context`, and BG/PFP proof combination tests run green under compiler-safe decomposition. |
+| D-002 | done | DX-001 | 2026-02-23T05:49:21Z | 2026-02-23T05:56:38Z | 5e73421 | Resolved with production-safe path: proofs carried in reserved `designer` keys, tx-aware MPF parsing extracted to `personalize_mpf_context`, and BG/PFP proof combination tests run green under compiler-safe decomposition. |
 | D-003 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | MIGRATE branch parity intent coverage is represented by helper + tx-aware tests (`migrate.ak` + `update.ak` dispatch tests). |
 | D-004 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | REVOKE branch parity intent coverage is represented by helper + tx-aware tests (`revoke.ak` + `update.ak` dispatch tests). |
 | D-005 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | UPDATE branch parity intent coverage is represented by helper + tx-aware tests (`update_is_valid` + dispatch_from_tx UPDATE tests). |
 | D-006 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | RETURN_TO_SENDER branch parity intent coverage is represented by helper + tx-aware tests (`return_to_sender.ak` + dispatch_from_tx tests). |
-| E-001 | done | D-002,D-003,D-004,D-005,D-006 | 2026-02-23T05:57:06Z | 2026-02-23T06:03:07Z | - | Added `tests/parityRunner.js` + report outputs (`tests/reports/parity-report.{json,md}`), parser/unit tests, and `npm run test:parity`; mapped Helios/Aiken branch-intent parity now CI-checkable. |
-| E-002 | done | E-001 | 2026-02-23T06:03:12Z | 2026-02-23T06:06:42Z | - | Expanded parity vector map with legacy scenario intents and cataloged stable/conditional vectors (including txTests subset with explicit skipped metadata). |
-| E-003 | done | E-002 | 2026-02-23T06:06:49Z | 2026-02-23T06:07:42Z | - | Rebuilt `docs/spec/branch-coverage.md` with Aiken-intent matrix tied to module tests/parity vectors and no missing reachable-intent placeholders. |
-| E-004 | done | E-002 | 2026-02-23T06:07:46Z | 2026-02-23T06:09:15Z | - | Added `tests/aiken.intentCoverage.test.js` and wired it into `npm run test:aiken` as the covered-or-conditional Aiken intent guard. |
-| F-001 | done | D-002 | 2026-02-23T06:09:18Z | 2026-02-23T06:11:31Z | - | Refreshed cost baselines to include tx-aware PERSONALIZE parser and MPF-context helper execution units. |
-| F-004 | done | F-001 | 2026-02-23T06:11:31Z | 2026-02-23T06:11:31Z | - | Extended CI guard thresholds with `personalize_mpf_context` hot paths and tx-aware PERSONALIZE dispatch parser ceiling. |
-| F-002 | done | D-002,D-003,D-004,D-005,D-006 | 2026-02-23T06:11:34Z | 2026-02-23T06:13:48Z | - | Added deterministic Aiken artifact/address outputs via `compileAiken.js` and validated generation through updated compile tests. |
-| F-003 | done | E-003,F-002 | 2026-02-23T06:13:55Z | 2026-02-23T06:15:09Z | - | Authored migration playbook (`docs/spec/aiken-migration-playbook.md`) and recorded required user-owned rollout actions in `tasks/USER_ACTIONS_CHECKLIST.md`. |
+| E-001 | done | D-002,D-003,D-004,D-005,D-006 | 2026-02-23T05:57:06Z | 2026-02-23T06:03:07Z | 5e73421 | Added `tests/parityRunner.js` + report outputs (`tests/reports/parity-report.{json,md}`), parser/unit tests, and `npm run test:parity`; mapped Helios/Aiken branch-intent parity now CI-checkable. |
+| E-002 | done | E-001 | 2026-02-23T06:03:12Z | 2026-02-23T06:06:42Z | 5e73421 | Expanded parity vector map with legacy scenario intents and cataloged stable/conditional vectors (including txTests subset with explicit skipped metadata). |
+| E-003 | done | E-002 | 2026-02-23T06:06:49Z | 2026-02-23T06:07:42Z | 5e73421 | Rebuilt `docs/spec/branch-coverage.md` with Aiken-intent matrix tied to module tests/parity vectors and no missing reachable-intent placeholders. |
+| E-004 | done | E-002 | 2026-02-23T06:07:46Z | 2026-02-23T06:09:15Z | 5e73421 | Added `tests/aiken.intentCoverage.test.js` and wired it into `npm run test:aiken` as the covered-or-conditional Aiken intent guard. |
+| F-001 | done | D-002 | 2026-02-23T06:09:18Z | 2026-02-23T06:11:31Z | 5e73421 | Refreshed cost baselines to include tx-aware PERSONALIZE parser and MPF-context helper execution units. |
+| F-004 | done | F-001 | 2026-02-23T06:11:31Z | 2026-02-23T06:11:31Z | 5e73421 | Extended CI guard thresholds with `personalize_mpf_context` hot paths and tx-aware PERSONALIZE dispatch parser ceiling. |
+| F-002 | done | D-002,D-003,D-004,D-005,D-006 | 2026-02-23T06:11:34Z | 2026-02-23T06:13:48Z | 5e73421 | Added deterministic Aiken artifact/address outputs via `compileAiken.js` and validated generation through updated compile tests. |
+| F-003 | done | E-003,F-002 | 2026-02-23T06:13:55Z | 2026-02-23T06:15:09Z | 5e73421 | Authored migration playbook (`docs/spec/aiken-migration-playbook.md`) and recorded required user-owned rollout actions in `tasks/USER_ACTIONS_CHECKLIST.md`. |
 
 ## Run Log
 
@@ -95,3 +95,4 @@
 - 2026-02-23T06:13:48Z Completed F-002 with deterministic Aiken artifact + address export workflow.
 - 2026-02-23T06:13:55Z Started F-003 (Aiken migration playbook authoring).
 - 2026-02-23T06:15:09Z Completed F-003 and closed remaining queued tasks.
+- 2026-02-23T06:16:03Z Recorded commit hash `5e73421` for D-002 through F-003 queue completion.
