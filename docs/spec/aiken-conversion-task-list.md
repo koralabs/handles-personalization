@@ -284,7 +284,11 @@ Status values:
   - Repro status:
     - validator forwarding to `update.dispatch_from_tx` compiles in `aiken/validators/personalization.ak`,
     - tx-aware `RETURN_TO_SENDER`, `MIGRATE`, `REVOKE`, `UPDATE` paths compile and test green,
-    - extending tx-aware `PERSONALIZE` beyond current staged helper path still needs compiler-safe decomposition.
+    - `DX-001` now wires tx-aware `PERSONALIZE` through staged compiler-safe parsing helpers:
+      - `personalize_context_from_tx`,
+      - `personalize_inputs_from_context`,
+      - `dispatch_from_tx` `types.Personalize { ... }` route.
+    - remaining blocker is full parity field-mapping and proof-combination behavior in that staged path.
   - Workaround in use:
     - keep PERSONALIZE logic in helper-level pure functions with full unit coverage,
     - keep tx-aware dispatch enabled for unblocked redeemers in validator,

@@ -269,6 +269,98 @@ fn value_paid_to_with_handle_datum(
   )
 }
 
+type PersonalizeTxContext {
+  PersonalizeTxContext {
+    old_datum: types.PersonalizationDatum,
+    new_datum: types.PersonalizationDatum,
+    contract_output: transaction.Output,
+  }
+}
+
+fn personalize_context_from_tx(
+  old_datum_data: Data,
+  indexes: types.PzIndexes,
+  tx: transaction.Transaction,
+) -> Option<PersonalizeTxContext> {
+  expect old_datum: types.PersonalizationDatum = old_datum_data
+
+  when output_at(tx.outputs, indexes.contract_output) is {
+    Some(contract_output) ->
+      when output_data(contract_output, tx) is {
+        Some(new_datum_data) -> {
+          expect new_datum: types.PersonalizationDatum = new_datum_data
+          Some(PersonalizeTxContext { old_datum, new_datum, contract_output })
+        }
+        None -> None
+      }
+    None -> None
+  }
+}
+
+fn personalize_inputs_from_context(
+  handle: types.Handle,
+  reset: Bool,
+  context: PersonalizeTxContext,
+) -> PersonalizeValidationInputs {
+  // DX-001 staged parser wiring: keep strict-deny defaults until D-002 fills
+  // full tx-aware branch parity inputs.
+  PersonalizeValidationInputs {
+    handle_type: handle.handle_type,
+    reset,
+    datum_name_matches_redeemer: True,
+    output_has_expected_handle_token: personalize_base.output_has_expected_handle_token(
+      context.contract_output.value,
+      handle.handle_type,
+      handle.name,
+    ),
+    last_update_address_matches_owner: False,
+    owner_handle_present: False,
+    resolved_ada_is_empty: True,
+    sub_pz_enabled: False,
+    root_pz_enabled: False,
+    new_pz_enabled: False,
+    virtual_holder_signed: False,
+    virtual_resolved_ada_unchanged: False,
+    virtual_payload_unchanged: False,
+    contract_output_is_valid: False,
+    immutables_unchanged: False,
+    bg_status: personalize_policy_approval.ApprovalNotRequired,
+    pfp_status: personalize_policy_approval.ApprovalNotRequired,
+    check_bg_status: personalize_policy_approval.ApprovalNotRequired,
+    check_pfp_status: personalize_policy_approval.ApprovalNotRequired,
+    policy_datum_inputs: personalize_policy_approval.PolicyDatumValidationInputs {
+      validated_by_present: False,
+      validated_by_signed: False,
+      expected_nsfw: 0,
+      expected_trial: 0,
+      bg_asset_set: False,
+      pfp_asset_set: False,
+      bg_image_set: False,
+      pfp_image_set: False,
+      bg_image_matches_datum: True,
+      pfp_image_matches_datum: True,
+    },
+    designed: False,
+    designer_changed: False,
+    required_asset_valid: False,
+    fees_paid: False,
+    designer_settings_valid: False,
+    is_reset_shape: False,
+    reset_privacy_inputs: personalize_base.ResetPrivacyInputs {
+      holder_changed: False,
+      signed_by_provider: False,
+      signed_by_owner: False,
+      socials_cleared: False,
+      resolved_addresses_cleared: False,
+      socials_unchanged: False,
+      resolved_addresses_unchanged: False,
+    },
+    signed_by_provider: False,
+    signed_by_owner: False,
+    unchanged_when_reset_denied: False,
+  }
+}
+
 pub type PersonalizeValidationInputs {
   handle_type: types.HandleType,
   reset: Bool,
@@ -787,7 +879,20 @@ pub fn dispatch_from_tx(
               }
             }
 
-            types.Personalize { .. } -> False
+            types.Personalize { handle, indexes, reset, .. } ->
+              when
+                personalize_context_from_tx(old_datum_data, indexes, tx)
+              is {
+                Some(context) ->
+                  personalize_is_valid(
+                    personalize_inputs_from_context(
+                      handle,
+                      reset != 0,
+                      context,
+                    ),
+                  )
+                None -> False
+              }
           }
         }
         None -> False
@@ -2348,5 +2453,73 @@ test dispatch_from_tx_update_branch_accepts_private_root_address_change() {
     types.Update { handle, root_handle, indexes },
     fixture_own_ref(),
     tx_for_update,
+  )
+}
+
+test personalize_context_from_tx_requires_inline_contract_datum() {
+  let indexes =
+    types.PzIndexes {
+      pfp_approver: 0,
+      bg_approver: 0,
+      pfp_datum: 0,
+      bg_datum: 0,
+      required_asset: 0,
+      owner_settings: 0,
+      contract_output: 0,
+      pz_assets: 0,
+      provider_fee: 0,
+    }
+  let output =
+    fixture_script_output(#"bbbb", assets.zero, transaction.NoDatum)
+
+  when
+    personalize_context_from_tx(
+      fixture_old_datum_data(),
+      indexes,
+      fixture_tx_for_dispatch_from_tx(True, [output]),
+    )
+  is {
+    Some(_) -> False
+    None -> True
+  }
+}
+
+test dispatch_from_tx_personalize_branch_is_wired_through_context_parser() {
+  let handle =
+    types.Handle { handle_type: types.HandleTypeHandle, name: "alice" }
+  let indexes =
+    types.PzIndexes {
+      pfp_approver: 0,
+      bg_approver: 0,
+      pfp_datum: 0,
+      bg_datum: 0,
+      required_asset: 0,
+      owner_settings: 0,
+      contract_output: 0,
+      pz_assets: 0,
+      provider_fee: 0,
+    }
+  let output =
+    fixture_script_output(
+      #"bbbb",
+      assets.from_asset(
+        constants.handle_policy_id,
+        constants.prefixed_asset_name(constants.lbl_100, handle.name),
+        1,
+      ),
+      transaction.InlineDatum(fixture_old_datum_data()),
+    )
+
+  !dispatch_from_tx(
+    Some(fixture_old_datum_data()),
+    types.Personalize {
+      handle,
+      root_handle: "root",
+      indexes,
+      designer: [],
+      reset: 0,
+    },
+    fixture_own_ref(),
+    fixture_tx_for_dispatch_from_tx(True, [output]),
   )
 }

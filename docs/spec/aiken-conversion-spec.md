@@ -241,6 +241,10 @@ Current compiler workaround:
   - `datum.map_get`,
   - `datum.int_or`,
   - `datum.has_value_unwrapped` (int/non-empty-bytes gating via serialized-data prefix checks under current compiler constraints).
+- Compiler-safe tx-aware PERSONALIZE decomposition is wired:
+  - `personalize_context_from_tx` extracts old/new datum context safely,
+  - `personalize_inputs_from_context` builds staged inputs for `personalize_is_valid`,
+  - `dispatch_from_tx` now routes `Redeemer::Personalize` through this staged parser path.
 - These tx-aware paths are covered by module tests in `aiken/lib/personalization/update.ak` and cost guards in `tests/aiken.cost.test.js`.
 - PERSONALIZE library path is wired through `personalize_is_valid` (same module), including:
   - base gating + reset/non-reset authorization helpers,

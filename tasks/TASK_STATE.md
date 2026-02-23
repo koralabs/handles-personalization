@@ -5,12 +5,12 @@
 - run_id: `handles-personalization-aiken-unattended-2026-02-23`
 - backlog_file: `tasks/TODO.md`
 - current_task_id: `-`
-- next_task_id: `DX-001`
+- next_task_id: `D-002`
 - total_tasks: `18`
-- completed_tasks: `4`
+- completed_tasks: `5`
 - blocked_tasks: `0`
 - overall_status: `in_progress`
-- last_updated_utc: `2026-02-23T05:12:07Z`
+- last_updated_utc: `2026-02-23T05:14:33Z`
 
 ## Status Legend
 
@@ -44,8 +44,8 @@
 | BX-001 | done | - | 2026-02-23T04:49:21Z | 2026-02-23T04:54:26Z | cb2643e | Added compiler-constraint repro suite (`tests/aiken.compilerConstraints.test.js`) and docs (`docs/spec/aiken-compiler-constraints.md`) with v1.1.21 toolchain guardrails. |
 | BX-002 | done | BX-001 | 2026-02-23T04:55:07Z | 2026-02-23T05:04:18Z | 348f10e | Added compiler-safe datum helper adapters (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) and refactored tx-aware UPDATE dispatch call sites to use them under v1.1.21 constraints. |
 | B-003 | done | BX-002 | 2026-02-23T05:04:35Z | 2026-02-23T05:10:51Z | 5be93c0 | Completed compiler-safe datum helper parity surface (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) with malformed/empty/expected-shape tests. |
-| C-003 | done | B-003 | 2026-02-23T05:11:11Z | 2026-02-23T05:12:07Z | pending | PERSONALIZE helper path now uses MPF `AssetApprovalStatus` flows only; map-based approver dependency removed from Aiken PERSONALIZE logic. |
-| DX-001 | pending | C-003 | - | - | - | Decompose tx-aware PERSONALIZE integration into compiler-safe modules and wire parsing path. |
+| C-003 | done | B-003 | 2026-02-23T05:11:11Z | 2026-02-23T05:12:07Z | 8e535c3 | PERSONALIZE helper path now uses MPF `AssetApprovalStatus` flows only; map-based approver dependency removed from Aiken PERSONALIZE logic. |
+| DX-001 | done | C-003 | 2026-02-23T05:12:23Z | 2026-02-23T05:14:33Z | pending | Added compiler-safe tx-aware PERSONALIZE context parser decomposition and wired `dispatch_from_tx` PERSONALIZE branch through staged context->inputs mapping. |
 | D-002 | pending | DX-001 | - | - | - | Final end-to-end PERSONALIZE + MPF parity integration for BG/PFP proof combinations. |
 | D-003 | pending | B-004 | - | - | - | Finish MIGRATE parity matrix mapping and close remaining intent branches. |
 | D-004 | pending | B-004 | - | - | - | Finish REVOKE parity matrix mapping and close remaining intent branches. |
@@ -71,3 +71,5 @@
 - 2026-02-23T05:10:51Z Completed B-003 with datum helper parity coverage and expanded datum module tests.
 - 2026-02-23T05:11:11Z Started C-003 (MPF-backed PERSONALIZE approval integration cleanup).
 - 2026-02-23T05:12:07Z Completed C-003; PERSONALIZE approval logic is MPF-only in helper/dispatch path.
+- 2026-02-23T05:12:23Z Started DX-001 (compiler-safe tx-aware PERSONALIZE decomposition).
+- 2026-02-23T05:14:33Z Completed DX-001 with staged PERSONALIZE context extraction and parser wiring.
