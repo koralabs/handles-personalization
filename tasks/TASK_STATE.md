@@ -10,7 +10,7 @@
 - completed_tasks: `9`
 - blocked_tasks: `9`
 - overall_status: `blocked`
-- last_updated_utc: `2026-02-23T05:17:18Z`
+- last_updated_utc: `2026-02-23T05:17:58Z`
 
 ## Status Legend
 
@@ -47,10 +47,10 @@
 | C-003 | done | B-003 | 2026-02-23T05:11:11Z | 2026-02-23T05:12:07Z | 8e535c3 | PERSONALIZE helper path now uses MPF `AssetApprovalStatus` flows only; map-based approver dependency removed from Aiken PERSONALIZE logic. |
 | DX-001 | done | C-003 | 2026-02-23T05:12:23Z | 2026-02-23T05:14:33Z | fecb29f | Added compiler-safe tx-aware PERSONALIZE context parser decomposition and wired `dispatch_from_tx` PERSONALIZE branch through staged context->inputs mapping. |
 | D-002 | blocked | DX-001 | 2026-02-23T05:15:11Z | - | - | Blocked: full tx-aware PERSONALIZE parity still requires ABI-level redeemer proof-carrier expansion + complete policy-root extraction wiring, and current compiler/toolchain constraints still fail on several direct `Option<Data>` assertion patterns needed for full branch parity. |
-| D-003 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | MIGRATE branch parity intent coverage is represented by helper + tx-aware tests (`migrate.ak` + `update.ak` dispatch tests). |
-| D-004 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | REVOKE branch parity intent coverage is represented by helper + tx-aware tests (`revoke.ak` + `update.ak` dispatch tests). |
-| D-005 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | UPDATE branch parity intent coverage is represented by helper + tx-aware tests (`update_is_valid` + dispatch_from_tx UPDATE tests). |
-| D-006 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | RETURN_TO_SENDER branch parity intent coverage is represented by helper + tx-aware tests (`return_to_sender.ak` + dispatch_from_tx tests). |
+| D-003 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | MIGRATE branch parity intent coverage is represented by helper + tx-aware tests (`migrate.ak` + `update.ak` dispatch tests). |
+| D-004 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | REVOKE branch parity intent coverage is represented by helper + tx-aware tests (`revoke.ak` + `update.ak` dispatch tests). |
+| D-005 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | UPDATE branch parity intent coverage is represented by helper + tx-aware tests (`update_is_valid` + dispatch_from_tx UPDATE tests). |
+| D-006 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | RETURN_TO_SENDER branch parity intent coverage is represented by helper + tx-aware tests (`return_to_sender.ak` + dispatch_from_tx tests). |
 | E-001 | blocked | D-002,D-003,D-004,D-005,D-006 | - | - | - | Blocked by D-002: parity runner cannot be finalized while tx-aware PERSONALIZE end-to-end parity remains unresolved. |
 | E-002 | blocked | E-001 | - | - | - | Blocked by E-001 dependency. |
 | E-003 | blocked | E-002 | - | - | - | Blocked by E-002 dependency. |
@@ -78,3 +78,4 @@
 - 2026-02-23T05:16:22Z Started D-003 (MIGRATE parity matrix completion).
 - 2026-02-23T05:17:18Z Completed D-003/D-004/D-005/D-006 based on green helper + tx-aware branch intent tests.
 - 2026-02-23T05:17:18Z Marked E/F epics blocked by D-002 dependency chain.
+- 2026-02-23T05:17:58Z Recorded commit hash for D-003/D-004/D-005/D-006 terminalization updates.
