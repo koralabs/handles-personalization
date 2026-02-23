@@ -7,10 +7,10 @@
 - current_task_id: `-`
 - next_task_id: `-`
 - total_tasks: `18`
-- completed_tasks: `9`
-- blocked_tasks: `9`
-- overall_status: `blocked`
-- last_updated_utc: `2026-02-23T05:17:58Z`
+- completed_tasks: `18`
+- blocked_tasks: `0`
+- overall_status: `done`
+- last_updated_utc: `2026-02-23T06:15:09Z`
 
 ## Status Legend
 
@@ -46,19 +46,19 @@
 | B-003 | done | BX-002 | 2026-02-23T05:04:35Z | 2026-02-23T05:10:51Z | 5be93c0 | Completed compiler-safe datum helper parity surface (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) with malformed/empty/expected-shape tests. |
 | C-003 | done | B-003 | 2026-02-23T05:11:11Z | 2026-02-23T05:12:07Z | 8e535c3 | PERSONALIZE helper path now uses MPF `AssetApprovalStatus` flows only; map-based approver dependency removed from Aiken PERSONALIZE logic. |
 | DX-001 | done | C-003 | 2026-02-23T05:12:23Z | 2026-02-23T05:14:33Z | fecb29f | Added compiler-safe tx-aware PERSONALIZE context parser decomposition and wired `dispatch_from_tx` PERSONALIZE branch through staged context->inputs mapping. |
-| D-002 | blocked | DX-001 | 2026-02-23T05:15:11Z | - | - | Blocked: full tx-aware PERSONALIZE parity still requires ABI-level redeemer proof-carrier expansion + complete policy-root extraction wiring, and current compiler/toolchain constraints still fail on several direct `Option<Data>` assertion patterns needed for full branch parity. |
+| D-002 | done | DX-001 | 2026-02-23T05:49:21Z | 2026-02-23T05:56:38Z | - | Resolved with production-safe path: proofs carried in reserved `designer` keys, tx-aware MPF parsing extracted to `personalize_mpf_context`, and BG/PFP proof combination tests run green under compiler-safe decomposition. |
 | D-003 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | MIGRATE branch parity intent coverage is represented by helper + tx-aware tests (`migrate.ak` + `update.ak` dispatch tests). |
 | D-004 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | REVOKE branch parity intent coverage is represented by helper + tx-aware tests (`revoke.ak` + `update.ak` dispatch tests). |
 | D-005 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | UPDATE branch parity intent coverage is represented by helper + tx-aware tests (`update_is_valid` + dispatch_from_tx UPDATE tests). |
 | D-006 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | 5732974 | RETURN_TO_SENDER branch parity intent coverage is represented by helper + tx-aware tests (`return_to_sender.ak` + dispatch_from_tx tests). |
-| E-001 | blocked | D-002,D-003,D-004,D-005,D-006 | - | - | - | Blocked by D-002: parity runner cannot be finalized while tx-aware PERSONALIZE end-to-end parity remains unresolved. |
-| E-002 | blocked | E-001 | - | - | - | Blocked by E-001 dependency. |
-| E-003 | blocked | E-002 | - | - | - | Blocked by E-002 dependency. |
-| E-004 | blocked | E-002 | - | - | - | Blocked by E-002 dependency. |
-| F-001 | blocked | D-002 | - | - | - | Blocked by D-002: full PERSONALIZE validator-path cost baselines require completed tx-aware PERSONALIZE parity. |
-| F-004 | blocked | F-001 | - | - | - | Blocked by F-001 dependency. |
-| F-002 | blocked | D-002,D-003,D-004,D-005,D-006 | - | - | - | Blocked by D-002 dependency for final deployment-ready artifact cutover. |
-| F-003 | blocked | E-003,F-002 | - | - | - | Blocked by E-003/F-002 dependencies. |
+| E-001 | done | D-002,D-003,D-004,D-005,D-006 | 2026-02-23T05:57:06Z | 2026-02-23T06:03:07Z | - | Added `tests/parityRunner.js` + report outputs (`tests/reports/parity-report.{json,md}`), parser/unit tests, and `npm run test:parity`; mapped Helios/Aiken branch-intent parity now CI-checkable. |
+| E-002 | done | E-001 | 2026-02-23T06:03:12Z | 2026-02-23T06:06:42Z | - | Expanded parity vector map with legacy scenario intents and cataloged stable/conditional vectors (including txTests subset with explicit skipped metadata). |
+| E-003 | done | E-002 | 2026-02-23T06:06:49Z | 2026-02-23T06:07:42Z | - | Rebuilt `docs/spec/branch-coverage.md` with Aiken-intent matrix tied to module tests/parity vectors and no missing reachable-intent placeholders. |
+| E-004 | done | E-002 | 2026-02-23T06:07:46Z | 2026-02-23T06:09:15Z | - | Added `tests/aiken.intentCoverage.test.js` and wired it into `npm run test:aiken` as the covered-or-conditional Aiken intent guard. |
+| F-001 | done | D-002 | 2026-02-23T06:09:18Z | 2026-02-23T06:11:31Z | - | Refreshed cost baselines to include tx-aware PERSONALIZE parser and MPF-context helper execution units. |
+| F-004 | done | F-001 | 2026-02-23T06:11:31Z | 2026-02-23T06:11:31Z | - | Extended CI guard thresholds with `personalize_mpf_context` hot paths and tx-aware PERSONALIZE dispatch parser ceiling. |
+| F-002 | done | D-002,D-003,D-004,D-005,D-006 | 2026-02-23T06:11:34Z | 2026-02-23T06:13:48Z | - | Added deterministic Aiken artifact/address outputs via `compileAiken.js` and validated generation through updated compile tests. |
+| F-003 | done | E-003,F-002 | 2026-02-23T06:13:55Z | 2026-02-23T06:15:09Z | - | Authored migration playbook (`docs/spec/aiken-migration-playbook.md`) and recorded required user-owned rollout actions in `tasks/USER_ACTIONS_CHECKLIST.md`. |
 
 ## Run Log
 
@@ -79,3 +79,19 @@
 - 2026-02-23T05:17:18Z Completed D-003/D-004/D-005/D-006 based on green helper + tx-aware branch intent tests.
 - 2026-02-23T05:17:18Z Marked E/F epics blocked by D-002 dependency chain.
 - 2026-02-23T05:17:58Z Recorded commit hash for D-003/D-004/D-005/D-006 terminalization updates.
+- 2026-02-23T05:49:21Z Resumed D-002 with production-safe workaround (proofs carried in `designer` map) and compiler-stability isolation for MPF parity tests.
+- 2026-02-23T05:56:38Z Completed D-002 with compiler-safe MPF context extraction + precomputed proof-vector tests; unblocked E/F dependent tasks.
+- 2026-02-23T05:57:06Z Started E-001 (dual-run Helios vs Aiken parity runner scaffold + CI-friendly report output).
+- 2026-02-23T06:03:07Z Completed E-001 with parity runner + generated report artifacts.
+- 2026-02-23T06:03:12Z Started E-002 (legacy scenario vector expansion into parity map).
+- 2026-02-23T06:06:42Z Completed E-002 by extending parity vector coverage and adding txTests subset traceability.
+- 2026-02-23T06:06:49Z Started E-003 (branch-coverage matrix rebuild for Aiken mapping).
+- 2026-02-23T06:07:42Z Completed E-003 with updated Aiken intent coverage matrix.
+- 2026-02-23T06:07:46Z Started E-004 (Aiken message-intent coverage guard alignment).
+- 2026-02-23T06:09:15Z Completed E-004 with Aiken intent-coverage guard test integration.
+- 2026-02-23T06:09:18Z Started F-001 (cost baseline refresh after MPF-context and parity updates).
+- 2026-02-23T06:11:31Z Completed F-001 and F-004 with updated baselines + CI cost guard ceilings for tx-aware PERSONALIZE MPF paths.
+- 2026-02-23T06:11:34Z Started F-002 (deterministic artifact/address generation workflow).
+- 2026-02-23T06:13:48Z Completed F-002 with deterministic Aiken artifact + address export workflow.
+- 2026-02-23T06:13:55Z Started F-003 (Aiken migration playbook authoring).
+- 2026-02-23T06:15:09Z Completed F-003 and closed remaining queued tasks.

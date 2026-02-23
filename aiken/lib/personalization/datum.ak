@@ -54,7 +54,8 @@ pub fn get_datum_opt(
   tx: transaction.Transaction,
 ) -> Option<Data> {
   when from_transaction_datum(output_datum) is {
-    DatumHashRef(datum_hash) -> transaction.find_datum(tx.outputs, tx.datums, datum_hash)
+    DatumHashRef(datum_hash) ->
+      transaction.find_datum(tx.outputs, tx.datums, datum_hash)
     InlineDatumRef(inline_data) -> Some(inline_data)
     NoDatumRef -> None
   }
@@ -86,8 +87,7 @@ pub fn has_value_unwrapped(data_opt: Option<Data>) -> Bool {
       let serialized = builtin.serialise_data(data)
       let prefix = bytearray.take(serialized, 1)
       let is_int = builtin.less_than_bytearray(prefix, #"40")
-      let is_bytes =
-        !is_int && builtin.less_than_bytearray(prefix, #"60")
+      let is_bytes = !is_int && builtin.less_than_bytearray(prefix, #"60")
 
       is_int || is_bytes && serialized != #"40"
     }

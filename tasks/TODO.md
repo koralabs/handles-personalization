@@ -43,7 +43,7 @@ This queue contains all remaining work to fully replace Helios with Aiken while 
 | Prior blocker | Workable unblock tasks |
 | --- | --- |
 | B-003: compiler silent-exit while implementing `get_datum` / `has_value_unwrapped` helper signatures | BX-001, BX-002 |
-| D-002: compiler silent-exit while expanding tx-aware PERSONALIZE integration | BX-001, DX-001 |
+| D-002: compiler silent-exit while expanding tx-aware PERSONALIZE integration | BX-001, DX-001, D-002 |
 
 ## Ordered Backlog
 
@@ -52,16 +52,16 @@ This queue contains all remaining work to fully replace Helios with Aiken while 
 - [x] B-003 Complete datum parsing helper parity (`get_extra`, `get_datum`, `has_value_unwrapped`, asset parsing) with malformed/empty/expected-shape coverage. (Depends: BX-002)
 - [x] C-003 Complete replacement of map-based approver logic in PERSONALIZE with MPF proof-backed BG/PFP approval and flags in validator-connected flow. (Depends: B-003)
 - [x] DX-001 Implement compiler-safe decomposition for tx-aware PERSONALIZE context parsing/wiring in small modules that compile under current toolchain constraints. (Depends: C-003)
-- [ ] D-002 Integrate MPF into PERSONALIZE end-to-end and restore full parity scenarios for BG/PFP proof combinations. (Depends: DX-001)
+- [x] D-002 Integrate MPF into PERSONALIZE end-to-end and restore full parity scenarios for BG/PFP proof combinations. (Depends: DX-001)
 - [x] D-003 Complete MIGRATE parity scenario mapping and close remaining intent-matrix gaps for signer/ownership branches. (Depends: B-004)
 - [x] D-004 Complete REVOKE parity scenario mapping and close remaining intent-matrix gaps for privacy/expiry/type branches. (Depends: B-004)
 - [x] D-005 Complete UPDATE payment-path parity expansion and close remaining intent-matrix gaps for restricted/signer/settings-token branches. (Depends: B-004)
 - [x] D-006 Complete RETURN_TO_SENDER parity scenario mapping and close remaining intent-matrix gaps for admin/forbidden-token branches. (Depends: B-004)
-- [ ] E-001 Build dual-run parity runner executing equivalent fixtures against Helios and Aiken validators with CI-report output. (Depends: D-002, D-003, D-004, D-005, D-006)
-- [ ] E-002 Port legacy scenario vectors from `tests/tests.js` and stable subset of `tests/txTests.ts` into the parity runner. (Depends: E-001)
-- [ ] E-003 Rebuild `docs/spec/branch-coverage.md` mapping for Aiken with no missing reachable branch intents. (Depends: E-002)
-- [ ] E-004 Re-establish contract message-coverage guard for Aiken error intents under covered-or-unreachable rule. (Depends: E-002)
-- [ ] F-001 Complete cost benchmarking with full validator-level PERSONALIZE + MPF paths and publish updated CPU/mem baselines. (Depends: D-002)
-- [ ] F-004 Extend CI cost guard thresholds to include full PERSONALIZE validator branch ceilings and fail on regressions. (Depends: F-001)
-- [ ] F-002 Complete deterministic Aiken artifact and address generation for deployment workflows. (Depends: D-002, D-003, D-004, D-005, D-006)
-- [ ] F-003 Produce operational migration playbook covering ABI changes, datum/redeemer rollout, proof-service rollout, and rollback checklist. (Depends: E-003, F-002)
+- [x] E-001 Build dual-run parity runner executing equivalent fixtures against Helios and Aiken validators with CI-report output. (Depends: D-002, D-003, D-004, D-005, D-006)
+- [x] E-002 Port legacy scenario vectors from `tests/tests.js` and stable subset of `tests/txTests.ts` into the parity runner. (Depends: E-001)
+- [x] E-003 Rebuild `docs/spec/branch-coverage.md` mapping for Aiken with no missing reachable branch intents. (Depends: E-002)
+- [x] E-004 Re-establish contract message-coverage guard for Aiken error intents under covered-or-unreachable rule. (Depends: E-002)
+- [x] F-001 Complete cost benchmarking with full validator-level PERSONALIZE + MPF paths and publish updated CPU/mem baselines. (Depends: D-002)
+- [x] F-004 Extend CI cost guard thresholds to include full PERSONALIZE validator branch ceilings and fail on regressions. (Depends: F-001)
+- [x] F-002 Complete deterministic Aiken artifact and address generation for deployment workflows. (Depends: D-002, D-003, D-004, D-005, D-006)
+- [x] F-003 Produce operational migration playbook covering ABI changes, datum/redeemer rollout, proof-service rollout, and rollback checklist. (Depends: E-003, F-002)

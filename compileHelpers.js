@@ -17,3 +17,18 @@ export const getContractArtifactPaths = (contractDirectory = "./contract") => {
   };
 };
 
+export const getAikenArtifactPaths = (contractDirectory = "./contract") => {
+  const directory = contractDirectory.endsWith("/")
+    ? contractDirectory.slice(0, -1)
+    : contractDirectory;
+
+  return {
+    directory,
+    blueprint: `${directory}/aiken.plutus.json`,
+    validators: `${directory}/aiken.validators.json`,
+    addresses: `${directory}/aiken.addresses.json`,
+    spendHash: `${directory}/aiken.spend.hash`,
+    spendAddrTestnet: `${directory}/aiken.spend.addr_testnet`,
+    spendAddrMainnet: `${directory}/aiken.spend.addr_mainnet`,
+  };
+};

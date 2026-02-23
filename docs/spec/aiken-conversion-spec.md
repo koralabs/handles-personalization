@@ -109,8 +109,8 @@ PolicyIndexRoot {
 }
 ```
 
-#### Personalize redeemer extension
-Add proof carriers for the selected BG/PFP assets:
+#### Personalize proof carriers
+Preferred ABI shape for proof carriers:
 
 ```text
 PolicyApprovalProof {
@@ -134,6 +134,13 @@ PolicyFlags {
 `PERSONALIZE` receives optional BG/PFP proofs:
 - required when corresponding asset exists
 - omitted when corresponding asset is empty
+
+Production compatibility mode (currently implemented):
+- keep `Redeemer::Personalize` schema unchanged,
+- carry optional proofs in reserved `designer` map keys:
+  - `__bg_proof`
+  - `__pfp_proof`
+- decode these keys on-chain in tx-aware PERSONALIZE parsing.
 
 ### Key / Value Encoding
 To preserve prefix semantics without requiring trie prefix-queries, prove membership of the matched prefix explicitly:

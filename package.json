@@ -4,6 +4,11 @@
     "description": "",
     "type": "module",
     "scripts": {
+        "compile:helios": "node compile.js",
+        "compile:aiken": "node compileAiken.js",
+        "compile:all": "npm run compile:helios && npm run compile:aiken",
+        "test:aiken": "node --test tests/aiken.cost.test.js tests/compileAiken.test.js tests/mpfProofAdapter.test.js tests/parityRunner.test.js tests/aiken.intentCoverage.test.js",
+        "test:parity": "node tests/parityRunner.js",
         "test": "npm run test:old && npm run test:new",
         "test:old": "node --es-module-specifier-resolution=node tests/tests.js",
         "test:new": "tsx -r dotenv/config tests/txTests.ts"
@@ -16,7 +21,7 @@
         "@koralabs/kora-labs-contract-testing": "0.0.7",
         "@types/node": "^20.0",
         "bs58": "^5.0.0",
-        "dotenv": "^16.4.5" ,
+        "dotenv": "^16.4.5",
         "tsx": "^4.7.0"
     },
     "resolutions": {
@@ -24,5 +29,8 @@
     },
     "overrides": {
         "bn.js": "5.2.3"
+    },
+    "dependencies": {
+        "@aiken-lang/merkle-patricia-forestry": "^1.3.1"
     }
 }

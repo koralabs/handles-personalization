@@ -1,0 +1,478 @@
+{
+  "generated_at": "2026-02-23T06:11:12.943Z",
+  "total": 26,
+  "executable_total": 22,
+  "skipped_total": 4,
+  "passed": 22,
+  "failed": 0,
+  "rows": [
+    {
+      "id": "migrate_admin_no_owner",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "MIGRATE",
+        "name": "admin, no owner",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_migrate_branch_respects_owner_sig_requirement",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "migrate_hardcoded_admin",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "MIGRATE",
+        "name": "hardcoded admin",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_migrate_branch_respects_owner_sig_requirement",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "migrate_wrong_admin_signer",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "MIGRATE",
+        "name": "wrong admin signer",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_migrate_branch_respects_owner_sig_requirement",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "migrate_no_admin_signers",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "MIGRATE",
+        "name": "no admin signers",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_migrate_branch_respects_owner_sig_requirement",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "migrate_owner_token_required",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "MIGRATE",
+        "name": "owner signature required but owner token missing",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_migrate_branch_respects_owner_sig_requirement",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "return_to_sender_wrong_admin",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RETURN_TO_SENDER",
+        "name": "wrong admin signer",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_return_to_sender_uses_settings_admin_gate",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "return_to_sender_forbidden_token",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RETURN_TO_SENDER",
+        "name": "can't return a handle reference token",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_return_to_sender_rejects_forbidden_assets",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "return_to_sender_all_good",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RETURN_TO_SENDER",
+        "name": "all good",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_return_to_sender_uses_settings_admin_gate",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_main_happy_path",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "main",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_redeemer_personalize_branch_uses_personalize_rules",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_handle_redeemer_mismatch",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "handle redeemer mismatch",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_common_and_virtual_gates",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_handle_missing",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "handle missing",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_common_and_virtual_gates",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_policy_root_gate",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "bg_policy_ids missing",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/personalize_mpf_context",
+        "test": "load_policy_index_root_enforces_expected_token_suffix",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_immutables_changed",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "immutables changed",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_rejects_contract_or_policy_failures",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_agreed_terms_changed",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "agreed terms changed",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_rejects_contract_or_policy_failures",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_bg_image_mismatch",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "bg_asset and bg_image mismatch",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/personalize_policy_approval",
+        "test": "policy_datum_is_valid_rejects_bg_and_pfp_image_mismatches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "personalize_pfp_image_mismatch",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "PERSONALIZE",
+        "name": "pfp_asset and pfp_image mismatch",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/personalize_policy_approval",
+        "test": "policy_datum_is_valid_rejects_bg_and_pfp_image_mismatches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "reset_happy_path",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RESET",
+        "name": "no admin signer, pfp mismatch",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_reset_privacy_and_authorization_branches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "reset_not_allowed_when_good",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RESET",
+        "name": "reset not allowed because all good",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_reset_privacy_and_authorization_branches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "reset_socials_holder_change",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RESET",
+        "name": "socials must reset when holder changes",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_reset_privacy_and_authorization_branches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "reset_resolved_holder_change",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RESET",
+        "name": "resolved addresses must reset when holder changes",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_reset_privacy_and_authorization_branches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "reset_socials_unauthorized",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RESET",
+        "name": "socials cannot be reset without authorization",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_reset_privacy_and_authorization_branches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "reset_resolved_unauthorized",
+      "source": "tests.js",
+      "enabled": true,
+      "skip_reason": null,
+      "pass": true,
+      "helios": {
+        "group": "RESET",
+        "name": "resolved addresses cannot be reset without authorization",
+        "found": true,
+        "status": "success"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "personalize_is_valid_reset_privacy_and_authorization_branches",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "tx_update_private_mint_address_changed",
+      "source": "txTests.ts",
+      "enabled": false,
+      "skip_reason": "txTests.ts depends on upstream datum-conversion endpoint with intermittent 503 responses",
+      "pass": false,
+      "helios": {
+        "group": "UPDATE",
+        "name": "private mint address changed",
+        "found": false,
+        "status": "missing"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_update_branch_accepts_private_root_address_change",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "tx_update_protocol_settings_token_required",
+      "source": "txTests.ts",
+      "enabled": false,
+      "skip_reason": "txTests.ts depends on upstream datum-conversion endpoint with intermittent 503 responses",
+      "pass": false,
+      "helios": {
+        "group": "UPDATE",
+        "name": "protocol settings token required",
+        "found": false,
+        "status": "missing"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_update_branch_requires_settings_tokens",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "tx_revoke_private_mint_signed_by_root",
+      "source": "txTests.ts",
+      "enabled": false,
+      "skip_reason": "txTests.ts depends on upstream datum-conversion endpoint with intermittent 503 responses",
+      "pass": false,
+      "helios": {
+        "group": "REVOKE",
+        "name": "private mint and signed by root",
+        "found": false,
+        "status": "missing"
+      },
+      "aiken": {
+        "module": "personalization/update",
+        "test": "dispatch_from_tx_revoke_branch_uses_mint_burn_quantity",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "tx_revoke_public_not_expired",
+      "source": "txTests.ts",
+      "enabled": false,
+      "skip_reason": "txTests.ts depends on upstream datum-conversion endpoint with intermittent 503 responses",
+      "pass": false,
+      "helios": {
+        "group": "REVOKE",
+        "name": "public mint not expired",
+        "found": false,
+        "status": "missing"
+      },
+      "aiken": {
+        "module": "personalization/revoke",
+        "test": "revoke_is_valid_rejects_public_not_expired",
+        "status": "missing"
+      }
+    }
+  ]
+}

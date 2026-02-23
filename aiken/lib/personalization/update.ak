@@ -9,6 +9,7 @@ use personalization/constants
 use personalization/datum
 use personalization/migrate
 use personalization/personalize_base
+use personalization/personalize_mpf_context
 use personalization/personalize_policy_approval
 use personalization/return_to_sender
 use personalization/revoke
@@ -74,6 +75,22 @@ const key_resolved_addresses: ByteArray = "resolved_addresses"
 const key_ada: ByteArray = "ada"
 
 const key_migrate_sig_required: ByteArray = "migrate_sig_required"
+
+const key_bg_asset: ByteArray = "bg_asset"
+
+const key_pfp_asset: ByteArray = "pfp_asset"
+
+const key_designer: ByteArray = "designer"
+
+const key_name: ByteArray = "name"
+
+const key_policy_ids_bg: ByteArray = "bg_policy_ids"
+
+const key_policy_ids_pfp: ByteArray = "pfp_policy_ids"
+
+const key_bg_proof: ByteArray = "__bg_proof"
+
+const key_pfp_proof: ByteArray = "__pfp_proof"
 
 fn output_data(
   output: transaction.Output,
@@ -202,7 +219,9 @@ fn parse_virtual_data(extra: types.DataMap) -> Option<types.DataMap> {
 fn virtual_public_mint(extra: types.DataMap) -> Int {
   datum.int_or(
     parse_virtual_data(extra)
-      |> option.and_then(fn(virtual) { datum.map_get(virtual, key_public_mint) }),
+      |> option.and_then(
+          fn(virtual) { datum.map_get(virtual, key_public_mint) },
+        ),
     0,
   )
 }
@@ -210,7 +229,9 @@ fn virtual_public_mint(extra: types.DataMap) -> Int {
 fn virtual_expiry(extra: types.DataMap) -> Int {
   datum.int_or(
     parse_virtual_data(extra)
-      |> option.and_then(fn(virtual) { datum.map_get(virtual, key_expires_time) }),
+      |> option.and_then(
+          fn(virtual) { datum.map_get(virtual, key_expires_time) },
+        ),
     0,
   )
 }
@@ -273,23 +294,52 @@ type PersonalizeTxContext {
   PersonalizeTxContext {
     old_datum: types.PersonalizationDatum,
     new_datum: types.PersonalizationDatum,
+    old_extra: types.DataMap,
+    new_extra: types.DataMap,
     contract_output: transaction.Output,
+    pz_asset_output: transaction.Output,
   }
 }
 
 fn personalize_context_from_tx(
   old_datum_data: Data,
   indexes: types.PzIndexes,
+  reset: Bool,
   tx: transaction.Transaction,
 ) -> Option<PersonalizeTxContext> {
   expect old_datum: types.PersonalizationDatum = old_datum_data
+  let types.Cip68 { nft: _, version: _, extra: old_extra_data } = old_datum
+  let old_extra = datum.get_extra(old_extra_data)
 
   when output_at(tx.outputs, indexes.contract_output) is {
     Some(contract_output) ->
       when output_data(contract_output, tx) is {
         Some(new_datum_data) -> {
           expect new_datum: types.PersonalizationDatum = new_datum_data
-          Some(PersonalizeTxContext { old_datum, new_datum, contract_output })
+          let types.Cip68 { nft: _, version: _, extra: new_extra_data } =
+            new_datum
+          let new_extra = datum.get_extra(new_extra_data)
+
+          when
+            if reset {
+              reference_output_at(tx.reference_inputs, indexes.pz_assets)
+            } else {
+              output_at(tx.outputs, indexes.pz_assets)
+            }
+          is {
+            Some(pz_asset_output) ->
+              Some(
+                PersonalizeTxContext {
+                  old_datum,
+                  new_datum,
+                  old_extra,
+                  new_extra,
+                  contract_output,
+                  pz_asset_output,
+                },
+              )
+            None -> None
+          }
         }
         None -> None
       }
@@ -299,15 +349,108 @@ fn personalize_context_from_tx(
 
 fn personalize_inputs_from_context(
   handle: types.Handle,
+  root_handle: ByteArray,
+  indexes: types.PzIndexes,
+  designer: types.DataMap,
+  settings: types.PzSettings,
+  own_ref: transaction.OutputReference,
   reset: Bool,
   context: PersonalizeTxContext,
+  tx: transaction.Transaction,
 ) -> PersonalizeValidationInputs {
-  // DX-001 staged parser wiring: keep strict-deny defaults until D-002 fills
-  // full tx-aware branch parity inputs.
+  let _ = root_handle
+  let old_extra = context.old_extra
+  let new_extra = context.new_extra
+  let old_bg_asset =
+    personalize_mpf_context.asset_from_extra(old_extra, key_bg_asset)
+  let old_pfp_asset =
+    personalize_mpf_context.asset_from_extra(old_extra, key_pfp_asset)
+  let new_bg_asset =
+    personalize_mpf_context.asset_from_extra(new_extra, key_bg_asset)
+  let new_pfp_asset =
+    personalize_mpf_context.asset_from_extra(new_extra, key_pfp_asset)
+  let check_bg_asset =
+    if reset {
+      old_bg_asset
+    } else {
+      new_bg_asset
+    }
+  let check_pfp_asset =
+    if reset {
+      old_pfp_asset
+    } else {
+      new_pfp_asset
+    }
+  let bg_proof =
+    personalize_mpf_context.proof_from_designer(designer, key_bg_proof)
+  let pfp_proof =
+    personalize_mpf_context.proof_from_designer(designer, key_pfp_proof)
+  let bg_root =
+    personalize_mpf_context.load_policy_index_root(
+      indexes.bg_approver,
+      key_policy_ids_bg,
+      settings,
+      tx,
+    )
+  let pfp_root =
+    personalize_mpf_context.load_policy_index_root(
+      indexes.pfp_approver,
+      key_policy_ids_pfp,
+      settings,
+      tx,
+    )
+  let bg_status =
+    personalize_mpf_context.approval_status_for_asset(
+      bg_root,
+      new_bg_asset,
+      context.pz_asset_output.value,
+      bg_proof,
+    )
+  let pfp_status =
+    personalize_mpf_context.approval_status_for_asset(
+      pfp_root,
+      new_pfp_asset,
+      context.pz_asset_output.value,
+      pfp_proof,
+    )
+  let check_bg_status =
+    personalize_mpf_context.approval_status_for_asset(
+      bg_root,
+      check_bg_asset,
+      context.pz_asset_output.value,
+      bg_proof,
+    )
+  let check_pfp_status =
+    personalize_mpf_context.approval_status_for_asset(
+      pfp_root,
+      check_pfp_asset,
+      context.pz_asset_output.value,
+      pfp_proof,
+    )
+  let types.Cip68 { nft: old_nft, version: _, extra: _ } = context.old_datum
+  let datum_name_matches_redeemer =
+    when datum.map_get(old_nft, key_name) is {
+      Some(name_data) -> {
+        expect datum_name: ByteArray = name_data
+        bytearray.drop(datum_name, 1) == handle.name
+      }
+      None -> False
+    }
+  let contract_output_is_valid =
+    when current_validator_hash(own_ref, tx) is {
+      Some(current_hash) ->
+        utils.is_valid_contract(
+          context.contract_output,
+          settings.valid_contracts,
+          current_hash,
+        )
+      None -> False
+    }
+
   PersonalizeValidationInputs {
     handle_type: handle.handle_type,
     reset,
-    datum_name_matches_redeemer: True,
+    datum_name_matches_redeemer,
     output_has_expected_handle_token: personalize_base.output_has_expected_handle_token(
       context.contract_output.value,
       handle.handle_type,
@@ -322,26 +465,29 @@ fn personalize_inputs_from_context(
     virtual_holder_signed: False,
     virtual_resolved_ada_unchanged: False,
     virtual_payload_unchanged: False,
-    contract_output_is_valid: False,
+    contract_output_is_valid,
     immutables_unchanged: False,
-    bg_status: personalize_policy_approval.ApprovalNotRequired,
-    pfp_status: personalize_policy_approval.ApprovalNotRequired,
-    check_bg_status: personalize_policy_approval.ApprovalNotRequired,
-    check_pfp_status: personalize_policy_approval.ApprovalNotRequired,
+    bg_status,
+    pfp_status,
+    check_bg_status,
+    check_pfp_status,
     policy_datum_inputs: personalize_policy_approval.PolicyDatumValidationInputs {
       validated_by_present: False,
       validated_by_signed: False,
       expected_nsfw: 0,
       expected_trial: 0,
-      bg_asset_set: False,
-      pfp_asset_set: False,
+      bg_asset_set: new_bg_asset != datum.empty_asset,
+      pfp_asset_set: new_pfp_asset != datum.empty_asset,
       bg_image_set: False,
       pfp_image_set: False,
       bg_image_matches_datum: True,
       pfp_image_matches_datum: True,
     },
-    designed: False,
-    designer_changed: False,
+    designed: datum.map_get(new_extra, key_designer) != None,
+    designer_changed: datum.map_get(new_extra, key_designer) != datum.map_get(
+      old_extra,
+      key_designer,
+    ),
     required_asset_valid: False,
     fees_paid: False,
     designer_settings_valid: False,
@@ -769,7 +915,10 @@ pub fn dispatch_from_tx(
                 old_datum
               let old_extra = datum.get_extra(old_extra_data)
               let owner_sig_required =
-                datum.int_or(datum.map_get(old_extra, key_migrate_sig_required), 0) != 0
+                datum.int_or(
+                  datum.map_get(old_extra, key_migrate_sig_required),
+                  0,
+                ) != 0
 
               when output_at(tx.outputs, output_index) is {
                 Some(output) ->
@@ -816,7 +965,10 @@ pub fn dispatch_from_tx(
               when parse_virtual_data(old_extra) is {
                 Some(old_virtual) -> {
                   let old_expiry =
-                    datum.int_or(datum.map_get(old_virtual, key_expires_time), 0)
+                    datum.int_or(
+                      datum.map_get(old_virtual, key_expires_time),
+                      0,
+                    )
                   let expired =
                     when validity_start(tx) is {
                       Some(start) -> start > old_expiry
@@ -879,16 +1031,27 @@ pub fn dispatch_from_tx(
               }
             }
 
-            types.Personalize { handle, indexes, reset, .. } ->
+            types.Personalize { handle, root_handle, indexes, designer, reset } ->
               when
-                personalize_context_from_tx(old_datum_data, indexes, tx)
+                personalize_context_from_tx(
+                  old_datum_data,
+                  indexes,
+                  reset != 0,
+                  tx,
+                )
               is {
                 Some(context) ->
                   personalize_is_valid(
                     personalize_inputs_from_context(
                       handle,
+                      root_handle,
+                      indexes,
+                      designer,
+                      settings,
+                      own_ref,
                       reset != 0,
                       context,
+                      tx,
                     ),
                   )
                 None -> False
@@ -2469,13 +2632,13 @@ test personalize_context_from_tx_requires_inline_contract_datum() {
       pz_assets: 0,
       provider_fee: 0,
     }
-  let output =
-    fixture_script_output(#"bbbb", assets.zero, transaction.NoDatum)
+  let output = fixture_script_output(#"bbbb", assets.zero, transaction.NoDatum)
 
   when
     personalize_context_from_tx(
       fixture_old_datum_data(),
       indexes,
+      False,
       fixture_tx_for_dispatch_from_tx(True, [output]),
     )
   is {
