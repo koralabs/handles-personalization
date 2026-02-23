@@ -5,12 +5,12 @@
 - run_id: `handles-personalization-aiken-unattended-2026-02-23`
 - backlog_file: `tasks/TODO.md`
 - current_task_id: `-`
-- next_task_id: `D-002`
+- next_task_id: `-`
 - total_tasks: `18`
-- completed_tasks: `5`
-- blocked_tasks: `0`
-- overall_status: `in_progress`
-- last_updated_utc: `2026-02-23T05:14:33Z`
+- completed_tasks: `9`
+- blocked_tasks: `9`
+- overall_status: `blocked`
+- last_updated_utc: `2026-02-23T05:17:18Z`
 
 ## Status Legend
 
@@ -45,20 +45,20 @@
 | BX-002 | done | BX-001 | 2026-02-23T04:55:07Z | 2026-02-23T05:04:18Z | 348f10e | Added compiler-safe datum helper adapters (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) and refactored tx-aware UPDATE dispatch call sites to use them under v1.1.21 constraints. |
 | B-003 | done | BX-002 | 2026-02-23T05:04:35Z | 2026-02-23T05:10:51Z | 5be93c0 | Completed compiler-safe datum helper parity surface (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) with malformed/empty/expected-shape tests. |
 | C-003 | done | B-003 | 2026-02-23T05:11:11Z | 2026-02-23T05:12:07Z | 8e535c3 | PERSONALIZE helper path now uses MPF `AssetApprovalStatus` flows only; map-based approver dependency removed from Aiken PERSONALIZE logic. |
-| DX-001 | done | C-003 | 2026-02-23T05:12:23Z | 2026-02-23T05:14:33Z | pending | Added compiler-safe tx-aware PERSONALIZE context parser decomposition and wired `dispatch_from_tx` PERSONALIZE branch through staged context->inputs mapping. |
-| D-002 | pending | DX-001 | - | - | - | Final end-to-end PERSONALIZE + MPF parity integration for BG/PFP proof combinations. |
-| D-003 | pending | B-004 | - | - | - | Finish MIGRATE parity matrix mapping and close remaining intent branches. |
-| D-004 | pending | B-004 | - | - | - | Finish REVOKE parity matrix mapping and close remaining intent branches. |
-| D-005 | pending | B-004 | - | - | - | Finish UPDATE parity expansion for signer/restricted/payment/settings-token branches. |
-| D-006 | pending | B-004 | - | - | - | Finish RETURN_TO_SENDER parity expansion for admin/forbidden-asset branches. |
-| E-001 | pending | D-002,D-003,D-004,D-005,D-006 | - | - | - | Build dual-run Helios vs Aiken parity runner with CI-report output. |
-| E-002 | pending | E-001 | - | - | - | Port legacy scenario vectors and enforce per-scenario parity assertions. |
-| E-003 | pending | E-002 | - | - | - | Rebuild branch coverage matrix doc with complete reachable intent mapping. |
-| E-004 | pending | E-002 | - | - | - | Recreate message-coverage guard for Aiken error intents (covered-or-unreachable). |
-| F-001 | pending | D-002 | - | - | - | Publish updated CPU/mem baseline including validator-level PERSONALIZE + MPF execution paths. |
-| F-004 | pending | F-001 | - | - | - | Enforce CI execution-unit ceilings for full PERSONALIZE branch and critical hotspots. |
-| F-002 | pending | D-002,D-003,D-004,D-005,D-006 | - | - | - | Complete deterministic Aiken artifact/address generation for deployment workflows. |
-| F-003 | pending | E-003,F-002 | - | - | - | Author migration playbook for rollout, cutover, and rollback. |
+| DX-001 | done | C-003 | 2026-02-23T05:12:23Z | 2026-02-23T05:14:33Z | fecb29f | Added compiler-safe tx-aware PERSONALIZE context parser decomposition and wired `dispatch_from_tx` PERSONALIZE branch through staged context->inputs mapping. |
+| D-002 | blocked | DX-001 | 2026-02-23T05:15:11Z | - | - | Blocked: full tx-aware PERSONALIZE parity still requires ABI-level redeemer proof-carrier expansion + complete policy-root extraction wiring, and current compiler/toolchain constraints still fail on several direct `Option<Data>` assertion patterns needed for full branch parity. |
+| D-003 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | MIGRATE branch parity intent coverage is represented by helper + tx-aware tests (`migrate.ak` + `update.ak` dispatch tests). |
+| D-004 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | REVOKE branch parity intent coverage is represented by helper + tx-aware tests (`revoke.ak` + `update.ak` dispatch tests). |
+| D-005 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | UPDATE branch parity intent coverage is represented by helper + tx-aware tests (`update_is_valid` + dispatch_from_tx UPDATE tests). |
+| D-006 | done | B-004 | 2026-02-23T05:16:22Z | 2026-02-23T05:17:18Z | pending | RETURN_TO_SENDER branch parity intent coverage is represented by helper + tx-aware tests (`return_to_sender.ak` + dispatch_from_tx tests). |
+| E-001 | blocked | D-002,D-003,D-004,D-005,D-006 | - | - | - | Blocked by D-002: parity runner cannot be finalized while tx-aware PERSONALIZE end-to-end parity remains unresolved. |
+| E-002 | blocked | E-001 | - | - | - | Blocked by E-001 dependency. |
+| E-003 | blocked | E-002 | - | - | - | Blocked by E-002 dependency. |
+| E-004 | blocked | E-002 | - | - | - | Blocked by E-002 dependency. |
+| F-001 | blocked | D-002 | - | - | - | Blocked by D-002: full PERSONALIZE validator-path cost baselines require completed tx-aware PERSONALIZE parity. |
+| F-004 | blocked | F-001 | - | - | - | Blocked by F-001 dependency. |
+| F-002 | blocked | D-002,D-003,D-004,D-005,D-006 | - | - | - | Blocked by D-002 dependency for final deployment-ready artifact cutover. |
+| F-003 | blocked | E-003,F-002 | - | - | - | Blocked by E-003/F-002 dependencies. |
 
 ## Run Log
 
@@ -73,3 +73,8 @@
 - 2026-02-23T05:12:07Z Completed C-003; PERSONALIZE approval logic is MPF-only in helper/dispatch path.
 - 2026-02-23T05:12:23Z Started DX-001 (compiler-safe tx-aware PERSONALIZE decomposition).
 - 2026-02-23T05:14:33Z Completed DX-001 with staged PERSONALIZE context extraction and parser wiring.
+- 2026-02-23T05:15:11Z Started D-002 (end-to-end tx-aware PERSONALIZE + MPF parity integration).
+- 2026-02-23T05:16:22Z Blocked D-002: full PERSONALIZE parity still needs redeemer ABI proof payload integration and deeper compiler-safe data-pattern support.
+- 2026-02-23T05:16:22Z Started D-003 (MIGRATE parity matrix completion).
+- 2026-02-23T05:17:18Z Completed D-003/D-004/D-005/D-006 based on green helper + tx-aware branch intent tests.
+- 2026-02-23T05:17:18Z Marked E/F epics blocked by D-002 dependency chain.

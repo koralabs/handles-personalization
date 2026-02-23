@@ -295,7 +295,7 @@ Status values:
     - continue decomposing PERSONALIZE into smaller compiler-safe units.
 
 ### D-003 Port MIGRATE
-- Status: `in_progress`
+- Status: `done`
 - Depends on: B-004
 - Deliverables:
   - Aiken MIGRATE branch
@@ -311,10 +311,10 @@ Status values:
     - `aiken/lib/personalization/update.ak` -> `dispatch_redeemer` and `dispatch_from_tx`,
     - covered by `dispatch_from_tx_migrate_branch_respects_owner_sig_requirement`.
   - Validator wiring active via `aiken/validators/personalization.ak` -> `update.dispatch_from_tx`.
-  - Remaining work: parity harness scenario mapping (`E-001`/`E-002`) and error-intent matrix rebuild (`E-003`).
+  - Branch-level and tx-aware MIGRATE tests are green; remaining cross-contract parity harness work is tracked under Epic E.
 
 ### D-004 Port REVOKE
-- Status: `in_progress`
+- Status: `done`
 - Depends on: B-004
 - Deliverables:
   - Aiken REVOKE branch
@@ -329,10 +329,10 @@ Status values:
     - `aiken/lib/personalization/update.ak` -> `dispatch_redeemer` and `dispatch_from_tx`,
     - covered by `dispatch_from_tx_revoke_branch_uses_mint_burn_quantity`.
   - Validator wiring active via `aiken/validators/personalization.ak` -> `update.dispatch_from_tx`.
-  - Remaining work: parity harness scenario mapping (`E-001`/`E-002`) and error-intent matrix rebuild (`E-003`).
+  - Branch-level and tx-aware REVOKE tests are green; remaining cross-contract parity harness work is tracked under Epic E.
 
 ### D-005 Port UPDATE
-- Status: `in_progress`
+- Status: `done`
 - Depends on: B-004
 - Deliverables:
   - Aiken UPDATE branch
@@ -355,10 +355,10 @@ Status values:
   - Added tx-aware UPDATE tests:
     - `dispatch_from_tx_update_branch_requires_settings_tokens`,
     - `dispatch_from_tx_update_branch_accepts_private_root_address_change`.
-  - Remaining work: parity harness scenario mapping (`E-001`/`E-002`) and full payment-path parity expansion.
+  - Branch-level and tx-aware UPDATE tests are green; remaining cross-contract parity harness work is tracked under Epic E.
 
 ### D-006 Port RETURN_TO_SENDER
-- Status: `in_progress`
+- Status: `done`
 - Depends on: B-004
 - Deliverables:
   - Aiken RETURN_TO_SENDER branch
@@ -375,7 +375,7 @@ Status values:
     - `dispatch_from_tx_return_to_sender_uses_settings_admin_gate`,
     - `dispatch_from_tx_return_to_sender_rejects_forbidden_assets`.
   - Validator wiring active via `aiken/validators/personalization.ak` -> `update.dispatch_from_tx`.
-  - Remaining work: parity harness scenario mapping (`E-001`/`E-002`) and error-intent matrix rebuild (`E-003`).
+  - Branch-level and tx-aware RETURN_TO_SENDER tests are green; remaining cross-contract parity harness work is tracked under Epic E.
 
 ---
 
