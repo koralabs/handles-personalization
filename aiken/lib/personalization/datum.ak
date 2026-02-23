@@ -78,10 +78,19 @@ pub fn int_or(data_opt: Option<Data>, fallback: Int) -> Int {
 }
 
 // Compiler-safe fallback for v1.1.21: presence check only.
-// Full unwrapped Data-return semantics remain blocked and are restored in B-003.
+// Uses serialized-data prefix checks to avoid compiler crash patterns around
+// direct `Data` deconstruction from `Option<Data>`.
 pub fn has_value_unwrapped(data_opt: Option<Data>) -> Bool {
   when data_opt is {
-    Some(_) -> True
+    Some(data) -> {
+      let serialized = builtin.serialise_data(data)
+      let prefix = bytearray.take(serialized, 1)
+      let is_int = builtin.less_than_bytearray(prefix, #"40")
+      let is_bytes =
+        !is_int && builtin.less_than_bytearray(prefix, #"60")
+
+      is_int || is_bytes && serialized != #"40"
+    }
     None -> False
   }
 }
@@ -135,6 +144,49 @@ test from_transaction_datum_maps_variants() {
       #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     ),
   }
+}
+
+test get_datum_opt_inline_is_present() {
+  has_value_unwrapped(
+    get_datum_opt(transaction.InlineDatum(1), transaction.placeholder),
+  )
+}
+
+test get_datum_opt_hash_without_witness_is_absent() {
+  !has_value_unwrapped(
+    get_datum_opt(
+      transaction.DatumHash(
+        #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ),
+      transaction.placeholder,
+    ),
+  )
+}
+
+test map_get_missing_key_is_absent() {
+  !has_value_unwrapped(map_get([], "missing"))
+}
+
+test int_or_uses_fallback_when_absent() {
+  int_or(map_get([], "k"), 7) == 7
+}
+
+test has_value_unwrapped_rejects_empty_inline_bytes() {
+  !has_value_unwrapped(
+    get_datum_opt(transaction.InlineDatum(""), transaction.placeholder),
+  )
+}
+
+test has_value_unwrapped_accepts_non_empty_inline_bytes() {
+  has_value_unwrapped(
+    get_datum_opt(transaction.InlineDatum("bg"), transaction.placeholder),
+  )
+}
+
+test has_value_unwrapped_rejects_inline_list() {
+  !has_value_unwrapped(
+    get_datum_opt(transaction.InlineDatum([1]), transaction.placeholder),
+  )
 }
 
 test parse_asset_handles_empty_and_split_bytes() {

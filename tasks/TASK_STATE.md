@@ -5,12 +5,12 @@
 - run_id: `handles-personalization-aiken-unattended-2026-02-23`
 - backlog_file: `tasks/TODO.md`
 - current_task_id: `-`
-- next_task_id: `B-003`
+- next_task_id: `C-003`
 - total_tasks: `18`
-- completed_tasks: `2`
+- completed_tasks: `3`
 - blocked_tasks: `0`
 - overall_status: `in_progress`
-- last_updated_utc: `2026-02-23T05:04:18Z`
+- last_updated_utc: `2026-02-23T05:10:51Z`
 
 ## Status Legend
 
@@ -42,8 +42,8 @@
 | ID | Status | Depends On | Started UTC | Finished UTC | Commit | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | BX-001 | done | - | 2026-02-23T04:49:21Z | 2026-02-23T04:54:26Z | cb2643e | Added compiler-constraint repro suite (`tests/aiken.compilerConstraints.test.js`) and docs (`docs/spec/aiken-compiler-constraints.md`) with v1.1.21 toolchain guardrails. |
-| BX-002 | done | BX-001 | 2026-02-23T04:55:07Z | 2026-02-23T05:04:18Z | pending | Added compiler-safe datum helper adapters (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) and refactored tx-aware UPDATE dispatch call sites to use them under v1.1.21 constraints. |
-| B-003 | pending | BX-002 | - | - | - | Complete datum helper parity coverage (`get_extra`, `get_datum`, `has_value_unwrapped`, asset parsing). |
+| BX-002 | done | BX-001 | 2026-02-23T04:55:07Z | 2026-02-23T05:04:18Z | 348f10e | Added compiler-safe datum helper adapters (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) and refactored tx-aware UPDATE dispatch call sites to use them under v1.1.21 constraints. |
+| B-003 | done | BX-002 | 2026-02-23T05:04:35Z | 2026-02-23T05:10:51Z | pending | Completed compiler-safe datum helper parity surface (`get_datum_opt`, `map_get`, `int_or`, `has_value_unwrapped`) with malformed/empty/expected-shape tests. |
 | C-003 | pending | B-003 | - | - | - | Finish MPF-backed PERSONALIZE approval flow in validator-connected path and remove residual map dependency. |
 | DX-001 | pending | C-003 | - | - | - | Decompose tx-aware PERSONALIZE integration into compiler-safe modules and wire parsing path. |
 | D-002 | pending | DX-001 | - | - | - | Final end-to-end PERSONALIZE + MPF parity integration for BG/PFP proof combinations. |
@@ -67,3 +67,5 @@
 - 2026-02-23T04:54:26Z Completed BX-001; documented compiler-safe rules and added reproducible probe tests.
 - 2026-02-23T04:55:07Z Started BX-002 (compiler-safe datum-helper implementation and call-site refactor).
 - 2026-02-23T05:04:18Z Completed BX-002; wired compiler-safe datum helper adapters and validated update/datum/cost tests.
+- 2026-02-23T05:04:35Z Started B-003 (datum helper parity coverage under compiler-safe constraints).
+- 2026-02-23T05:10:51Z Completed B-003 with datum helper parity coverage and expanded datum module tests.

@@ -44,7 +44,7 @@ Current compiler-safe helper surface (used in `aiken/lib/personalization/update.
 - `datum.get_datum_opt(output_datum, tx) -> Option<Data>`
 - `datum.map_get(map, key) -> Option<Data>`
 - `datum.int_or(option_data, fallback) -> Int`
-- `datum.has_value_unwrapped(option_data) -> Bool` (presence-only fallback for now)
+- `datum.has_value_unwrapped(option_data) -> Bool` (int/non-empty-bytes gate via serialized-data prefix checks)
 
 Test note:
 - Direct Aiken tests that construct/assert `Option<Data>` values in this toolchain can trigger the same silent-exit path.
