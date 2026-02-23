@@ -48,7 +48,7 @@ This queue contains all remaining work to fully replace Helios with Aiken while 
 ## Ordered Backlog
 
 - [x] BX-001 Reproduce and isolate Aiken compiler silent-exit patterns in this codebase, define allowed/forbidden coding patterns, and document the compiler-safe implementation constraints. (Depends: none)
-- [ ] BX-002 Implement compiler-safe equivalents for blocked datum-helper semantics (`get_datum`, `has_value_unwrapped`) and refactor call sites while preserving current intent/tests. (Depends: BX-001)
+- [x] BX-002 Implement compiler-safe equivalents for blocked datum-helper semantics (`get_datum`, `has_value_unwrapped`) and refactor call sites while preserving current intent/tests. (Depends: BX-001)
 - [ ] B-003 Complete datum parsing helper parity (`get_extra`, `get_datum`, `has_value_unwrapped`, asset parsing) with malformed/empty/expected-shape coverage. (Depends: BX-002)
 - [ ] C-003 Complete replacement of map-based approver logic in PERSONALIZE with MPF proof-backed BG/PFP approval and flags in validator-connected flow. (Depends: B-003)
 - [ ] DX-001 Implement compiler-safe decomposition for tx-aware PERSONALIZE context parsing/wiring in small modules that compile under current toolchain constraints. (Depends: C-003)

@@ -40,6 +40,16 @@ The repro test is toolchain-aware:
 - Push fallback decisions to call sites as typed checks (`Bool`, `Int`) instead of materialized fallback `Data`.
 - Favor small helper outputs that are directly consumed by branch gates to minimize both compiler risk and script costs.
 
+Current compiler-safe helper surface (used in `aiken/lib/personalization/update.ak`):
+- `datum.get_datum_opt(output_datum, tx) -> Option<Data>`
+- `datum.map_get(map, key) -> Option<Data>`
+- `datum.int_or(option_data, fallback) -> Int`
+- `datum.has_value_unwrapped(option_data) -> Bool` (presence-only fallback for now)
+
+Test note:
+- Direct Aiken tests that construct/assert `Option<Data>` values in this toolchain can trigger the same silent-exit path.
+- Helper behavior is therefore validated indirectly through tx-aware branch tests in `aiken/lib/personalization/update.ak` plus compiler probe coverage in `tests/aiken.compilerConstraints.test.js`.
+
 ## Migration Impact
 - `BX-002` implements compiler-safe equivalents for blocked helper intent without forbidden signatures.
 - `B-003` then restores branch parity coverage on top of those constraints.

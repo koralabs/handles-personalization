@@ -236,6 +236,11 @@ Current compiler workaround:
   - `MIGRATE`,
   - `REVOKE`,
   - `UPDATE`.
+- Compiler-safe datum helper adapters are active for tx-aware paths:
+  - `datum.get_datum_opt`,
+  - `datum.map_get`,
+  - `datum.int_or`,
+  - `datum.has_value_unwrapped` (presence-only fallback under current compiler constraints).
 - These tx-aware paths are covered by module tests in `aiken/lib/personalization/update.ak` and cost guards in `tests/aiken.cost.test.js`.
 - PERSONALIZE library path is wired through `personalize_is_valid` (same module), including:
   - base gating + reset/non-reset authorization helpers,
