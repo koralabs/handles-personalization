@@ -8,6 +8,7 @@
 ## Local Validation
 - `npm test` (scenario harness; may require stable external runtime dependencies)
 - `node --test tests/compile.test.js`
+- `node --test tests/contract.messages.test.js`
 - `./test_coverage.sh`
 
 ## Compiling Plutus Script

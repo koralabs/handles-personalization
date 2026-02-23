@@ -1,6 +1,6 @@
 
 import * as helios from "@koralabs/helios";
-import { Fixture, convertJsontoCbor, getAddressAtDerivation, getNewFakeUtxoId } from '@koralabs/kora-labs-contract-testing'
+import { Fixture, convertJsontoCbor, getAddressAtDerivation, getNewFakeUtxoId } from '@koralabs/kora-labs-contract-testing/fixtures.js'
 import { AssetNameLabel } from '@koralabs/kora-labs-common'
 import base58 from "bs58";
 helios.config.set({ IS_TESTNET: false, AUTO_SET_VALIDITY_RANGE: true });

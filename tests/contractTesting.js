@@ -1,4 +1,4 @@
-import {Color} from "@koralabs/kora-labs-contract-testing"
+import {Color} from "@koralabs/kora-labs-contract-testing/colors.js"
 import * as helios from "@koralabs/helios";
 import fs from "fs";
 

@@ -1,6 +1,6 @@
 FORMAT_VERSION=1
 REPO=handles-personalization
-TIMESTAMP_UTC=2026-02-22T20:21:39Z
+TIMESTAMP_UTC=2026-02-23T01:15:45Z
 THRESHOLD_LINES=90
 THRESHOLD_BRANCHES=90
 TOTAL_LINES_PCT=99.10
@@ -19,22 +19,144 @@ LANGUAGE_SUMMARY=nodejs-compile:lines=99.10,branches=92.86,tool=node-test-covera
 > handles-personalization@1.0.0 test:old
 > node --es-module-specifier-resolution=node tests/tests.js
 
-node:internal/modules/esm/resolve:275
-    throw new ERR_MODULE_NOT_FOUND(
-          ^
+[35m----------------------------TESTS START-----------------------------[0m
+[32m*success* - APPROVE - PERSONALIZE               'main'[0m
+PERSONALIZE:mem & cpu - mem: 13003588, cpu: 6215861669
+[32m*success* - APPROVE - PERSONALIZE               'CIP-25 PFP as BG'[0m
+[32m*success* - APPROVE - PERSONALIZE               'pfp CIP-25, defaults forced'[0m
+[32m*success* - APPROVE - PERSONALIZE               'require_asset_displayed Handle'[0m
+[32m*success* - APPROVE - PERSONALIZE               'require_asset_collections policy match'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no defaults'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no forced defaults good'[0m
+[32m*success* - APPROVE - PERSONALIZE               'pfp_zoom in unenforced defaults but not defined'[0m
+[32m*success* - APPROVE - PERSONALIZE               'unenforced defaults, exclusive left blank'[0m
+[32m*success* - APPROVE - PERSONALIZE               'provider policies'[0m
+[32m*success* - APPROVE - PERSONALIZE               'good qr dot default'[0m
+[32m*success* - APPROVE - PERSONALIZE               'good qr inner default'[0m
+[32m*success* - APPROVE - PERSONALIZE               'good qr outer default'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no default shadow color'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no default pfp border'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no default bg border'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no default qr bg color'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no default offset'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no default shadow size'[0m
+[32m*success* - APPROVE - PERSONALIZE               'no default zoom'[0m
+[32m*success* - DENY    - PERSONALIZE               'require_asset_displayed Handle not present'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong handle name'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp_offset out of bounds'[0m
+[32m*success* - DENY    - PERSONALIZE               'font_shadow_size out of bounds'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp_zoom out of bounds'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong handle label'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong handle policy'[0m
+[32m*success* - DENY    - PERSONALIZE               'bad ref token name'[0m
+[32m*success* - DENY    - PERSONALIZE               'bad ref token label'[0m
+[32m*success* - DENY    - PERSONALIZE               'bad ref token policy'[0m
+[32m*success* - DENY    - PERSONALIZE               'bad ref token output'[0m
+[32m*success* - DENY    - PERSONALIZE               'handle missing'[0m
+[32m*success* - DENY    - PERSONALIZE               'bg_policy_ids missing'[0m
+[32m*success* - DENY    - PERSONALIZE               'bg_policy_ids wrong hash'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp_policy_ids missing'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp_policy_ids wrong hash'[0m
+[32m*success* - DENY    - PERSONALIZE               'pz_settings invalid'[0m
+[32m*success* - DENY    - PERSONALIZE               'pz_settings wrong hash'[0m
+[32m*success* - DENY    - PERSONALIZE               'bad script creds'[0m
+[32m*success* - DENY    - PERSONALIZE               'treas fee low'[0m
+[32m*success* - DENY    - PERSONALIZE               'treas fee no handle'[0m
+[32m*success* - DENY    - PERSONALIZE               'treas fee bad address'[0m
+[32m*success* - DENY    - PERSONALIZE               'prov fee low'[0m
+[32m*success* - DENY    - PERSONALIZE               'prov fee no handle'[0m
+[32m*success* - DENY    - PERSONALIZE               'prov fee bad address'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong bg_color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong circuit_color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong socials_color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong bg_border'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong pfp_border'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong ribbon gradient'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong gradient colors'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong gradient'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong ribbon colors'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong font color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong default font color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong default font'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong font color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong font shadow color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong shadow size'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong pfp zoom'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong pfp offset'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr bg color'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr dots'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr inner'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr outer'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr dot default'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr inner default'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr outer default'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong qr image'[0m
+[32m*success* - DENY    - PERSONALIZE               'no default qr image'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong pfp attr'[0m
+[32m*success* - DENY    - PERSONALIZE               'wrong pfp'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp not displayed'[0m
+[32m*success* - DENY    - PERSONALIZE               'bad update address'[0m
+[32m*success* - DENY    - PERSONALIZE               'unsigned validator'[0m
+[32m*success* - DENY    - PERSONALIZE               'bg nsfw'[0m
+[32m*success* - DENY    - PERSONALIZE               'bg trial'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp nsfw'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp trial'[0m
+[32m*success* - DENY    - PERSONALIZE               'can't use exclusive'[0m
+[32m*success* - DENY    - PERSONALIZE               'unenforced defaults, exclusive used'[0m
+[32m*success* - DENY    - PERSONALIZE               'handle redeemer mismatch'[0m
+[32m*success* - DENY    - PERSONALIZE               'designer cid hash mismatch'[0m
+[32m*success* - DENY    - PERSONALIZE               'required background signature missing'[0m
+[32m*success* - DENY    - PERSONALIZE               'asset datum missing'[0m
+[32m*success* - DENY    - PERSONALIZE               'immutables changed'[0m
+[32m*success* - DENY    - PERSONALIZE               'agreed terms changed'[0m
+[32m*success* - DENY    - PERSONALIZE               'bg_asset and bg_image mismatch'[0m
+[32m*success* - DENY    - PERSONALIZE               'bg_image mismatches datum'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp_asset and pfp_image mismatch'[0m
+[32m*success* - DENY    - PERSONALIZE               'pfp_image mismatches datum'[0m
+[32m*success* - APPROVE - MIGRATE                   'admin, no owner'[0m
+[32m*success* - APPROVE - MIGRATE                   'hardcoded admin'[0m
+[32m*success* - DENY    - MIGRATE                   'wrong admin signer'[0m
+[32m*success* - DENY    - MIGRATE                   'no admin signers'[0m
+[32m*success* - DENY    - MIGRATE                   'owner signature required but owner token missing'[0m
+[32m*success* - DENY    - MIGRATE                   'output changed during migration'[0m
+[32m*success* - APPROVE - RESET                     'no admin signer, pfp mismatch'[0m
+[32m*success* - DENY    - RESET                     'reset not allowed because all good'[0m
+[32m*success* - DENY    - RESET                     'provider reset must clear personalization fields'[0m
+[32m*success* - DENY    - RESET                     'socials must reset when holder changes'[0m
+[32m*success* - DENY    - RESET                     'resolved addresses must reset when holder changes'[0m
+[32m*success* - DENY    - RESET                     'socials cannot be reset without authorization'[0m
+[32m*success* - DENY    - RESET                     'resolved addresses cannot be reset without authorization'[0m
+[32m*success* - DENY    - RETURN_TO_SENDER          'wrong admin signer'[0m
+[32m*success* - DENY    - RETURN_TO_SENDER          'can't return a handle reference token'[0m
+[32m*success* - APPROVE - RETURN_TO_SENDER          'all good'[0m
+[34m** SUMMARY **[0m
+[34m  109 total tests[0m
+[32m  108 successful[0m
+[37m    1 performance test(s)[0m
 
-Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/kora-labs-contract-testing/colors' imported from /home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/kora-labs-contract-testing/index.js
-    at finalizeResolution (node:internal/modules/esm/resolve:275:11)
-    at moduleResolve (node:internal/modules/esm/resolve:932:10)
-    at defaultResolve (node:internal/modules/esm/resolve:1056:11)
-    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:654:12)
-    at #cachedDefaultResolve (node:internal/modules/esm/loader:603:25)
-    at ModuleLoader.resolve (node:internal/modules/esm/loader:586:38)
-    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:242:38)
-    at ModuleJob._link (node:internal/modules/esm/module_job:135:49) {
-  code: 'ERR_MODULE_NOT_FOUND',
-  url: 'file:///home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/kora-labs-contract-testing/colors'
-}
+> handles-personalization@1.0.0 test:new
+> tsx -r dotenv/config tests/txTests.ts
+
+file:///home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/helios/helios.js:492
+		throw new Error(msg);
+		      ^
+
+Error: invalid hexstring "<html>
+<head><title>503 Service Temporarily Unavailable</title></head>
+<body>
+<center><h1>503 Service Temporarily Unavailable</h1></center>
+</body>
+</html>"
+    at assert (file:///home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/helios/helios.js:492:9)
+    at Module.hexToBytes (file:///home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/helios/helios.js:860:3)
+    at PzFixture.calculateCid (/home/jesse/src/koralabs/handles-personalization/tests/fixtures.ts:423:83)
+    at PzFixture.initialize (/home/jesse/src/koralabs/handles-personalization/tests/fixtures.ts:289:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Test.setupFixture (/home/jesse/src/koralabs/handles-personalization/tests/txTests.ts:34:16)
+    at async Test.build (/home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/contractTester.ts:36:20)
+    at async ContractTester.test (/home/jesse/src/koralabs/handles-personalization/node_modules/@koralabs/contractTester.ts:117:15)
+    at async runTests (/home/jesse/src/koralabs/handles-personalization/tests/txTests.ts:31:5)
+    at async <anonymous> (/home/jesse/src/koralabs/handles-personalization/tests/txTests.ts:528:5)
 
 Node.js v22.13.1
 
@@ -43,18 +165,18 @@ TAP version 13
 # Subtest: resolveOptimizeFlag handles both false and truthy values
 ok 1 - resolveOptimizeFlag handles both false and truthy values
   ---
-  duration_ms: 0.532142
+  duration_ms: 0.491972
   ...
 # Subtest: getContractArtifactPaths handles trailing and non-trailing slash
 ok 2 - getContractArtifactPaths handles trailing and non-trailing slash
   ---
-  duration_ms: 0.105902
+  duration_ms: 0.091588
   ...
 # OPTIMIZE is set to false
 # Subtest: compile.js creates contract artifacts with optimize disabled
 ok 3 - compile.js creates contract artifacts with optimize disabled
   ---
-  duration_ms: 445.006178
+  duration_ms: 470.353884
   ...
 1..3
 # tests 3
@@ -64,7 +186,7 @@ ok 3 - compile.js creates contract artifacts with optimize disabled
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 496.244534
+# duration_ms 524.409879
 # start of coverage report
 # -------------------------------------------------------------------
 # file               | line % | branch % | funcs % | uncovered lines

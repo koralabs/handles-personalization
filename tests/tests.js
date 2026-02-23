@@ -1,5 +1,5 @@
 import fs from "fs";
-import {Color} from '@koralabs/kora-labs-contract-testing'
+import {Color} from '@koralabs/kora-labs-contract-testing/colors.js'
 import * as tester from './contractTesting.js'
 import { BackgroundDefaults, Datum, PzRedeemer, PzSettings, ScriptContext,
     ApprovedPolicyIds, handle, pz_provider_bytes, pfp_policy, MigrateRedeemer, script_tx_hash, 
@@ -733,6 +733,84 @@ console.log(`${Color.FgMagenta}----------------------------TESTS START----------
         const program = tester.createProgram(contract, new Datum().render(), redeemer.render(), context.render());
         return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
     }, "qr_image is not set correctly"),
+    await tester.testCase(false, "PERSONALIZE", "handle redeemer mismatch", () => {
+        const redeemer = new PzRedeemer();
+        redeemer.handle = 'b"wrong_handle"';
+        const context = new ScriptContext().initPz(redeemer.calculateCid());
+        const program = tester.createProgram(contract, new Datum().render(), redeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Handle redeemer mismatch")
+    await tester.testCase(false, "PERSONALIZE", "designer cid hash mismatch", () => {
+        const redeemer = new PzRedeemer();
+        const wrongDesigner = new PzRedeemer();
+        wrongDesigner.designer.bg_color = 'OutputDatum::new_inline(#0a1fd3).data';
+        const context = new ScriptContext().initPz(wrongDesigner.calculateCid());
+        const program = tester.createProgram(contract, new Datum().render(), redeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Personalization designer settings hash doesn't match CID multihash")
+    await tester.testCase(false, "PERSONALIZE", "required background signature missing", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const bgDefaults = new BackgroundDefaults();
+        bgDefaults.extra.required_signature = 'OutputDatum::new_inline(#01234567890123456789012345678901234567890123456789000007).data';
+        context.referenceInputs.find(input => input.output.has([`MintingPolicyHash::new(${bg_policy})`, 'LBL_100', '"bg"'])).output.datum = bgDefaults.render();
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Required signature for background not present")
+    await tester.testCase(false, "PERSONALIZE", "asset datum missing", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const pfpRef = context.referenceInputs.find(input => input.output.has([`MintingPolicyHash::new(${pfp_policy})`, 'LBL_100', '"pfp"']));
+        pfpRef.output.datumType = 'none';
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Asset datum not found")
+    await tester.testCase(false, "PERSONALIZE", "immutables changed", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const datum = new Datum(pzRedeemer.calculateCid());
+        datum.extra.standard_image = 'OutputDatum::new_inline("ipfs://changed").data';
+        context.outputs.find(output => output.has(['HANDLE_POLICY', 'LBL_100', `"${handle}"`])).datum = datum.render();
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Immutables have changed")
+    await tester.testCase(false, "PERSONALIZE", "agreed terms changed", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const datum = new Datum(pzRedeemer.calculateCid());
+        datum.extra.agreed_terms = 'OutputDatum::new_inline("https://example.com/terms").data';
+        context.outputs.find(output => output.has(['HANDLE_POLICY', 'LBL_100', `"${handle}"`])).datum = datum.render();
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "agreed_terms must be set")
+    await tester.testCase(false, "PERSONALIZE", "bg_asset and bg_image mismatch", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const datum = new Datum(pzRedeemer.calculateCid());
+        delete datum.extra.bg_image;
+        context.outputs.find(output => output.has(['HANDLE_POLICY', 'LBL_100', `"${handle}"`])).datum = datum.render();
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "bg_asset/bg_image mismatch")
+    await tester.testCase(false, "PERSONALIZE", "bg_image mismatches datum", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const datum = new Datum(pzRedeemer.calculateCid());
+        datum.extra.bg_image = 'OutputDatum::new_inline("ipfs://wrong_bg").data';
+        context.outputs.find(output => output.has(['HANDLE_POLICY', 'LBL_100', `"${handle}"`])).datum = datum.render();
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "bg_image doesn't match bg_asset datum")
+    await tester.testCase(false, "PERSONALIZE", "pfp_asset and pfp_image mismatch", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const datum = new Datum(pzRedeemer.calculateCid());
+        delete datum.extra.pfp_image;
+        context.outputs.find(output => output.has(['HANDLE_POLICY', 'LBL_100', `"${handle}"`])).datum = datum.render();
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "pfp_asset/pfp_image mismatch")
+    await tester.testCase(false, "PERSONALIZE", "pfp_image mismatches datum", () => {
+        const context = new ScriptContext().initPz(pzRedeemer.calculateCid());
+        const datum = new Datum(pzRedeemer.calculateCid());
+        datum.extra.pfp_image = 'OutputDatum::new_inline("ipfs://wrong_pfp").data';
+        context.outputs.find(output => output.has(['HANDLE_POLICY', 'LBL_100', `"${handle}"`])).datum = datum.render();
+        const program = tester.createProgram(contract, new Datum().render(), pzRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "pfp_image doesn't match pfp_asset datum")
 
     // MIGRATE ENDPOINT - SHOULD APPROVE
     await tester.testCase(true, "MIGRATE", "admin, no owner", () => {
@@ -759,7 +837,23 @@ console.log(`${Color.FgMagenta}----------------------------TESTS START----------
         context.signers = [];
         const program = tester.createProgram(contract, new Datum().render(), migrateRedeemer.render(), context.render());
         return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
-    }, "Required admin signer(s) not present"),
+    }, "Required admin signer(s) not present")
+    await tester.testCase(false, "MIGRATE", "owner signature required but owner token missing", () => {
+        const context = new ScriptContext().initMigrate();
+        const oldDatum = new Datum();
+        oldDatum.extra.migrate_sig_required = 'OutputDatum::new_inline(1).data';
+        context.outputs[0].datum = oldDatum.render();
+        const program = tester.createProgram(contract, oldDatum.render(), migrateRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Required owner signer not present")
+    await tester.testCase(false, "MIGRATE", "output changed during migration", () => {
+        const context = new ScriptContext().initMigrate();
+        const changed = new Datum();
+        changed.extra.portal = 'OutputDatum::new_inline("ipfs://changed").data';
+        context.outputs[0].datum = changed.render();
+        const program = tester.createProgram(contract, new Datum().render(), migrateRedeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Not a valid migration"),
 
     // RESET ENDPOINT - SHOULD APPROVE
     await tester.testCase(true, "RESET", "no admin signer, pfp mismatch", () => {
@@ -774,7 +868,93 @@ console.log(`${Color.FgMagenta}----------------------------TESTS START----------
         const context = new ScriptContext().initReset();
         const program = tester.createProgram(contract, new Datum().render(), resetRedeemer.render(), context.render());
         return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
-    }, 'Reset is not allowed or not authorized'),
+    }, 'Reset is not allowed or not authorized')
+    await tester.testCase(false, "RESET", "provider reset must clear personalization fields", () => {
+        const context = new ScriptContext().initReset();
+        context.signers = [`${pz_provider_bytes}`];
+        context.outputs[0].datum = new Datum().render();
+        const redeemer = new PzRedeemer(true);
+        const program = tester.createProgram(contract, new Datum().render(), redeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, 'Personalization properties not properly reset')
+    await tester.testCase(false, "RESET", "socials must reset when holder changes", () => {
+        const context = new ScriptContext().initReset();
+        context.referenceInputs[5].output.hash = `${pz_provider_bytes}`;
+        const datum = new Datum();
+        datum.nft.image = datum.extra.standard_image;
+        datum.extra.image_hash = datum.extra.standard_image_hash;
+        delete datum.extra.designer;
+        delete datum.extra.bg_asset;
+        delete datum.extra.pfp_asset;
+        delete datum.extra.pfp_image;
+        delete datum.extra.bg_image;
+        delete datum.extra.svg_version;
+        delete datum.extra.validated_by;
+        datum.extra.last_update_address = `OutputDatum::new_inline(#60 + ${pz_provider_bytes}).data`;
+        datum.extra.socials = 'OutputDatum::new_inline("ipfs://cid").data';
+        context.outputs[0].datum = datum.render();
+        const redeemer = new PzRedeemer(true);
+        const program = tester.createProgram(contract, new Datum().render(), redeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, 'Socials need to be reset')
+    await tester.testCase(false, "RESET", "resolved addresses must reset when holder changes", () => {
+        const context = new ScriptContext().initReset();
+        context.referenceInputs[5].output.hash = `${pz_provider_bytes}`;
+        const datum = new Datum();
+        datum.nft.image = datum.extra.standard_image;
+        datum.extra.image_hash = datum.extra.standard_image_hash;
+        delete datum.extra.designer;
+        delete datum.extra.bg_asset;
+        delete datum.extra.pfp_asset;
+        delete datum.extra.pfp_image;
+        delete datum.extra.bg_image;
+        delete datum.extra.svg_version;
+        delete datum.extra.validated_by;
+        datum.extra.last_update_address = `OutputDatum::new_inline(#60 + ${pz_provider_bytes}).data`;
+        datum.extra.socials = 'OutputDatum::new_inline("").data';
+        datum.extra.resolved_addresses = 'OutputDatum::new_inline(Map[String]Data {"btc": OutputDatum::new_inline(#01).data}).data';
+        context.outputs[0].datum = datum.render();
+        const redeemer = new PzRedeemer(true);
+        const program = tester.createProgram(contract, new Datum().render(), redeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, 'resolved_addresses need to be reset')
+    await tester.testCase(false, "RESET", "socials cannot be reset without authorization", () => {
+        const context = new ScriptContext().initReset();
+        const datum = new Datum();
+        datum.nft.image = datum.extra.standard_image;
+        datum.extra.image_hash = datum.extra.standard_image_hash;
+        delete datum.extra.designer;
+        delete datum.extra.bg_asset;
+        delete datum.extra.pfp_asset;
+        delete datum.extra.pfp_image;
+        delete datum.extra.bg_image;
+        delete datum.extra.svg_version;
+        delete datum.extra.validated_by;
+        datum.extra.socials = 'OutputDatum::new_inline("").data';
+        context.outputs[0].datum = datum.render();
+        const redeemer = new PzRedeemer(true);
+        const program = tester.createProgram(contract, new Datum().render(), redeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "Socials shouldn't be reset")
+    await tester.testCase(false, "RESET", "resolved addresses cannot be reset without authorization", () => {
+        const context = new ScriptContext().initReset();
+        const oldDatum = new Datum();
+        oldDatum.extra.resolved_addresses = 'OutputDatum::new_inline(Map[String]Data {"btc": OutputDatum::new_inline(#01).data}).data';
+        const datum = new Datum();
+        datum.nft.image = datum.extra.standard_image;
+        datum.extra.image_hash = datum.extra.standard_image_hash;
+        delete datum.extra.designer;
+        delete datum.extra.bg_asset;
+        delete datum.extra.pfp_asset;
+        delete datum.extra.pfp_image;
+        delete datum.extra.bg_image;
+        delete datum.extra.svg_version;
+        delete datum.extra.validated_by;
+        context.outputs[0].datum = datum.render();
+        const redeemer = new PzRedeemer(true);
+        const program = tester.createProgram(contract, oldDatum.render(), redeemer.render(), context.render());
+        return { contract: program.compile(optimized), params: ["datum", "redeemer", "context"].map((p) => program.evalParam(p)) };
+    }, "resolved_addresses shouldn't be reset"),
 
     // RETURN_TO_SENDER ENDPOINT - SHOULD DENY
     await tester.testCase(false, "RETURN_TO_SENDER", "wrong admin signer", () => {
