@@ -192,7 +192,7 @@ Status values:
     - added tests for compact encoding stability and malformed root/policy length rejection.
 
 ### C-003 Replace map-based approver logic in PERSONALIZE
-- Status: `in_progress`
+- Status: `done`
 - Depends on: C-002
 - Deliverables:
   - PERSONALIZE code path uses MPF proofs for BG/PFP approval + flags
@@ -210,8 +210,7 @@ Status values:
   - Wired approval helpers into compiler-safe PERSONALIZE branch helper:
     - `aiken/lib/personalization/update.ak` -> `personalize_is_valid` + `dispatch_redeemer` `Personalize` route.
     - PERSONALIZE flow now consumes `AssetApprovalStatus` values derived from MPF proof checks (`verify_selected_asset`) and enforces `policy_datum_is_valid`.
-  - Remaining work:
-    - wrap helper flow in real `validator { ... }` branch once compiler blocker is resolved.
+  - Map-backed approver datum dependency removed from PERSONALIZE helper path; only MPF-backed approval status inputs remain in Aiken PERSONALIZE validation logic.
 
 ### C-004 Off-chain proof builder adapter
 - Status: `done`
