@@ -99,7 +99,7 @@ fn output_data(
   datum.get_datum_opt(output.datum, tx)
 }
 
-fn load_pz_settings(tx: transaction.Transaction) -> Option<types.PzSettings> {
+pub fn load_pz_settings(tx: transaction.Transaction) -> Option<types.PzSettings> {
   when
     list.find(
       tx.reference_inputs,
@@ -131,6 +131,82 @@ fn load_pz_settings(tx: transaction.Transaction) -> Option<types.PzSettings> {
         None -> None
       }
     None -> None
+  }
+}
+
+fn withdrawal_is_zero_for_credential(
+  withdrawals: Pairs<address.Credential, Int>,
+  credential: address.Credential,
+) -> Bool {
+  list.any(withdrawals, fn(withdrawal) { withdrawal.1st == credential && withdrawal.2nd == 0 })
+}
+
+fn credential_is_allowed_observer(
+  credential: address.Credential,
+  valid_contracts: List<ByteArray>,
+) -> Bool {
+  when credential is {
+    address.Script(hash) -> list.any(valid_contracts, fn(contract_hash) { contract_hash == hash })
+    address.VerificationKey(_) -> False
+  }
+}
+
+fn spend_redeemer_matches(
+  redeemers: Pairs<transaction.ScriptPurpose, transaction.Redeemer>,
+  own_ref: transaction.OutputReference,
+  expected_redeemer: types.Redeemer,
+) -> Bool {
+  let expected_data: Data = expected_redeemer
+
+  list.any(
+    redeemers,
+    fn(entry) {
+      when entry.1st is {
+        transaction.Spend(spend_ref) ->
+          spend_ref == own_ref && entry.2nd == expected_data
+        _ -> False
+      }
+    },
+  )
+}
+
+pub fn observer_withdrawal_is_valid(
+  tx: transaction.Transaction,
+  own_ref: transaction.OutputReference,
+  redeemer: types.Redeemer,
+  valid_contracts: List<ByteArray>,
+) -> Bool {
+  let observer_redeemer_data: Data = types.Observe { own_ref, redeemer }
+
+  list.any(
+    tx.redeemers,
+    fn(entry) {
+      entry.2nd == observer_redeemer_data && when entry.1st is {
+        transaction.Withdraw(credential) ->
+          credential_is_allowed_observer(credential, valid_contracts) && withdrawal_is_zero_for_credential(
+            tx.withdrawals,
+            credential,
+          )
+        _ -> False
+      }
+    },
+  )
+}
+
+pub fn dispatch_from_observer(
+  observer_redeemer: types.ObserverRedeemer,
+  tx: transaction.Transaction,
+) -> Bool {
+  when observer_redeemer is {
+    types.Observe { own_ref, redeemer } ->
+      if !spend_redeemer_matches(tx.redeemers, own_ref, redeemer) {
+        False
+      } else {
+        when transaction.find_input(tx.inputs, own_ref) is {
+          Some(input) -> dispatch_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
+          None -> False
+        }
+      }
   }
 }
 

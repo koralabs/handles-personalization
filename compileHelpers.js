@@ -30,5 +30,8 @@ export const getAikenArtifactPaths = (contractDirectory = "./contract") => {
     spendHash: `${directory}/aiken.spend.hash`,
     spendAddrTestnet: `${directory}/aiken.spend.addr_testnet`,
     spendAddrMainnet: `${directory}/aiken.spend.addr_mainnet`,
+    withdrawHash: `${directory}/aiken.withdraw.hash`,
+    withdrawStakeAddrTestnet: `${directory}/aiken.withdraw.stake_addr_testnet`,
+    withdrawStakeAddrMainnet: `${directory}/aiken.withdraw.stake_addr_mainnet`,
   };
 };

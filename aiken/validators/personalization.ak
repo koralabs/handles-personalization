@@ -1,15 +1,33 @@
+use cardano/address.{Credential}
 use cardano/transaction.{OutputReference, Transaction}
 use personalization/types
 use personalization/update
 
 validator personalization {
   spend(
-    datum_opt: Option<Data>,
+    _datum_opt: Option<Data>,
     redeemer: types.Redeemer,
     own_ref: OutputReference,
     tx: Transaction,
   ) {
-    update.dispatch_from_tx(datum_opt, redeemer, own_ref, tx)
+    when update.load_pz_settings(tx) is {
+      Some(settings) ->
+        update.observer_withdrawal_is_valid(
+          tx,
+          own_ref,
+          redeemer,
+          settings.valid_contracts,
+        )
+      None -> False
+    }
+  }
+
+  withdraw(
+    observer_redeemer: types.ObserverRedeemer,
+    _account: Credential,
+    tx: Transaction,
+  ) {
+    update.dispatch_from_observer(observer_redeemer, tx)
   }
 
   else(_) {

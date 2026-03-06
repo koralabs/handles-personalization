@@ -12,6 +12,12 @@
    - `contract/contract.hash`
    - `contract/contract.uplc`
 
+## Aiken Observer Flow (`withdraw 0`)
+1. Spend path loads `PzSettings` and requires a matching observer `Withdraw` redeemer entry.
+2. Observer witness must be a script credential in `valid_contracts` with withdrawal amount `0`.
+3. Observer redeemer carries `{ own_ref, redeemer }` and must match the spend redeemer pair in `tx.redeemers`.
+4. Observer `withdraw` branch resolves the spend input datum and delegates to the existing `dispatch_from_tx` validation logic.
+
 ## Personalize Flow (`PERSONALIZE`)
 1. Decode old datum, resolve tx inputs/refs/outputs/signers.
 2. Load and validate `PzSettings` reference input.

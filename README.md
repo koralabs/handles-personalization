@@ -25,6 +25,9 @@
 - `aiken.spend.hash`
 - `aiken.spend.addr_testnet`
 - `aiken.spend.addr_mainnet`
+- `aiken.withdraw.hash`
+- `aiken.withdraw.stake_addr_testnet`
+- `aiken.withdraw.stake_addr_mainnet`
 
 
 ## Submitting on-chain

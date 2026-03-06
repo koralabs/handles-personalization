@@ -1,3 +1,5 @@
+use cardano/transaction
+
 pub type DataMap =
   Pairs<ByteArray, Data>
 
@@ -46,6 +48,10 @@ pub type Redeemer {
   Revoke { handle: Handle, root_handle: ByteArray, owner_index: Int }
   Update { handle: Handle, root_handle: ByteArray, indexes: VirtIndexes }
   ReturnToSender
+}
+
+pub type ObserverRedeemer {
+  Observe { own_ref: transaction.OutputReference, redeemer: Redeemer }
 }
 
 pub type MainSubHandleSettings {

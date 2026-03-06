@@ -28,6 +28,14 @@ const toAddressBundle = (hashHex) => {
   return { testnet, mainnet };
 };
 
+const toStakeAddressBundle = (hashHex) => {
+  const hash = helios.StakingValidatorHash.fromHex(hashHex);
+  const testnet = helios.StakeAddress.fromStakingValidatorHash(true, hash).toBech32();
+  const mainnet = helios.StakeAddress.fromStakingValidatorHash(false, hash).toBech32();
+
+  return { testnet, mainnet };
+};
+
 const validatorMetadata = validators.map((validator) => {
   const addresses = toAddressBundle(validator.hash);
   return {
@@ -49,10 +57,18 @@ const addresses = validatorMetadata.map((validator) => ({
 const spendValidator =
   validatorMetadata.find((validator) => validator.title.endsWith(".spend")) ||
   validatorMetadata[0];
+const withdrawValidator = validatorMetadata.find((validator) =>
+  validator.title.endsWith(".withdraw")
+);
 
 if (!spendValidator) {
   throw new Error("No validators found in Aiken blueprint");
 }
+if (!withdrawValidator) {
+  throw new Error("No .withdraw validator found in Aiken blueprint");
+}
+
+const withdrawStakeAddresses = toStakeAddressBundle(withdrawValidator.hash);
 
 fs.writeFileSync(
   artifactPaths.validators,
@@ -65,3 +81,12 @@ fs.writeFileSync(
 fs.writeFileSync(artifactPaths.spendHash, `${spendValidator.hash}\n`);
 fs.writeFileSync(artifactPaths.spendAddrTestnet, `${spendValidator.address_testnet}\n`);
 fs.writeFileSync(artifactPaths.spendAddrMainnet, `${spendValidator.address_mainnet}\n`);
+fs.writeFileSync(artifactPaths.withdrawHash, `${withdrawValidator.hash}\n`);
+fs.writeFileSync(
+  artifactPaths.withdrawStakeAddrTestnet,
+  `${withdrawStakeAddresses.testnet}\n`
+);
+fs.writeFileSync(
+  artifactPaths.withdrawStakeAddrMainnet,
+  `${withdrawStakeAddresses.mainnet}\n`
+);

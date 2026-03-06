@@ -9,5 +9,6 @@
 | Revoke | Virtual subhandle revoke | Public/expiry and private/root-signed revocation constraints | `contract.helios`, `tests/txTests.ts` |
 | Update | Virtual subhandle update | Restricted mutability, settings token checks, payment + signature gating | `contract.helios`, `tests/txTests.ts` |
 | Return to Sender | Admin recovery path | Rejects Handle ref/root-setting token returns | `contract.helios`, `tests/tests.js` |
+| Observer upgrade gate (Aiken) | `withdraw 0` observer-gated spend validation | Spend requires matching observer withdrawal witness; observer redeemer must match spend `own_ref` + redeemer | `aiken/validators/personalization.ak`, `aiken/lib/personalization/update.ak`, `tests/compileAiken.test.js` |
 | Compile pipeline | Contract artifact generation | Deterministic outputs for deploy/review | `compile.js`, `compileHelpers.js`, `tests/compile.test.js` |
 | Message coverage guard | Branch-level assertion message coverage | Every reachable assert/error message mapped to tests | `tests/contract.messages.test.js` |
