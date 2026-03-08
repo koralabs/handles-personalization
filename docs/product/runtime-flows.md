@@ -1,7 +1,7 @@
 # Runtime Flows
 
 ## Compile Flow
-1. Read validator source from `contract.helios`.
+1. Read validator source from `pers.helios`.
 2. Resolve optimization flag from `OPTIMIZE`.
 3. Compile script and derive address/hash.
 4. Write artifacts:

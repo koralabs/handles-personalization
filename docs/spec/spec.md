@@ -1,7 +1,7 @@
 # Technical Spec
 
 ## Contract Entry Point
-- Validator: `spending personalization` in `contract.helios`.
+- Validator: `spending pers` in `pers.helios`.
 - Entry function: `main(datum: Datum, redeemer: Redeemer, ctx: ScriptContext) -> Bool`.
 - Datum currently supported in-path: `Datum::CIP68`.
 

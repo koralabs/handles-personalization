@@ -7,7 +7,7 @@ import {
 
 const OPTIMIZE = resolveOptimizeFlag(process.env.OPTIMIZE);
 //helios.config.set({IS_TESTNET: false})
-let contractHelios = fs.readFileSync("./contract.helios").toString();
+let contractHelios = fs.readFileSync("./pers.helios").toString();
 let program = helios.Program.new(contractHelios);
 console.log(`OPTIMIZE is set to ${OPTIMIZE}`);
 const contract = program.compile(OPTIMIZE);
@@ -27,6 +27,6 @@ fs.writeFileSync(artifactPaths.hash, contract.validatorHash.hex);
 fs.writeFileSync(artifactPaths.uplc, contract.toString());
 
 // IN CLI:
-// helios compile contract.helios --optimize -o contract.json
+// helios compile pers.helios --optimize -o contract.json
 // helios address contract.json (add -m for mainnet) > contract_testnets.address
 // cat contract_testnets.address | cardano-address address inspect (look for the spending_shared_hash)

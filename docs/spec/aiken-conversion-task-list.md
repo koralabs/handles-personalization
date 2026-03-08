@@ -305,7 +305,7 @@ Status values:
   - Integrated into both helper and tx-aware dispatch:
     - `aiken/lib/personalization/update.ak` -> `dispatch_redeemer` and `dispatch_from_tx`,
     - covered by `dispatch_from_tx_migrate_branch_respects_owner_sig_requirement`.
-  - Validator wiring active via `aiken/validators/personalization.ak` -> `update.dispatch_from_tx`.
+  - Validator wiring active via `aiken/validators/pers.ak` -> `update.dispatch_from_tx`.
   - Branch-level and tx-aware MIGRATE tests are green; remaining cross-contract parity harness work is tracked under Epic E.
 
 ### D-004 Port REVOKE
@@ -323,7 +323,7 @@ Status values:
   - Integrated into both helper and tx-aware dispatch:
     - `aiken/lib/personalization/update.ak` -> `dispatch_redeemer` and `dispatch_from_tx`,
     - covered by `dispatch_from_tx_revoke_branch_uses_mint_burn_quantity`.
-  - Validator wiring active via `aiken/validators/personalization.ak` -> `update.dispatch_from_tx`.
+  - Validator wiring active via `aiken/validators/pers.ak` -> `update.dispatch_from_tx`.
   - Branch-level and tx-aware REVOKE tests are green; remaining cross-contract parity harness work is tracked under Epic E.
 
 ### D-005 Port UPDATE
@@ -369,7 +369,7 @@ Status values:
   - Added tx-aware tests:
     - `dispatch_from_tx_return_to_sender_uses_settings_admin_gate`,
     - `dispatch_from_tx_return_to_sender_rejects_forbidden_assets`.
-  - Validator wiring active via `aiken/validators/personalization.ak` -> `update.dispatch_from_tx`.
+  - Validator wiring active via `aiken/validators/pers.ak` -> `update.dispatch_from_tx`.
   - Branch-level and tx-aware RETURN_TO_SENDER tests are green; remaining cross-contract parity harness work is tracked under Epic E.
 
 ---

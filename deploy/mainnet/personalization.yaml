@@ -1,0 +1,40 @@
+schema_version: 2
+network: mainnet
+contract_slug: pers
+script_type: pers
+deployment_handle_slug: pers
+build:
+  target: aiken/validators/pers.ak
+  kind: validator
+  parameters: {}
+subhandle_strategy:
+  namespace: handlecontract
+  format: contract_slug_ordinal
+assigned_handles:
+  settings:
+    - pz_settings
+    - bg_policy_ids
+    - pfp_policy_ids
+  scripts:
+    - pz_contract_04
+ignored_settings: []
+settings:
+  type: personalization_settings
+  values:
+    pz_settings:
+      treasury_fee: 1500000
+      treasury_cred: 547a29ba7811096cae34197ce460b0d8b85c9916086e7fb15a267bbd
+      pz_min_fee: 1500000
+      pz_providers:
+        4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1: 208979b3688a0fd3d285e847c20aa1daf27cee02655b91efe7c8ed73
+      valid_contracts:
+        - d84e5bd5394b96cb61104439732fdf31fe272275f4a3235c105bc332
+        - 5cd18d995b79d3dab1d5190f84d73f3966610420254ac0379bbbfe1a
+        - 503d94a31d3e6c3592323962a263273e2557c749f35e36e5a2d69011
+        - 4cd9e0bd6c1639f6c61d46288bc2094112cefa216ff501d75ccdea41
+        - acbb75f1996b1f50a4a8719307695b6e280c6c3db0d50207c390b6dd
+      admin_creds:
+        - 4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1
+      settings_cred: 7e3a48aff0ddfadec229d13fe4ec544ff3cc4f044629d4e31e8359f0
+      grace_period: 3600000
+      subhandle_share_percent: 50

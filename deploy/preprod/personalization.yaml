@@ -1,0 +1,56 @@
+schema_version: 2
+network: preprod
+contract_slug: pers
+script_type: pers
+deployment_handle_slug: pers
+build:
+  target: aiken/validators/pers.ak
+  kind: validator
+  parameters: {}
+subhandle_strategy:
+  namespace: handlecontract
+  format: contract_slug_ordinal
+assigned_handles:
+  settings:
+    - pz_settings
+    - bg_policy_ids
+    - pfp_policy_ids
+  scripts:
+    - pz_contract_06
+ignored_settings: []
+settings:
+  type: personalization_settings
+  values:
+    pz_settings:
+      treasury_fee: 1500000
+      treasury_cred: 5f60cdb2017e4c10c7d792df1cc9fba73421eb1e54479bf5d98fad88
+      pz_min_fee: 1500000
+      pz_providers:
+        4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1: 7231d2c4dee18ab57f0330c5eec8c5aaaed95f9fba9613f48f33bcca
+      valid_contracts:
+        - 3ac54dace81eb69b2c974a1db2b89f2529fbf4da97c482decb32b6a5
+        - 7ee22d7c8a51827a13b66a42ac6a21960f2980d5aaec1c1e4d6ba0ec
+        - fea80d3ce9b568cec4e4488c6951d26a1a7631bd674a0918b568fd39
+        - afd0390e8d5665b52ad3fedafe75c561d38b755f8183508d9b5cd260
+        - fe44b5fde6d1a406985bdfb85b769e9093eb8136dd7acade9de5a946
+        - 9b85d225e2b8e71f123eecb10fae74a047021980768244202e2eecde
+        - ef4ff4e4b57985d36d168dbe99590d7a46bda9361f45baa60db076ed
+        - 06da5470c0b041bbe343dd9de33124d12ca6033dadd64a503f4ccfcb
+        - 935d0d463c7f6050e89275e92700e423bda20d9499c4318765bd9aa8
+        - 339e67fa06eb0f125849ef54657710d6c5003ea94abc7bfc2c236947
+        - 29e2ad20b4ea5629a26cd36c0499568d27daf768673223ffb35d84ff
+        - d84e5bd5394b96cb61104439732fdf31fe272275f4a3235c105bc332
+        - 503d94a31d3e6c3592323962a263273e2557c749f35e36e5a2d69011
+        - 5c1553ba76961696e608c8a34a16f2226d48e5537970ec4cfbb5a56b
+        - 1f6f44eb9f2a6a2d880f54b630f226c24b45f4bfde2edb26773ffd0a
+        - 335f00b0b8ec567cc8eb0ff19ce0f390e426ef9c773bdb2392c28d26
+        - 5807ab5e9de854bbbb301b42e29057604fdb3c7cf567d3c6177c6ece
+        - 8585b4892cec81880ed30d7e80fb0ffbe15c5224b76d2cc4e3dd040d
+      admin_creds:
+        - 151a82d0669a20bd77de1296eee5ef1259ce98ecd81bd7121825f9eb
+        - 1771c13e355e10a4203d8948af58d16bce2b28d5f8a02835b0b21811
+        - 5b6aacdf4314e8b9ead2a8dc217a121ab4b4d07342215a455ea2122f
+        - 4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1
+      settings_cred: 1822ab6f7488dd2eca47ad748d43812bb530eee7b0b6565f19f66feb
+      grace_period: 3600000
+      subhandle_share_percent: 50

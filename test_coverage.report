@@ -7,7 +7,7 @@ TOTAL_LINES_PCT=99.10
 TOTAL_BRANCHES_PCT=92.86
 STATUS=partial
 SOURCE_PATHS=compile.js,compileHelpers.js
-EXCLUDED_PATHS=contract.helios,testingCode.helios:validator-source-covered-by-scenario-harness-not-branch-measurable-via-node-built-in-coverage; tests/{tests.js,txTests.ts,fixtures.ts,contractTesting.js,testClasses.js}:scenario-harness-paths-rely-on-external-runtime-and-upstream-availability
+EXCLUDED_PATHS=pers.helios,testingCode.helios:validator-source-covered-by-scenario-harness-not-branch-measurable-via-node-built-in-coverage; tests/{tests.js,txTests.ts,fixtures.ts,contractTesting.js,testClasses.js}:scenario-harness-paths-rely-on-external-runtime-and-upstream-availability
 LANGUAGE_SUMMARY=nodejs-compile:lines=99.10,branches=92.86,tool=node-test-coverage,status=pass;nodejs-scenarios:lines=NA,branches=NA,tool=npm-test,status=na,note=scenario-tests-require-external-runtime-and-stable-node-module-resolution
 
 === RAW_OUTPUT_NPM_TEST ===

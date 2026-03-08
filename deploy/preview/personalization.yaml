@@ -1,0 +1,59 @@
+schema_version: 2
+network: preview
+contract_slug: pers
+script_type: pers
+deployment_handle_slug: pers
+build:
+  target: aiken/validators/pers.ak
+  kind: validator
+  parameters: {}
+subhandle_strategy:
+  namespace: handlecontract
+  format: contract_slug_ordinal
+assigned_handles:
+  settings:
+    - pz_settings
+    - bg_policy_ids
+    - pfp_policy_ids
+  scripts:
+    - pz_contract_06
+ignored_settings: []
+settings:
+  type: personalization_settings
+  values:
+    pz_settings:
+      treasury_fee: 1500000
+      treasury_cred: 195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66
+      pz_min_fee: 1500000
+      pz_providers:
+        4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1: 195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66
+        eb0a80e0dc6bc3cd5e95c249e02b0fe23f05ec039e754368a6f0e223: 195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66
+      valid_contracts:
+        - 3ac54dace81eb69b2c974a1db2b89f2529fbf4da97c482decb32b6a5
+        - 4fa022f3d197e8d49758744f44f216675b38d9e5ad798256f486cfb9
+        - d8aa5d9bbfca68b0b6f275a2589d621b9559dc0f4c03acca31de5c83
+        - 6a49f636f9818816184e72c64e2b226af403f26beb4db513ea1201c5
+        - bbbcbb120547a0393893bb531d754fa0317f51d1510b317f0489df1d
+        - f0616502edc86dd72dbedf79ca8e91984c60c995ad2e7431f9c1ac2f
+        - 8e3039633a3d26d65897557ece137a4b2fdca933ddf12ccc817985a3
+        - 7ee22d7c8a51827a13b66a42ac6a21960f2980d5aaec1c1e4d6ba0ec
+        - 8efe2e73a627ff5f28c9719fdfffda16c56d1ee13ea35e166c8b36b6
+        - a7a68632a80ea10ea9894b1d56a3bc12675efc2406a5db1d32e1fd0a
+        - 8fbd11ababc49d7f84e39ed9dac004c089c562b3502748042b35c25e
+        - 503d94a31d3e6c3592323962a263273e2557c749f35e36e5a2d69011
+        - f59809996302802e4c8ff5f487cdeb912a63f478762328bd70b83d88
+        - ec32923da9bb4c103201d318c1e36516a550fbd93757b45454727480
+        - 335f00b0b8ec567cc8eb0ff19ce0f390e426ef9c773bdb2392c28d26
+        - 70e69394ee67cafa30c1ebd94dcce6e372551a71be86cb22e34e6860
+        - f74fd988102ef091d7e2c1013bfecdcc348dec1b65140ca5a5774c3f
+        - 9b28e2330e69119a93fd502d35f907bd81b29f1c0a8f59fc33bd1945
+        - 5807ab5e9de854bbbb301b42e29057604fdb3c7cf567d3c6177c6ece
+        - 43051b091516485d6c824f949a250645c18c81ba7a03f2f68c8351e1
+        - 8585b4892cec81880ed30d7e80fb0ffbe15c5224b76d2cc4e3dd040d
+      admin_creds:
+        - 151a82d0669a20bd77de1296eee5ef1259ce98ecd81bd7121825f9eb
+        - 1771c13e355e10a4203d8948af58d16bce2b28d5f8a02835b0b21811
+        - 4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1
+      settings_cred: 300b1c7993d1e2f33007ca24a00c977d9b187d57e77e0b8fc6b344b8
+      grace_period: 3600000
+      subhandle_share_percent: 50
