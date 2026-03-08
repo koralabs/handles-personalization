@@ -12,10 +12,11 @@ const OBSERVED_ONLY_FIELDS = new Set([
   "observed_at",
   "last_deployed_tx_hash",
 ]);
-const PERSONALIZATION_SETTINGS_KEYS = [
+
+export const PERSONALIZATION_SETTINGS_HANDLES = [
+  "pz_settings",
   "bg_policy_ids",
   "pfp_policy_ids",
-  "pz_settings",
 ];
 
 export const loadDesiredDeploymentState = async (path) => {
@@ -51,8 +52,8 @@ export const parseDesiredDeploymentState = (
   }
 
   const schemaVersion = requireNumber(value, "schema_version", sourceLabel);
-  if (schemaVersion !== 1) {
-    throw new Error(`${sourceLabel} schema_version must equal 1`);
+  if (schemaVersion !== 2) {
+    throw new Error(`${sourceLabel} schema_version must equal 2`);
   }
 
   const network = requireString(value, "network", sourceLabel);
@@ -61,6 +62,11 @@ export const parseDesiredDeploymentState = (
   }
 
   const contractSlug = requireString(value, "contract_slug", sourceLabel);
+  const deploymentHandleSlug = requireShortHandleSlug(
+    value,
+    "deployment_handle_slug",
+    sourceLabel
+  );
   const build = requireObject(value, "build", sourceLabel);
   const buildTarget = requireString(build, "target", `${sourceLabel}.build`);
   const buildKind = requireString(build, "kind", `${sourceLabel}.build`);
@@ -86,17 +92,14 @@ export const parseDesiredDeploymentState = (
     );
   }
 
+  const assignedHandles = requireObject(value, "assigned_handles", sourceLabel);
   const settings = requireObject(value, "settings", sourceLabel);
-  const settingsType = requireString(settings, "type", `${sourceLabel}.settings`);
-  const settingsValues = parseSettingsValues(
-    requireObject(settings, "values", `${sourceLabel}.settings`),
-    `${sourceLabel}.settings.values`
-  );
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     network,
     contractSlug,
+    deploymentHandleSlug,
     build: {
       target: buildTarget,
       kind: buildKind,
@@ -106,20 +109,51 @@ export const parseDesiredDeploymentState = (
       namespace,
       format,
     },
+    assignedHandles: {
+      settings: requireStringArrayAllowEmpty(
+        assignedHandles,
+        "settings",
+        `${sourceLabel}.assigned_handles`
+      ),
+      scripts: requireStringArrayAllowEmpty(
+        assignedHandles,
+        "scripts",
+        `${sourceLabel}.assigned_handles`
+      ),
+    },
+    ignoredSettings: requireStringArrayAllowEmpty(
+      value,
+      "ignored_settings",
+      sourceLabel
+    ),
     settings: {
-      type: settingsType,
-      values: settingsValues,
+      type: requireString(settings, "type", `${sourceLabel}.settings`),
+      values: parseSettingsValues(
+        requireObject(settings, "values", `${sourceLabel}.settings`),
+        `${sourceLabel}.settings.values`
+      ),
     },
   };
 };
 
-const parseSettingsValues = (value, sourceLabel) => {
-  const normalized = {};
-  for (const key of PERSONALIZATION_SETTINGS_KEYS) {
-    normalized[key] = requireString(value, key, sourceLabel);
-  }
-  return normalized;
-};
+const parseSettingsValues = (value, sourceLabel) => ({
+  pz_settings: parsePzSettings(
+    requireObject(value, "pz_settings", sourceLabel),
+    `${sourceLabel}.pz_settings`
+  ),
+});
+
+const parsePzSettings = (value, sourceLabel) => ({
+  treasury_fee: requireNumber(value, "treasury_fee", sourceLabel),
+  treasury_cred: requireString(value, "treasury_cred", sourceLabel),
+  pz_min_fee: requireNumber(value, "pz_min_fee", sourceLabel),
+  pz_providers: requireStringRecord(value, "pz_providers", sourceLabel),
+  valid_contracts: requireStringArrayAllowEmpty(value, "valid_contracts", sourceLabel),
+  admin_creds: requireStringArrayAllowEmpty(value, "admin_creds", sourceLabel),
+  settings_cred: requireString(value, "settings_cred", sourceLabel),
+  grace_period: requireNumber(value, "grace_period", sourceLabel),
+  subhandle_share_percent: requireNumber(value, "subhandle_share_percent", sourceLabel),
+});
 
 const requireObject = (value, key, sourceLabel) => {
   const resolved = value[key];
@@ -145,4 +179,40 @@ const requireNumber = (value, key, sourceLabel) => {
   return resolved;
 };
 
-export { PERSONALIZATION_SETTINGS_KEYS };
+const requireStringRecord = (value, key, sourceLabel) => {
+  const resolved = requireObject(value, key, sourceLabel);
+  return Object.fromEntries(
+    Object.entries(resolved)
+      .map(([entryKey, entryValue]) => {
+        if (typeof entryValue !== "string" || entryValue.trim() === "") {
+          throw new Error(`${sourceLabel}.${key} must include string values`);
+        }
+        return [entryKey.trim(), entryValue.trim()];
+      })
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
+};
+
+const requireStringArrayAllowEmpty = (value, key, sourceLabel) => {
+  const resolved = value[key];
+  if (!Array.isArray(resolved)) {
+    throw new Error(`${sourceLabel} must include array field \`${key}\``);
+  }
+  return resolved.map((item) => {
+    if (typeof item !== "string" || item.trim() === "") {
+      throw new Error(`${sourceLabel} must include string array field \`${key}\``);
+    }
+    return item.trim();
+  });
+};
+
+const requireShortHandleSlug = (value, key, sourceLabel) => {
+  const resolved = requireString(value, key, sourceLabel);
+  if (resolved.length > 10) {
+    throw new Error(`${sourceLabel}.${key} must be 10 characters or fewer`);
+  }
+  if (resolved.includes("-") || resolved.includes("_")) {
+    throw new Error(`${sourceLabel}.${key} must not include separators`);
+  }
+  return resolved;
+};
