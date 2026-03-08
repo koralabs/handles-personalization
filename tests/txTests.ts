@@ -525,5 +525,5 @@ const runTests = async (file: string) => {
 }
 
 (async()=> {
-    await runTests('./contract.helios')
+    await runTests('./pers.helios')
 })(); 

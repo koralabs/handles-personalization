@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const contract = readFileSync("./contract.helios", "utf8");
+const contract = readFileSync("./pers.helios", "utf8");
 const legacyTests = readFileSync("./tests/tests.js", "utf8");
 const txTests = readFileSync("./tests/txTests.ts", "utf8");
 const allTests = `${legacyTests}\n${txTests}`;

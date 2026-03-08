@@ -1,7 +1,7 @@
 # Aiken Conversion Spec
 
 ## Objective
-Port `contract.helios` to Aiken while preserving the full behavioral intent documented in:
+Port `pers.helios` to Aiken while preserving the full behavioral intent documented in:
 - `docs/spec/spec.md`
 - `docs/spec/branch-coverage.md`
 
@@ -234,7 +234,7 @@ Current measured baselines:
 
 Current compiler workaround:
 - Aiken `v1.1.21` now compiles validator forwarding to tx-aware dispatch:
-  - `aiken/validators/personalization.ak` -> `update.dispatch_from_tx(...)`.
+  - `aiken/validators/pers.ak` -> `update.dispatch_from_tx(...)`.
 - Confirmed compiler-constraint baseline and repro probes are documented in:
   - `docs/spec/aiken-compiler-constraints.md`
   - `tests/aiken.compilerConstraints.test.js`

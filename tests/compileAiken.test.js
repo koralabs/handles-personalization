@@ -86,7 +86,7 @@ test("compileAiken.js creates Aiken blueprint artifact", async () => {
 
 test("personalization validator is wired through observer spend+withdraw flow", () => {
   const validatorSource = readFileSync(
-    path.resolve("./aiken/validators/personalization.ak"),
+    path.resolve("./aiken/validators/pers.ak"),
     "utf8"
   );
   const updateSource = readFileSync(

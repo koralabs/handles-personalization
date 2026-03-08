@@ -5,6 +5,11 @@ This repo owns the desired on-chain deployment state for personalization and vir
 
 The repo should define what ought to be live on `preview`, `preprod`, and `mainnet`. It should not be treated as the storage location for volatile live references such as current settings UTxO refs.
 
+Canonical slug naming for this repo follows the shared rule in `kora-bot/docs/spec/contract-deployment-pipeline.md`:
+- `<app><[ord|mnt|ref|roy]><[mpt]>`
+- `contract_slug`, `script_type`, and `deployment_handle_slug` must match
+- `old_script_type` is legacy migration-only
+
 ## State Model
 - Desired state lives in committed YAML files in this repo.
 - Observed live state is read from chain UTxOs and deployed script hashes.
@@ -23,10 +28,11 @@ Each file should contain stable desired state only:
 ```yaml
 schema_version: 2
 network: preview
-contract_slug: personalization
-deployment_handle_slug: persnlztn
+contract_slug: pers
+script_type: pers
+deployment_handle_slug: pers
 build:
-  target: validators/personalization.ak
+  target: aiken/validators/pers.ak
   kind: validator
 subhandle_strategy:
   namespace: handlecontract
@@ -50,6 +56,7 @@ Required stable fields:
 - `schema_version`
 - `network`
 - `contract_slug`
+- `script_type`
 - `deployment_handle_slug`
 - `build.target`
 - `build.kind`
@@ -100,7 +107,7 @@ Current rollout behavior:
 - push and pull request runs emit `deployment-plan.json`, `summary.json`, and `summary.md` for every committed `deploy/<network>/personalization.yaml`
 - manual dispatch may target one desired-state YAML via `desired_path`
 - no unsigned CBOR artifact is emitted yet for this repo; the workflow is currently informational-only until a repo-native tx builder is added
-- if the live script hash differs, the summary may mark the deployment handle step as manual review because the repo is still published behind the legacy `pz_contract_*` namespace rather than a fully auto-allocatable `*.handlecontract` sequence
+- if the live script hash differs, the summary may mark the deployment handle step as manual review because the repo is still published behind the legacy `pz_contract_*` namespace rather than a fully auto-allocatable `pers*.handlecontract` sequence
 
 The canonical observed-state artifact should be JSON and should include:
 
@@ -109,10 +116,10 @@ The canonical observed-state artifact should be JSON and should include:
   "schema_version": 1,
   "repo": "handles-personalization",
   "network": "preview",
-  "contract_slug": "personalization",
+  "contract_slug": "pers",
   "current_script_hash": "<hash>",
   "current_settings_utxo_ref": "<tx>#<ix>",
-  "current_subhandle": "persnlztn1@handlecontract",
+  "current_subhandle": "pers1@handlecontract",
   "settings": {
     "type": "personalization_settings",
     "values": {

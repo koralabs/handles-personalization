@@ -80,7 +80,7 @@ Without strict on-chain checks, personalization could corrupt metadata, bypass f
 - Rejects outputs containing Handle reference (`LBL_100`) or root settings (`LBL_001`) tokens.
 
 ## Functional Requirements
-- Compile `contract.helios` into deterministic artifacts under `./contract`.
+- Compile `pers.helios` into deterministic artifacts under `./contract`.
 - Maintain branch-traceable tests for all reachable assertion/error outcomes.
 - Keep docs synchronized with contract behavior and branch coverage matrix.
 

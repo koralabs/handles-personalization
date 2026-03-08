@@ -1,9 +1,10 @@
 schema_version: 2
 network: preprod
-contract_slug: personalization
-deployment_handle_slug: persnlztn
+contract_slug: pers
+script_type: pers
+deployment_handle_slug: pers
 build:
-  target: aiken/validators/personalization.ak
+  target: aiken/validators/pers.ak
   kind: validator
   parameters: {}
 subhandle_strategy:

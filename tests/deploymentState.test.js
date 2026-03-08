@@ -20,8 +20,10 @@ test("loads the preview desired deployment YAML fixture into the normalized shap
 
   assert.equal(state.schemaVersion, 2);
   assert.equal(state.network, "preview");
-  assert.equal(state.contractSlug, "personalization");
-  assert.equal(state.deploymentHandleSlug, "persnlztn");
+  assert.equal(state.contractSlug, "pers");
+  assert.equal(state.scriptType, "pers");
+  assert.equal(state.oldScriptType, null);
+  assert.equal(state.deploymentHandleSlug, "pers");
   assert.deepEqual(state.assignedHandles.settings, ["pz_settings", "bg_policy_ids", "pfp_policy_ids"]);
   assert.deepEqual(state.assignedHandles.scripts, ["pz_contract_06"]);
   assert.equal(state.settings.values.pz_settings.treasury_fee, 1500000);
@@ -56,10 +58,11 @@ test("rejects observed-only live fields inside desired deployment YAML", () => {
         `
 schema_version: 2
 network: preview
-contract_slug: personalization
-deployment_handle_slug: persnlztn
+contract_slug: pers
+script_type: pers
+deployment_handle_slug: pers
 build:
-  target: aiken/validators/personalization.ak
+  target: aiken/validators/pers.ak
   kind: validator
   parameters: {}
 subhandle_strategy:
@@ -99,10 +102,11 @@ test("rejects deployment handle slugs longer than 10 characters", () => {
         `
 schema_version: 2
 network: preview
-contract_slug: personalization
+contract_slug: pers
+script_type: pers
 deployment_handle_slug: personalization
 build:
-  target: aiken/validators/personalization.ak
+  target: aiken/validators/pers.ak
   kind: validator
   parameters: {}
 subhandle_strategy:

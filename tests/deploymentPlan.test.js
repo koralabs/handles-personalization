@@ -15,10 +15,12 @@ import {
 const desiredState = {
   schemaVersion: 2,
   network: "preview",
-  contractSlug: "personalization",
-  deploymentHandleSlug: "persnlztn",
+  contractSlug: "pers",
+  scriptType: "pers",
+  oldScriptType: null,
+  deploymentHandleSlug: "pers",
   build: {
-    target: "aiken/validators/personalization.ak",
+    target: "aiken/validators/pers.ak",
     kind: "validator",
     parameters: {},
   },
@@ -88,6 +90,7 @@ test("fetches live personalization deployment state from the Handles API", async
   const requests = [];
   const live = await fetchLivePersonalizationDeploymentState({
     network: "preview",
+    oldScriptType: desiredState.oldScriptType,
     userAgent: "codex-test",
     fetchFn: async (url, init) => {
       requests.push({ url: String(url), headers: init?.headers });
@@ -155,12 +158,12 @@ test("builds a script-and-settings deployment plan when both drift", () => {
         },
       },
     },
-    nextSubhandle: "persnlztn7@handlecontract",
+    nextSubhandle: "pers7@handlecontract",
   });
 
   assert.equal(plan.driftType, "script_hash_and_settings");
   assert.equal(plan.summaryJson.contracts[0].settings.diff_rows[0].handle_name, "pz_settings");
-  assert.equal(plan.summaryJson.contracts[0].subhandle.value, "persnlztn7@handlecontract");
+  assert.equal(plan.summaryJson.contracts[0].subhandle.value, "pers7@handlecontract");
 });
 
 test("marks script drift for manual review when no replacement handle is resolved", () => {
@@ -188,21 +191,40 @@ test("discovers the next available personalization SubHandle ordinal from the sh
   const requested = [];
   const subhandle = await discoverNextContractSubhandle({
     network: "preview",
-    deploymentHandleSlug: "persnlztn",
+    deploymentHandleSlug: "pers",
     namespace: "handlecontract",
+    currentSubhandle: "pers2@handlecontract",
     userAgent: "codex-test",
     fetchFn: async (url) => {
       requested.push(String(url));
       return new Response("{}", {
-        status: String(url).endsWith("persnlztn3%40handlecontract") ? 404 : 200,
+        status: String(url).endsWith("pers4%40handlecontract") ? 404 : 200,
       });
     },
   });
 
-  assert.equal(subhandle, "persnlztn3@handlecontract");
+  assert.equal(subhandle, "pers3@handlecontract");
   assert.deepEqual(requested, [
-    "https://preview.api.handle.me/handles/persnlztn1%40handlecontract",
-    "https://preview.api.handle.me/handles/persnlztn2%40handlecontract",
-    "https://preview.api.handle.me/handles/persnlztn3%40handlecontract",
+    "https://preview.api.handle.me/handles/pers1%40handlecontract",
+    "https://preview.api.handle.me/handles/pers2%40handlecontract",
+    "https://preview.api.handle.me/handles/pers3%40handlecontract",
+    "https://preview.api.handle.me/handles/pers4%40handlecontract",
   ]);
+});
+
+test("reuses an already minted personalization replacement handle", async () => {
+  // Feature: planner reruns should keep the first minted replacement ordinal instead of allocating a newer one.
+  // Failure mode: repeated workflow runs would create extra `@handlecontract` sessions before any deployment is signed.
+  const subhandle = await discoverNextContractSubhandle({
+    network: "preview",
+    deploymentHandleSlug: "pers",
+    namespace: "handlecontract",
+    currentSubhandle: "pz_contract_06",
+    userAgent: "codex-test",
+    fetchFn: async (url) => new Response("{}", {
+      status: String(url).endsWith("pers2%40handlecontract") ? 404 : 200,
+    }),
+  });
+
+  assert.equal(subhandle, "pers1@handlecontract");
 });

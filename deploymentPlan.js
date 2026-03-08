@@ -62,12 +62,16 @@ export const decodePzSettingsDatum = (datumHex) => {
 
 export const fetchLivePersonalizationDeploymentState = async ({
   network,
+  oldScriptType = null,
   userAgent,
   fetchFn = fetch,
 }) => {
   const baseUrl = handlesApiBaseUrlForNetwork(network);
   const headers = { "User-Agent": userAgent };
-  const scriptResponse = await fetchFn(`${baseUrl}/scripts?latest=true`, { headers });
+  const scriptUrl = oldScriptType
+    ? `${baseUrl}/scripts?latest=true&type=${encodeURIComponent(oldScriptType)}`
+    : `${baseUrl}/scripts?latest=true`;
+  const scriptResponse = await fetchFn(scriptUrl, { headers });
   if (!scriptResponse.ok) {
     throw new Error(`failed to load live personalization script: HTTP ${scriptResponse.status}`);
   }
@@ -115,14 +119,29 @@ export const fetchLivePersonalizationDeploymentState = async ({
   };
 };
 
+const parseHandleOrdinal = ({ candidate, deploymentHandleSlug, namespace }) => {
+  const prefix = `${deploymentHandleSlug}`;
+  const suffix = `@${namespace}`;
+  if (!candidate.startsWith(prefix) || !candidate.endsWith(suffix)) {
+    return null;
+  }
+  const ordinalText = candidate.slice(prefix.length, candidate.length - suffix.length);
+  if (!/^[0-9]+$/.test(ordinalText)) {
+    return null;
+  }
+  return Number.parseInt(ordinalText, 10);
+};
+
 export const discoverNextContractSubhandle = async ({
   network,
   deploymentHandleSlug,
   namespace,
+  currentSubhandle = null,
   userAgent,
   fetchFn = fetch,
 }) => {
   const baseUrl = handlesApiBaseUrlForNetwork(network);
+  const existingOrdinals = [];
   for (let ordinal = 1; ordinal < 10000; ordinal += 1) {
     const candidate = `${deploymentHandleSlug}${ordinal}@${namespace}`;
     const response = await fetchFn(
@@ -130,11 +149,18 @@ export const discoverNextContractSubhandle = async ({
       { headers: { "User-Agent": userAgent } }
     );
     if (response.status === 404) {
-      return candidate;
+      const currentOrdinal = currentSubhandle
+        ? parseHandleOrdinal({ candidate: currentSubhandle, deploymentHandleSlug, namespace }) || 0
+        : 0;
+      const existingReplacement = existingOrdinals.find((existingOrdinal) => existingOrdinal > currentOrdinal);
+      return existingReplacement
+        ? `${deploymentHandleSlug}${existingReplacement}@${namespace}`
+        : candidate;
     }
     if (!response.ok) {
       throw new Error(`failed to probe SubHandle ${candidate}: HTTP ${response.status}`);
     }
+    existingOrdinals.push(ordinal);
   }
   throw new Error(`no available SubHandle found for ${deploymentHandleSlug}@${namespace}`);
 };

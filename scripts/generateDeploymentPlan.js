@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   buildExpectedPersonalizationScriptHash,
   buildPersonalizationDeploymentPlan,
+  discoverNextContractSubhandle,
   fetchLivePersonalizationDeploymentState,
 } from "../deploymentPlan.js";
 import { loadDesiredDeploymentState } from "../deploymentState.js";
@@ -36,13 +37,22 @@ const main = async () => {
   const expectedScriptHash = buildExpectedPersonalizationScriptHash();
   const live = await fetchLivePersonalizationDeploymentState({
     network: desired.network,
+    oldScriptType: desired.oldScriptType,
     userAgent,
   });
   const plan = buildPersonalizationDeploymentPlan({
     desired,
     expectedScriptHash,
     live,
-    nextSubhandle: null,
+    nextSubhandle: live.currentScriptHash === expectedScriptHash
+      ? null
+      : await discoverNextContractSubhandle({
+          network: desired.network,
+          deploymentHandleSlug: desired.deploymentHandleSlug,
+          namespace: desired.subhandleStrategy.namespace,
+          currentSubhandle: live.currentSubhandle,
+          userAgent,
+        }),
   });
 
   await fs.mkdir(artifactsDir, { recursive: true });

@@ -5,7 +5,7 @@ import { BackgroundDefaults, Datum, PzRedeemer, PzSettings, ScriptContext,
     ApprovedPolicyIds, handle, pz_provider_bytes, pfp_policy, MigrateRedeemer, script_tx_hash, 
     owner_bytes, bg_policy, TxInput, TxOutput, handles_tx_hash, ReturnRedeemer, handles_policy } from './testClasses.js'
 
-let contract = fs.readFileSync("./contract.helios").toString();
+let contract = fs.readFileSync("./pers.helios").toString();
 //contract = contract.replace(/ctx.get_current_validator_hash\(\)/g, 'ValidatorHash::new(#01234567890123456789012345678901234567890123456789000001)');
 tester.init();
 const optimized = false;

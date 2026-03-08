@@ -61,12 +61,18 @@ export const parseDesiredDeploymentState = (
     throw new Error(`${sourceLabel} network must be one of preview, preprod, mainnet`);
   }
 
-  const contractSlug = requireString(value, "contract_slug", sourceLabel);
+  const contractSlug = requireShortHandleSlug(value, "contract_slug", sourceLabel);
+  const scriptType = requireShortHandleSlug(value, "script_type", sourceLabel);
   const deploymentHandleSlug = requireShortHandleSlug(
     value,
     "deployment_handle_slug",
     sourceLabel
   );
+  if (contractSlug !== scriptType || scriptType !== deploymentHandleSlug) {
+    throw new Error(
+      `${sourceLabel} contract_slug, script_type, and deployment_handle_slug must match`
+    );
+  }
   const build = requireObject(value, "build", sourceLabel);
   const buildTarget = requireString(build, "target", `${sourceLabel}.build`);
   const buildKind = requireString(build, "kind", `${sourceLabel}.build`);
@@ -99,6 +105,8 @@ export const parseDesiredDeploymentState = (
     schemaVersion: 2,
     network,
     contractSlug,
+    scriptType,
+    oldScriptType: requireOptionalScriptType(value, "old_script_type", sourceLabel),
     deploymentHandleSlug,
     build: {
       target: buildTarget,
@@ -215,4 +223,15 @@ const requireShortHandleSlug = (value, key, sourceLabel) => {
     throw new Error(`${sourceLabel}.${key} must not include separators`);
   }
   return resolved;
+};
+
+const requireOptionalScriptType = (value, key, sourceLabel) => {
+  const resolved = value[key];
+  if (resolved === undefined || resolved === null) {
+    return null;
+  }
+  if (typeof resolved !== "string" || resolved.trim() === "") {
+    throw new Error(`${sourceLabel} must include string field \`${key}\``);
+  }
+  return resolved.trim();
 };
