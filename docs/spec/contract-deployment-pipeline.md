@@ -78,6 +78,12 @@ The deployment workflow for this repo should emit:
 - one or more `tx-XX.cbor` artifacts
 - optional observed-state snapshot artifacts for debugging and audit
 
+Current rollout behavior:
+- push and pull request runs emit `deployment-plan.json`, `summary.json`, and `summary.md` for every committed `deploy/<network>/personalization.yaml`
+- manual dispatch may target one desired-state YAML via `desired_path`
+- no unsigned CBOR artifact is emitted yet for this repo; the workflow is currently informational-only until a repo-native tx builder is added
+- if the live script hash differs, the summary may mark the deployment handle step as manual review because the repo is still published behind the legacy `pz_contract_*` namespace rather than a fully auto-allocatable `*.handlecontract` sequence
+
 The canonical observed-state artifact should be JSON and should include:
 
 ```json
