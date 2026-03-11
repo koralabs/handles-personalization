@@ -51,6 +51,6 @@ settings:
         - 1771c13e355e10a4203d8948af58d16bce2b28d5f8a02835b0b21811
         - 5b6aacdf4314e8b9ead2a8dc217a121ab4b4d07342215a455ea2122f
         - 4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1
-      settings_cred: 1822ab6f7488dd2eca47ad748d43812bb530eee7b0b6565f19f66feb
+      settings_cred: e0a2120c0968393f54e9fda8e277ed61e322ff0581713f62335b2b4c
       grace_period: 3600000
       subhandle_share_percent: 50
