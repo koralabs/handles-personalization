@@ -1,0 +1,6 @@
+{
+  "wallet": "pz_handles",
+  "network": "preview",
+  "payment_key_hash": "300b1c7993d1e2f33007ca24a00c977d9b187d57e77e0b8fc6b344b8",
+  "native_script_cbor_hex": "830301828200581c151a82d0669a20bd77de1296eee5ef1259ce98ecd81bd7121825f9eb8200581cc05bb9023df66691acf03c429b583b66b7cbea8a7a7e28b58dca5193"
+}

@@ -4,6 +4,7 @@
 - [Data Models](./data-models.md)
 - [Branch Coverage Matrix](./branch-coverage.md)
 - [Contract Deployment Pipeline](./contract-deployment-pipeline.md)
+- [Contract Handle Reassignment Runbook](./contract-handle-reassignment-runbook.md)
 - [Aiken Conversion Spec](./aiken-conversion-spec.md)
 - [Aiken Conversion Task List](./aiken-conversion-task-list.md)
 - [Aiken Cost Baseline](./aiken-cost-baseline.md)

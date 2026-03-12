@@ -1,0 +1,13 @@
+{
+  "network": "preview",
+  "address": "addr_test1xp5gahy5jpx99p4vtnq2mfsmnjz84rfrqxyznqewp62mzy2tqcwlsq95pxz027092fzsjgpfzzaunne0qa9glmj38dfqafd0cf",
+  "payment_credential_hash": "688edc94904c5286ac5cc0ada61b9c847a8d23018829832e0e95b111",
+  "stake_credential_hash": "4b061df800b40984f579e5524509202910bbc9cf2f074a8fee513b52",
+  "usage": "Payment-side native script witness used for preview wallet UTxO split and contract-handle reassignment transactions.",
+  "native_script_cbor_hex": "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b8200581cd9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d",
+  "notes": [
+    "This is the payment-side script only.",
+    "Do not assume the stake-side script must be attached for the flows documented in the reassignment runbook.",
+    "The current temporary working copy also exists under tasks/tmp/.../payment_script_only.json, but this file is the stable tracked reference."
+  ]
+}
