@@ -9,3 +9,4 @@ test.js
 **.env
 # K.O.R.A executor logs
 .kora/executor-logs/
+tasks/tmp

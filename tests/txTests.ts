@@ -112,6 +112,27 @@ const runTests = async (file: string) => {
         return await fixture.initialize();
     }));
 
+    await tester.test("PERSONALIZE", "subhandle pz with rich fields and cip25 pfp", new Test(program, async (hash) => {
+        const fixture = new PzFixture(hash);
+        fixture.handleName = 'dev@golddy';
+        fixture.newDesigner.bg_color = "0x31bc23";
+        fixture.newDesigner.bg_border_color = "0x0a1fd3";
+        fixture.newDesigner.qr_link = "https://handle.me/live-cip30";
+        fixture.newDesigner.socials = ["website"];
+        (fixture.newCip68Datum.constructor_0[2] as any)["pz_enabled"] = 1;
+        (fixture.newCip68Datum.constructor_0[2] as any)["socials"] = "ipfs://rich-socials";
+        (fixture.newCip68Datum.constructor_0[2] as any)["pfp_asset"] =
+            "0xf0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9c706670706670";
+        (fixture.pzRedeemer.constructor_0[0] as any) = [
+          { constructor_1: [] },
+          fixture.handleName,
+        ];
+        (fixture.pzRedeemer.constructor_0[1] as any) = 'golddy';
+        (fixture.oldCip68Datum.constructor_0[0] as any)['name'] = `$${fixture.handleName}`;
+        (fixture.newCip68Datum.constructor_0[0] as any)['name'] = `$${fixture.handleName}`;
+        return await fixture.initialize();
+    }));
+
     await tester.test("PERSONALIZE", "virtual subhandle pz", new Test(program, async (hash) => {
         const fixture = new PzFixture(hash);
         fixture.isVirtual = true;

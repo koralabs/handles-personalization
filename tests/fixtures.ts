@@ -66,6 +66,18 @@ export const defaultPzSettings = [
 export const defaultAssigneeHash: string = '4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e2';
 export const defaultResolvedAddress = helios.Address.fromHash(helios.PubKeyHash.fromHex(defaultAssigneeHash));
 
+const parseAssetFromDatumHex = (assetHex?: string) => {
+    const normalized = `${assetHex || ''}`.replace(/^0x/i, '');
+    if (!normalized || normalized.length < 57) {
+        return undefined;
+    }
+
+    return {
+        policyId: normalized.slice(0, 56),
+        assetName: normalized.slice(56)
+    };
+};
+
 // The default fixture tests happy path with most features/lines of code executed
 export class PzFixture extends Fixture {
     isVirtual = false;
@@ -308,6 +320,33 @@ export class PzFixture extends Fixture {
         this.rootSettings[7] = `0x${(await getAddressAtDerivation(1)).toHex()}`
         this.rootSettingsCbor = await convertJsontoCbor(this.rootSettings);
         this.redeemer = helios.UplcData.fromCbor(this.pzRedeemerCbor);
+        const personalizationExtra = this.newCip68Datum.constructor_0[2] as Record<string, string | undefined>;
+        const bgAsset = parseAssetFromDatumHex(personalizationExtra.bg_asset);
+        const pfpAsset = parseAssetFromDatumHex(personalizationExtra.pfp_asset);
+        const pzAssets = [
+            [`${AssetNameLabel.LBL_222}${Buffer.from(this.handleName).toString('hex')}`, 1n] as [string, bigint]
+        ];
+        if (bgAsset) {
+            pzAssets.push([bgAsset.assetName, 1n]);
+        }
+        if (pfpAsset) {
+            pzAssets.push([pfpAsset.assetName, 1n]);
+        }
+        const lockedInputAssets = [
+            [
+                POLICY_ID,
+                [
+                    [
+                        `${this.isVirtual ? AssetNameLabel.LBL_000 : AssetNameLabel.LBL_100}${Buffer.from(this.handleName).toString('hex')}`,
+                        1
+                    ],
+                    [`${AssetNameLabel.LBL_222}${Buffer.from(this.handleName).toString('hex')}`, 1]
+                ]
+            ],
+            ...(bgAsset ? [[bgAsset.policyId, [[bgAsset.assetName, 1]]]] : []),
+            ...(pfpAsset ? [[pfpAsset.policyId, [[pfpAsset.assetName, 1]]]] : [])
+        ];
+
         this.inputs = [            
             new helios.TxInput( // money & collateral
                 new helios.TxOutputId(getNewFakeUtxoId()),
@@ -317,37 +356,17 @@ export class PzFixture extends Fixture {
                 new helios.TxOutputId(getNewFakeUtxoId()),
                 new helios.TxOutput(
                     this.scriptAddress,
-                    new helios.Value(BigInt(lovelace), new helios.Assets([[POLICY_ID, [
-                        [`${this.isVirtual ? AssetNameLabel.LBL_000 : AssetNameLabel.LBL_100}${Buffer.from(this.handleName).toString('hex')}`, 1],
-                        [`${AssetNameLabel.LBL_222}${Buffer.from("bg").toString('hex')}`, 1],  
-                        [`${AssetNameLabel.LBL_222}${Buffer.from(this.handleName).toString('hex')}`, 1]
-                    ]],[PFP_POLICY_ID, [
-                        [`${AssetNameLabel.LBL_222}${Buffer.from("pfp").toString('hex')}`, 1]
-                    ]]])),
+                    new helios.Value(BigInt(lovelace), new helios.Assets(lockedInputAssets)),
                     helios.Datum.inline(helios.UplcData.fromCbor(this.oldCip68DatumCbor))
             ))
         ];
         this.refInputs = [
-            new helios.TxInput( // bg_datum
-                new helios.TxOutputId(getNewFakeUtxoId()),
-                new helios.TxOutput(
-                    await getAddressAtDerivation(0),
-                    new helios.Value(BigInt(1), new helios.Assets([[BG_POLICY_ID, [[`${AssetNameLabel.LBL_100}${Buffer.from("bg").toString('hex')}`, 1]]]])),
-                    helios.Datum.inline(helios.UplcData.fromCbor(this.bgDatumCbor))
-            )),
             new helios.TxInput( // required_asset
                 new helios.TxOutputId(getNewFakeUtxoId()),
                 new helios.TxOutput(
                     await getAddressAtDerivation(0),
                     new helios.Value(BigInt(1), new helios.Assets([[PFP_POLICY_ID, [[`${AssetNameLabel.LBL_222}${Buffer.from("pfp").toString('hex')}`, 1]]]])),
                     helios.Datum.inline(helios.UplcData.fromCbor(this.requiredAssetCbor))
-            )),
-            new helios.TxInput( // pfp_datum
-                new helios.TxOutputId(getNewFakeUtxoId()),
-                new helios.TxOutput(
-                    await getAddressAtDerivation(0),
-                    new helios.Value(BigInt(1), new helios.Assets([[PFP_POLICY_ID, [[`${AssetNameLabel.LBL_100}${Buffer.from("pfp").toString('hex')}`, 1]]]])),
-                    helios.Datum.inline(helios.UplcData.fromCbor(this.pfpDatumCbor))
             )),
             new helios.TxInput( // pz_settings
                 new helios.TxOutputId(getNewFakeUtxoId()),
@@ -371,6 +390,30 @@ export class PzFixture extends Fixture {
                     helios.Datum.inline(helios.UplcData.fromCbor(this.pfpApproversCbor))
             ))
         ];
+        if (bgAsset && (bgAsset.assetName.startsWith(AssetNameLabel.LBL_222) || bgAsset.assetName.startsWith(AssetNameLabel.LBL_444))) {
+            this.refInputs.unshift(
+                new helios.TxInput( // bg_datum
+                    new helios.TxOutputId(getNewFakeUtxoId()),
+                    new helios.TxOutput(
+                        await getAddressAtDerivation(0),
+                        new helios.Value(BigInt(1), new helios.Assets([[bgAsset.policyId, [[`${AssetNameLabel.LBL_100}${bgAsset.assetName.slice(8)}`, 1]]]])),
+                        helios.Datum.inline(helios.UplcData.fromCbor(this.bgDatumCbor))
+                ))
+            );
+        }
+        if (pfpAsset && (pfpAsset.assetName.startsWith(AssetNameLabel.LBL_222) || pfpAsset.assetName.startsWith(AssetNameLabel.LBL_444))) {
+            this.refInputs.splice(
+                1,
+                0,
+                new helios.TxInput( // pfp_datum
+                    new helios.TxOutputId(getNewFakeUtxoId()),
+                    new helios.TxOutput(
+                        await getAddressAtDerivation(0),
+                        new helios.Value(BigInt(1), new helios.Assets([[pfpAsset.policyId, [[`${AssetNameLabel.LBL_100}${pfpAsset.assetName.slice(8)}`, 1]]]])),
+                        helios.Datum.inline(helios.UplcData.fromCbor(this.pfpDatumCbor))
+                ))
+            );
+        }
         if (rootHandleName && this.rootSettingsCbor)
             this.refInputs.push(
                 new helios.TxInput( // root settings
@@ -381,6 +424,43 @@ export class PzFixture extends Fixture {
                         helios.Datum.inline(helios.UplcData.fromCbor(this.rootSettingsCbor))
                 ))
             );
+        const orderedRefInputs = [...this.refInputs].sort((left, right) => {
+            const leftHash = left.outputId.txId.hex;
+            const rightHash = right.outputId.txId.hex;
+            const hashComparison = Buffer.from(leftHash, 'hex').compare(Buffer.from(rightHash, 'hex'));
+            if (hashComparison !== 0) {
+                return hashComparison;
+            }
+
+            return left.outputId.utxoIdx - right.outputId.utxoIdx;
+        });
+        const refInputIndex = (predicate: (input: helios.TxInput) => boolean) => {
+            const index = orderedRefInputs.findIndex(predicate);
+            return index === -1 ? 0 : index;
+        };
+        const hasAsset = (input: helios.TxInput, policyId: string, assetName: string) =>
+            input.output.value.assets.has(helios.MintingPolicyHash.fromHex(policyId), helios.hexToBytes(assetName));
+        (this.pzRedeemer.constructor_0[2] as any) = [
+            refInputIndex((input) => hasAsset(input, POLICY_ID, `${AssetNameLabel.LBL_222}${Buffer.from('pfp_policy_ids').toString('hex')}`)),
+            refInputIndex((input) => hasAsset(input, POLICY_ID, `${AssetNameLabel.LBL_222}${Buffer.from('bg_policy_ids').toString('hex')}`)),
+            refInputIndex(
+                (input) =>
+                    Boolean(pfpAsset) &&
+                    (pfpAsset.assetName.startsWith(AssetNameLabel.LBL_222) || pfpAsset.assetName.startsWith(AssetNameLabel.LBL_444)) &&
+                    hasAsset(input, pfpAsset.policyId, `${AssetNameLabel.LBL_100}${pfpAsset.assetName.slice(8)}`)
+            ),
+            refInputIndex(
+                (input) =>
+                    Boolean(bgAsset) &&
+                    (bgAsset.assetName.startsWith(AssetNameLabel.LBL_222) || bgAsset.assetName.startsWith(AssetNameLabel.LBL_444)) &&
+                    hasAsset(input, bgAsset.policyId, `${AssetNameLabel.LBL_100}${bgAsset.assetName.slice(8)}`)
+            ),
+            refInputIndex((input) => hasAsset(input, PFP_POLICY_ID, `${AssetNameLabel.LBL_222}${Buffer.from("pfp").toString('hex')}`)),
+            refInputIndex((input) => hasAsset(input, POLICY_ID, `${AssetNameLabel.LBL_001}${Buffer.from(rootHandleName).toString('hex')}`)),
+            0,
+            1,
+            3
+        ];
         this.outputs = [
             new helios.TxOutput( // 100 Reference Token
                 this.latestScriptAddress,
@@ -389,12 +469,20 @@ export class PzFixture extends Fixture {
             ),
             new helios.TxOutput( // Pz Assets
                 await getAddressAtDerivation(0),
-                new helios.Value(BigInt(1), new helios.Assets([[POLICY_ID, [
-                    [`${AssetNameLabel.LBL_222}${Buffer.from("bg").toString('hex')}`, BigInt(1)],
-                    [`${AssetNameLabel.LBL_222}${Buffer.from(this.handleName).toString('hex')}`, BigInt(1)]
-                ]],[PFP_POLICY_ID, [
-                    [`${AssetNameLabel.LBL_222}${Buffer.from("pfp").toString('hex')}`, BigInt(1)]
-                ]]]))
+                new helios.Value(
+                    BigInt(1),
+                    new helios.Assets(
+                        [
+                            [POLICY_ID, pzAssets.filter(([assetName]) => assetName.startsWith(AssetNameLabel.LBL_222))],
+                            ...(bgAsset && bgAsset.policyId !== POLICY_ID
+                                ? [[bgAsset.policyId, [[bgAsset.assetName, BigInt(1)]]]]
+                                : []),
+                            ...(pfpAsset && pfpAsset.policyId !== POLICY_ID
+                                ? [[pfpAsset.policyId, [[pfpAsset.assetName, BigInt(1)]]]]
+                                : [])
+                        ].filter(([, assets]) => assets.length > 0)
+                    )
+                )
             ),
             new helios.TxOutput( // Treasury Fee
                 helios.Address.fromHash(helios.ValidatorHash.fromHex('01234567890123456789012345678901234567890123456789000002')),
