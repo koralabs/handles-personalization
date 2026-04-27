@@ -11,6 +11,7 @@ import {
   fetchNetworkParameters,
 } from "./deploymentTx.js";
 import { PERSONALIZATION_SETTINGS_HANDLES } from "./deploymentState.js";
+import { buildPatchedSettingsDatum } from "./buildPatchedSettingsDatum.js";
 
 const REPO_NAME = "handles-personalization";
 const COMPARABLE_SETTINGS_HANDLE = "pz_settings";
@@ -119,13 +120,19 @@ export const fetchLivePersonalizationDeploymentState = async ({
     );
   }
 
+  const pzSettingsDatumHex = (await datumResponse.text()).trim();
+
   return {
     currentScriptHash,
     currentSubhandle: String(scriptPayload.handle ?? "").trim() || null,
     currentSettingsUtxoRefs,
     settings: {
-      pz_settings: decodePzSettingsDatum((await datumResponse.text()).trim()),
+      pz_settings: decodePzSettingsDatum(pzSettingsDatumHex),
     },
+    // Raw datum bytes for the comparable settings handle, used by the
+    // settings-only artifact path so unchanged fields preserve their CBOR
+    // representation rather than being re-encoded from the JSON shape.
+    pzSettingsDatumHex,
   };
 };
 
@@ -311,6 +318,40 @@ export const buildPersonalizationDeploymentPlan = ({
       contracts: [expectedPostDeployState],
       transaction_order: [],
     },
+  };
+};
+
+// Settings-only artifact: re-encodes the comparable settings datum with
+// patches from the desired YAML, leaving every unchanged field's bytes
+// alone. Returns the new datum hex and a human-readable change log so the
+// multisig signer can review what's being changed before producing a
+// signed tx (existing scripts/build_pz_settings_cred_refresh.js shape).
+export const buildPersonalizationSettingsUpdateArtifact = ({
+  live,
+  desired,
+  buildPatchedDatumFn = buildPatchedSettingsDatum,
+}) => {
+  if (!live?.pzSettingsDatumHex) {
+    throw new Error(
+      "settings-only artifact requires live.pzSettingsDatumHex; ensure fetchLivePersonalizationDeploymentState ran"
+    );
+  }
+  const desiredPzSettings =
+    desired?.settings?.values?.pz_settings ?? desired?.settings?.values?.[COMPARABLE_SETTINGS_HANDLE];
+  if (!desiredPzSettings) {
+    throw new Error(`desired settings.values.${COMPARABLE_SETTINGS_HANDLE} missing from YAML`);
+  }
+  const { newDatumHex, changeLog } = buildPatchedDatumFn(
+    live.pzSettingsDatumHex,
+    desiredPzSettings
+  );
+  return {
+    handleName: COMPARABLE_SETTINGS_HANDLE,
+    handleUtxoRef: live.currentSettingsUtxoRefs?.[COMPARABLE_SETTINGS_HANDLE] ?? null,
+    oldDatumHex: live.pzSettingsDatumHex,
+    newDatumHex,
+    newDatumCborBytes: Buffer.from(newDatumHex, "hex"),
+    changeLog,
   };
 };
 

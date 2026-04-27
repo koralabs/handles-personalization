@@ -3,6 +3,7 @@ import path from "node:path";
 
 import {
   buildPersonalizationDeploymentTxArtifact,
+  buildPersonalizationSettingsUpdateArtifact,
   buildExpectedPersonalizationScriptHash,
   buildPersonalizationDeploymentPlan,
   discoverNextContractSubhandle,
@@ -112,6 +113,40 @@ const main = async () => {
     );
   };
   await writePlanFiles();
+
+  // Settings-only artifact: emits a canonical patched datum for the multisig
+  // signer to feed into the existing settings-update tooling. Independent of
+  // --change-address / --cbor-utxos-json (those are for the script-deployment
+  // tx; the settings update is signed by the native script multisig that
+  // already controls the settings UTxO, no deployer wallet involved).
+  if (plan.driftType === "settings_only" || plan.driftType === "script_hash_and_settings") {
+    const settingsArtifact = buildPersonalizationSettingsUpdateArtifact({ live, desired });
+    const datumFile = "patched-pz-settings.inline-datum.cbor";
+    const summaryFile = "settings-update-summary.md";
+    await fs.writeFile(path.join(artifactsDir, datumFile), settingsArtifact.newDatumCborBytes);
+    await fs.writeFile(
+      path.join(artifactsDir, summaryFile),
+      [
+        `# Settings Update — ${settingsArtifact.handleName}`,
+        "",
+        `- Handle UTxO: \`${settingsArtifact.handleUtxoRef ?? "(unknown)"}\``,
+        `- Old datum: \`${settingsArtifact.oldDatumHex.slice(0, 32)}...\` (${settingsArtifact.oldDatumHex.length / 2} bytes)`,
+        `- New datum: \`${settingsArtifact.newDatumHex.slice(0, 32)}...\` (${settingsArtifact.newDatumHex.length / 2} bytes)`,
+        "",
+        "## Field changes",
+        ...(settingsArtifact.changeLog.length > 0
+          ? settingsArtifact.changeLog.map((line) => `- ${line}`)
+          : ["- No changes (live datum already matches desired YAML)."]),
+        "",
+        "## Next steps",
+        `1. Verify the diff above against the desired state in \`${path.basename(desiredPath)}\`.`,
+        `2. Feed \`${datumFile}\` into the multisig signing tool (cardano-cli build-raw + native-script witness).`,
+        `3. Submit; verify the resulting datum matches by running this workflow again — the diff should report no changes.`,
+      ].join("\n") + "\n"
+    );
+    generatedArtifacts.push(datumFile, summaryFile);
+    await writePlanFiles();
+  }
 
   if (
     changeAddress &&

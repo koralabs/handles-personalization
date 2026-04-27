@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   buildPersonalizationDeploymentTxArtifact,
+  buildPersonalizationSettingsUpdateArtifact,
   buildExpectedPersonalizationScriptHash,
   buildPersonalizationDeploymentPlan,
   decodePzSettingsDatum,
@@ -13,6 +14,7 @@ import {
   fetchLivePersonalizationDeploymentState,
   renderTransactionOrderMarkdown,
 } from "../deploymentPlan.js";
+import cbor from "cbor";
 
 const desiredState = {
   schemaVersion: 2,
@@ -305,4 +307,127 @@ test("renders transaction order markdown from generated artifacts", () => {
   assert.deepEqual(renderTransactionOrderMarkdown([]), [
     "- Planner can emit `tx-XX.cbor` artifacts when `--change-address` and `--cbor-utxos-json` are supplied.",
   ]);
+});
+
+test("settings update artifact emits a patched datum and a change log when valid_contracts grows", () => {
+  // Feature: settings-only drift produces a canonical patched-datum.cbor + change log so the multisig signer can review and sign.
+  // Failure mode: ops would have to compute the patched datum manually for every settings change.
+  const desired = {
+    ...desiredState,
+    settings: {
+      ...desiredState.settings,
+      values: {
+        pz_settings: {
+          ...desiredState.settings.values.pz_settings,
+          valid_contracts: [
+            ...desiredState.settings.values.pz_settings.valid_contracts,
+            "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff",
+          ],
+        },
+      },
+    },
+  };
+  const live = {
+    pzSettingsDatumHex: previewDatum,
+    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
+  };
+  const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired });
+
+  assert.equal(artifact.handleName, "pz_settings");
+  assert.equal(artifact.handleUtxoRef, "abcd#0");
+  assert.equal(artifact.oldDatumHex, previewDatum);
+  assert.notEqual(artifact.newDatumHex, previewDatum);
+  assert.equal(artifact.changeLog.length, 1);
+  assert.match(artifact.changeLog[0], /^valid_contracts: 1 -> 2/);
+
+  // Patched datum decodes to the desired list shape.
+  const fields = cbor.decodeFirstSync(artifact.newDatumCborBytes);
+  assert.equal(fields[4].length, 2);
+  assert.equal(
+    Buffer.from(fields[4][1]).toString("hex"),
+    "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff"
+  );
+});
+
+test("settings update artifact reports an empty change log when desired matches live", () => {
+  // Feature: re-running the planner against a network already at the desired state must produce a no-op artifact, not a phantom diff.
+  // Failure mode: ops would re-sign and re-submit identical settings updates indefinitely.
+  const live = {
+    pzSettingsDatumHex: previewDatum,
+    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
+  };
+  const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired: desiredState });
+
+  assert.deepEqual(artifact.changeLog, []);
+  assert.equal(artifact.newDatumHex, previewDatum);
+});
+
+test("settings update artifact rejects missing live raw datum hex", () => {
+  // Feature: artifact builder must hard-fail if the live state fetcher didn't include the raw datum hex (otherwise it would silently skip CBOR-byte preservation).
+  // Failure mode: operators would get re-encoded datums even when no fields changed, causing spurious diffs.
+  assert.throws(
+    () => buildPersonalizationSettingsUpdateArtifact({ live: {}, desired: desiredState }),
+    /pzSettingsDatumHex/
+  );
+});
+
+test("settings update artifact emits a patched datum and a change log when valid_contracts grows", () => {
+  // Feature: settings-only drift produces a canonical patched-datum.cbor + change log so the multisig signer can review and sign.
+  // Failure mode: ops would have to compute the patched datum manually for every settings change.
+  const desired = {
+    ...desiredState,
+    settings: {
+      ...desiredState.settings,
+      values: {
+        pz_settings: {
+          ...desiredState.settings.values.pz_settings,
+          valid_contracts: [
+            ...desiredState.settings.values.pz_settings.valid_contracts,
+            "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff",
+          ],
+        },
+      },
+    },
+  };
+  const live = {
+    pzSettingsDatumHex: previewDatum,
+    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
+  };
+  const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired });
+
+  assert.equal(artifact.handleName, "pz_settings");
+  assert.equal(artifact.handleUtxoRef, "abcd#0");
+  assert.equal(artifact.oldDatumHex, previewDatum);
+  assert.notEqual(artifact.newDatumHex, previewDatum);
+  assert.equal(artifact.changeLog.length, 1);
+  assert.match(artifact.changeLog[0], /^valid_contracts: 1 -> 2/);
+
+  const fields = cbor.decodeFirstSync(artifact.newDatumCborBytes);
+  assert.equal(fields[4].length, 2);
+  assert.equal(
+    Buffer.from(fields[4][1]).toString("hex"),
+    "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff"
+  );
+});
+
+test("settings update artifact reports an empty change log when desired matches live", () => {
+  // Feature: re-running the planner against a network already at the desired state must produce a no-op artifact, not a phantom diff.
+  // Failure mode: ops would re-sign and re-submit identical settings updates indefinitely.
+  const live = {
+    pzSettingsDatumHex: previewDatum,
+    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
+  };
+  const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired: desiredState });
+
+  assert.deepEqual(artifact.changeLog, []);
+  assert.equal(artifact.newDatumHex, previewDatum);
+});
+
+test("settings update artifact rejects missing live raw datum hex", () => {
+  // Feature: artifact builder must hard-fail if the live state fetcher didn't include the raw datum hex (otherwise it would silently skip CBOR-byte preservation).
+  // Failure mode: operators would get re-encoded datums even when no fields changed, causing spurious diffs.
+  assert.throws(
+    () => buildPersonalizationSettingsUpdateArtifact({ live: {}, desired: desiredState }),
+    /pzSettingsDatumHex/
+  );
 });
