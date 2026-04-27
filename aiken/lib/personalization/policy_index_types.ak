@@ -1,56 +1,35 @@
 use aiken/merkle_patricia_forestry as mpf
 
-pub const policy_index_schema_version: Int = 1
+// Inline-byte trie root. The on-chain datum at $bg_policy_ids / $pfp_policy_ids
+// is just the 32-byte MPF root; we use a named type alias for readability.
+pub type PolicyIndexRoot =
+  ByteArray
 
-pub type PolicyIndexRoot {
-  root: ByteArray,
-  version: Int,
-}
-
-pub type PolicyFlags {
-  nsfw: Int,
-  trial: Int,
-  aux: Int,
-}
-
+// Per-asset proof carried in the Personalize redeemer's `designer` map under
+// reserved keys `__bg_proof` / `__pfp_proof`. The proof asserts the policy is
+// registered (with its default nsfw) and either provides a per-asset override
+// or proves no override exists for this asset.
+//
+// policy_id is not carried here. The validator uses the token's policy id
+// from the tx output as the trie key, which binds the proof to the asset
+// being personalized.
 pub type PolicyApprovalProof {
-  policy_id: ByteArray,
-  prefix: ByteArray,
-  flags: PolicyFlags,
-  proof: mpf.Proof,
+  policy_nsfw: Int,
+  policy_proof: mpf.Proof,
+  override: Override,
 }
 
-test policy_index_schema_version_is_frozen() {
-  policy_index_schema_version == 1
-}
-
-test policy_index_root_roundtrip() {
-  let root =
-    PolicyIndexRoot {
-      root: #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      version: policy_index_schema_version,
-    }
-  let data: Data = root
-  expect decoded: PolicyIndexRoot = data
-
-  decoded == root
-}
-
-test policy_flags_roundtrip() {
-  let flags = PolicyFlags { nsfw: 1, trial: 0, aux: 7 }
-  let data: Data = flags
-  expect decoded: PolicyFlags = data
-
-  decoded == flags
+pub type Override {
+  NoOverride { proof: mpf.Proof }
+  WithOverride { nsfw: Int, proof: mpf.Proof }
 }
 
 test policy_approval_proof_roundtrip() {
   let proof =
     PolicyApprovalProof {
-      policy_id: #"010203",
-      prefix: "bg_",
-      flags: PolicyFlags { nsfw: 1, trial: 1, aux: 0 },
-      proof: [],
+      policy_nsfw: 0,
+      policy_proof: [],
+      override: NoOverride { proof: [] },
     }
   let data: Data = proof
   expect decoded: PolicyApprovalProof = data
@@ -58,9 +37,17 @@ test policy_approval_proof_roundtrip() {
   decoded == proof
 }
 
+test override_roundtrip_with_override() {
+  let o = WithOverride { nsfw: 1, proof: [] }
+  let data: Data = o
+  expect decoded: Override = data
+
+  decoded == o
+}
+
 test mpf_insert_and_has_on_empty_proof_vector() {
-  let key = "policyprefix"
-  let value = "flags"
+  let key = "policykey"
+  let value = "v"
   let trie = mpf.insert(mpf.empty, key, value, [])
 
   mpf.has(trie, key, value, [])

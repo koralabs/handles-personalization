@@ -97,7 +97,9 @@
   - `image_hash`, `standard_image`, `standard_image_hash`, `agreed_terms`
 - personalization state:
   - `bg_asset`, `pfp_asset`, `bg_image`, `pfp_image`, `designer`
-  - `nsfw`, `trial`, `portal`, `socials`, `last_update_address`, `validated_by`
+  - `nsfw`, `portal`, `socials`, `last_update_address`, `validated_by`
+  - `trial` may appear on legacy datums but is no longer derived or enforced
+    by the validator
 - optional controls:
   - `pz_enabled`, `last_edited_time`, `migrate_sig_required`
   - `resolved_addresses` (virtual path)

@@ -91,77 +91,98 @@ Use helper parsers for robust extraction from `Data` maps (`extra` field behavio
 
 ## MPF Integration Design
 
-### Current Behavior to Preserve
-Current contract checks approver maps with semantics:
-- approved when asset policy matches and token name starts with an approved prefix
-- flags (`nsfw`, `trial`) are attached to matched prefix entries
+### What changed vs. legacy Helios
+Legacy Helios kept full approver maps in datums with prefix-keyed `[]Int` flags
+`[nsfw, trial, aux]`. The Aiken design replaces map storage with an MPF root
+and per-asset proofs, and additionally introduces **per-asset NSFW overrides**
+to close a post-trial gap: a partner could, after exiting trial status, mint
+new NSFW assets that would slip through under the policy-level `nsfw=0` flag.
 
-### New On-Chain Shape
-Keep the same reference UTxO token identity and credential checks, but change datum payload from full map to trie root descriptor.
+The override mechanism gives operators a way to mark individual asset names as
+NSFW even when the parent policy is approved as non-NSFW. The contract enforces
+either an inclusion proof of the override or a non-inclusion proof of its
+absence — the prover cannot silently hide an override.
+
+`trial` and `aux` are no longer tracked. Trial state is operational metadata
+held off-chain (DynamoDB) and does not affect on-chain validation.
+
+### On-chain shape
+Same reference UTxO token identity and credential checks. The datum is now a
+bare 32-byte MPF root.
 
 #### Reference input datum
-Use a compact root record for both `bg_policy_ids` and `pfp_policy_ids` UTxOs:
+The inline datum at `$bg_policy_ids` / `$pfp_policy_ids` is the MPF root bytes
+directly. There is no version or wrapper:
 
 ```text
-PolicyIndexRoot {
-  root: ByteArray  // 32 bytes MPF root hash
-  version: Int     // schema version, start at 1
-}
+PolicyIndexRoot = ByteArray   // 32-byte MPF root
 ```
 
 #### Personalize proof carriers
-Preferred ABI shape for proof carriers:
 
 ```text
 PolicyApprovalProof {
-  policy_id: ByteArray   // 28-byte policy id
-  prefix: ByteArray      // token-name prefix (same semantics as current map key)
-  flags: PolicyFlags
-  proof: mpf.Proof
+  policy_nsfw: Int       // 0|1, the policy default's nsfw flag
+  policy_proof: mpf.Proof
+  override: Override
 }
 
-PolicyFlags {
-  nsfw: Int   // 0|1
-  trial: Int  // 0|1
-  aux: Int    // preserve 3rd slot used by current []Int shape
-}
+Override =
+  | NoOverride { proof: mpf.Proof }            // non-inclusion proof for asset key
+  | WithOverride { nsfw: Int, proof: mpf.Proof } // inclusion proof for asset key
 ```
 
-`C-001` schema freeze reference:
-- Aiken module: `aiken/lib/personalization/policy_index_types.ak`
-- version constant: `policy_index_schema_version = 1`
+The asset's policy id is taken from the tx output's value, not carried in the
+proof — this binds the proof to the asset being personalized and saves witness
+bytes.
 
 `PERSONALIZE` receives optional BG/PFP proofs:
 - required when corresponding asset exists
 - omitted when corresponding asset is empty
 
-Production compatibility mode (currently implemented):
-- keep `Redeemer::Personalize` schema unchanged,
-- carry optional proofs in reserved `designer` map keys:
-  - `__bg_proof`
-  - `__pfp_proof`
-- decode these keys on-chain in tx-aware PERSONALIZE parsing.
+Proofs are carried in reserved `designer` map keys (`__bg_proof`, `__pfp_proof`)
+exactly as in the previous design. The `Redeemer::Personalize` envelope is
+unchanged.
 
 ### Key / Value Encoding
-To preserve prefix semantics without requiring trie prefix-queries, prove membership of the matched prefix explicitly:
-- key bytes: `policy_id || prefix`
-- value bytes: deterministic encoding of `PolicyFlags` (canonical CBOR or fixed 3-byte format)
+Two key types live in the same trie:
 
-On-chain verification for a selected asset:
-1. `mpf.has(mpf.from_root(root), key, value, proof) == True`
-2. `asset.policy == policy_id`
-3. `asset.token_name.starts_with(prefix)`
+- **Policy entry**: key = `policy_id` (28 bytes), value = `0x00` or `0x01`
+  (single byte: the policy default's `nsfw`).
+- **Override entry**: key = `policy_id || asset_name`, value = `0x00` or `0x01`
+  (single byte: the asset's overriding `nsfw`).
 
-This exactly preserves “policy + starts_with(prefix)” approval logic.
+The two key spaces never collide because override keys are strictly longer
+(28+N bytes for asset_name length N ≥ 1).
+
+### Validator flow per asset
+
+```text
+let trie = mpf.from_root(root)
+let asset_key = policy_id || asset_name
+when override is {
+  WithOverride { nsfw, proof } ->
+    require mpf.has(trie, asset_key, encode_nsfw(nsfw), proof)
+    final_nsfw = nsfw
+  NoOverride { proof } ->
+    require mpf.has(trie, policy_id, encode_nsfw(policy_nsfw), policy_proof)
+    require mpf.miss(trie, asset_key, proof)
+    final_nsfw = policy_nsfw
+}
+```
+
+`encode_nsfw(n)` produces a 1-byte `#"00"` or `#"01"`.
 
 Implementation reference:
-- `aiken/lib/personalization/policy_index_mpf.ak` (`verify_policy_approval`)
+- `aiken/lib/personalization/policy_index_mpf.ak` — `verify_policy_approval`
+- `aiken/lib/personalization/policy_index_types.ak` — types
 
-### NSFW / Trial Derivation
-Replace map-fold lookup with proof-derived flags:
-- `bg_flags` from validated BG proof (or zero flags when no BG asset)
-- `pfp_flags` from validated PFP proof (or zero flags when no PFP asset)
-- keep existing invariant: datum `nsfw` and `trial` must equal computed totals.
+### NSFW Derivation
+- `bg_nsfw` is `final_nsfw` from the validated BG proof, or 0 when no BG asset.
+- `pfp_nsfw` likewise.
+- Datum invariant: datum `nsfw == bg_nsfw OR pfp_nsfw`. The contract no longer
+  derives or enforces a `trial` value; the personalization datum's `trial`
+  field, if present, is opaque to the validator.
 
 ## Branch-by-Branch Migration Requirements
 
@@ -205,12 +226,11 @@ Rebuild `docs/spec/branch-coverage.md` for Aiken implementation and preserve cov
 
 ### 3. MPF-Specific Tests
 Add focused cases for:
-- valid inclusion proof for approved policy/prefix
-- wrong root
-- wrong proof
-- wrong `policy_id`
-- prefix mismatch against token name
-- wrong flags payload
+- `NoOverride` happy path: policy inclusion proof + non-membership proof of asset key
+- `WithOverride` happy path: asset inclusion proof drives `final_nsfw`
+- exploit: `NoOverride` rejected when an override exists for the asset key
+- wrong root, wrong proof bytes, wrong `policy_id` binding
+- wrong nsfw payload (claimed `policy_nsfw` does not match trie value)
 
 ### 4. Regression/Constraint Tests
 Retain and port all critical `PERSONALIZE`, `MIGRATE`, `REVOKE`, `UPDATE`, `RETURN_TO_SENDER` scenarios from current suites.

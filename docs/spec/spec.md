@@ -53,7 +53,7 @@
 
 ### `pz_datum_is_valid`
 - Validates optional `validated_by` signer.
-- Derives NSFW/trial values from approver policy flags and requires datum consistency.
+- Derives the NSFW value from approver policy flags (with optional per-asset overrides) and requires datum consistency.
 - Requires BG/PFP asset/image presence symmetry.
 - Requires BG/PFP image URLs match referenced datum images.
 

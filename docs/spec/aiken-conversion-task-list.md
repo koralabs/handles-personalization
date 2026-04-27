@@ -1,5 +1,17 @@
 # Aiken Conversion Task List (Unattended Loop)
 
+> **Superseded for the policy approval surface.** Tasks in this file that
+> describe `PolicyFlags { nsfw, trial, aux }`, `policy_index_schema_version`,
+> `policy_index_key(policy_id, prefix)`, `encode_policy_flags`, or prefix-based
+> approval no longer reflect the live design. The current authoritative spec
+> for the on-chain trie + redeemer shape is
+> [`aiken-conversion-spec.md`](aiken-conversion-spec.md) — the policy approval
+> surface was redesigned to use `policy_id` / `policy_id || asset_name` keys
+> with a single nsfw byte value plus a per-asset override branch carrying a
+> non-membership proof. `trial` and `aux` are no longer tracked. The rest of
+> this file (handle parsing, datum extraction, dispatch wiring, etc.) is still
+> accurate.
+
 This backlog is designed for autonomous iteration. Complete tasks in order unless dependencies are satisfied.
 
 ## Loop Protocol

@@ -34,13 +34,17 @@ MPF proofs are carried in reserved keys under `designer`:
 ### Policy index reference datum
 
 `bg_policy_ids` and `pfp_policy_ids` reference UTxOs now use:
-- `PolicyIndexRoot { root: ByteArray, version: Int }`
+- `PolicyIndexRoot = ByteArray` (bare 32-byte MPF root)
 
 ### Proof payload shape
 
 Proof payload uses:
-- `PolicyApprovalProof { policy_id, prefix, flags, proof }`
-- `PolicyFlags { nsfw, trial, aux }`
+- `PolicyApprovalProof { policy_nsfw, policy_proof, override }`
+- `Override = NoOverride { proof } | WithOverride { nsfw, proof }`
+
+The trie holds two key types: policy entries (key = `policy_id`, value = nsfw
+byte) and asset overrides (key = `policy_id || asset_name`, value = nsfw byte).
+See `docs/spec/aiken-conversion-spec.md` for full validator flow.
 
 ## Rollout Plan
 

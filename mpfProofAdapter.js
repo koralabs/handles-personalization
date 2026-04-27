@@ -17,87 +17,66 @@ function normalizePolicyId(policyId) {
   throw new Error("policyId must be a hex string or Buffer");
 }
 
-function normalizePrefix(prefix) {
-  if (Buffer.isBuffer(prefix)) {
-    return prefix;
+function normalizeAssetName(assetName) {
+  if (Buffer.isBuffer(assetName)) {
+    return assetName;
   }
-  if (typeof prefix === "string") {
-    return Buffer.from(prefix);
+  if (typeof assetName === "string") {
+    // accept hex strings prefixed with #, otherwise treat as raw bytes
+    return assetName.startsWith(HEX_PREFIX)
+      ? hexToBuffer(assetName)
+      : Buffer.from(assetName);
   }
-  throw new Error("prefix must be a utf8 string or Buffer");
+  throw new Error("assetName must be a hex string or Buffer");
 }
 
-function encodeCborUInt(value) {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error("flags must be non-negative integers");
+// Single-byte CBOR encoding for nsfw flag (0 or 1). Matches encode_nsfw in
+// aiken/lib/personalization/policy_index_mpf.ak.
+export function encodeNsfw(nsfw) {
+  if (nsfw !== 0 && nsfw !== 1) {
+    throw new Error("nsfw must be 0 or 1");
   }
-  if (value < 24) {
-    return Buffer.from([value]);
-  }
-  if (value <= 0xff) {
-    return Buffer.from([0x18, value]);
-  }
-  if (value <= 0xffff) {
-    return Buffer.from([0x19, value >> 8, value & 0xff]);
-  }
-  if (value <= 0xffffffff) {
-    return Buffer.from([
-      0x1a,
-      (value >>> 24) & 0xff,
-      (value >>> 16) & 0xff,
-      (value >>> 8) & 0xff,
-      value & 0xff,
-    ]);
-  }
-
-  throw new Error("flags must fit in 32-bit unsigned integers");
+  return Buffer.from([nsfw]);
 }
 
-export function policyIndexKey(policyId, prefix) {
-  return Buffer.concat([normalizePolicyId(policyId), normalizePrefix(prefix)]);
+export function policyKey(policyId) {
+  return normalizePolicyId(policyId);
 }
 
-export function encodePolicyFlags(flags) {
+export function overrideKey(policyId, assetName) {
   return Buffer.concat([
-    encodeCborUInt(flags.nsfw),
-    encodeCborUInt(flags.trial),
-    encodeCborUInt(flags.aux),
+    normalizePolicyId(policyId),
+    normalizeAssetName(assetName),
   ]);
 }
 
+// Build the MPF trie for one category (bg or pfp).
+//
+// entries: array of
+//   - { type: "policy", policyId, nsfw }
+//   - { type: "override", policyId, assetName, nsfw }
 export async function buildPolicyIndexTrie(entries) {
-  const items = entries.map((entry) => ({
-    key: policyIndexKey(entry.policyId, entry.prefix),
-    value: encodePolicyFlags(entry.flags),
-  }));
+  const items = entries.map((entry) => {
+    if (entry.type === "policy") {
+      return {
+        key: policyKey(entry.policyId),
+        value: encodeNsfw(entry.nsfw),
+      };
+    }
+    if (entry.type === "override") {
+      return {
+        key: overrideKey(entry.policyId, entry.assetName),
+        value: encodeNsfw(entry.nsfw),
+      };
+    }
+    throw new Error(`unknown entry type: ${entry.type}`);
+  });
 
   return Trie.fromList(items);
 }
 
-export async function buildPolicyApprovalProof(trie, entry) {
-  const key = policyIndexKey(entry.policyId, entry.prefix);
-  const value = encodePolicyFlags(entry.flags);
-  const proof = await trie.prove(key);
-  const proofJson = proof.toJSON();
-  const verifiedRoot = Proof.fromJSON(key, value, proofJson).verify();
-
-  if (!verifiedRoot || !verifiedRoot.equals(trie.hash)) {
-    throw new Error("generated proof does not verify against trie root");
-  }
-
-  return {
-    policy_id: normalizePolicyId(entry.policyId),
-    prefix: normalizePrefix(entry.prefix),
-    flags: {
-      nsfw: entry.flags.nsfw,
-      trial: entry.flags.trial,
-      aux: entry.flags.aux,
-    },
-    proof: proofJson,
-    proof_cbor_hex: proof.toCBOR().toString("hex"),
-  };
-}
-
+// Convert MPF JSON proof steps into the Aiken-side `mpf.Proof` shape
+// (Branch / Fork / Leaf constructors).
 export function proofJsonToAikenProof(proofJson) {
   return proofJson.map((step) => {
     switch (step.type) {
@@ -133,13 +112,63 @@ export function proofJsonToAikenProof(proofJson) {
   });
 }
 
-export async function buildPolicyApprovalRedeemer(trie, entry) {
-  const proofPayload = await buildPolicyApprovalProof(trie, entry);
+async function membershipProof(trie, key) {
+  const proof = await trie.prove(key);
+  return proofJsonToAikenProof(proof.toJSON());
+}
+
+async function nonMembershipProof(trie, key) {
+  // MPF JS lib exposes `prove(key, allowMissing=true)` which yields a proof
+  // whose Proof.fromJSON(key, undefined, steps).verify() reproduces the trie
+  // root, exactly the witness the on-chain `mpf.miss(...)` accepts.
+  const proof = await trie.prove(key, true);
+  return proofJsonToAikenProof(proof.toJSON());
+}
+
+// Build the redeemer payload (Aiken-shaped PolicyApprovalProof) for one
+// asset slot (bg or pfp).
+//
+// args:
+//   trie:      built via buildPolicyIndexTrie
+//   policyId:  hex string or Buffer (28 bytes)
+//   policyNsfw: 0 or 1, the registered policy default
+//   assetName: hex string (with #-prefix) or raw utf8 string or Buffer
+//   override:  optional { nsfw: 0|1 } if a per-asset override exists
+//
+// returns: { policy_nsfw, policy_proof, override }
+export async function buildPolicyApprovalRedeemer({
+  trie,
+  policyId,
+  policyNsfw,
+  assetName,
+  override = null,
+}) {
+  const polKey = policyKey(policyId);
+  const ovrKey = overrideKey(policyId, assetName);
+
+  if (override === null) {
+    return {
+      policy_nsfw: policyNsfw,
+      policy_proof: await membershipProof(trie, polKey),
+      override: {
+        NoOverride: {
+          proof: await nonMembershipProof(trie, ovrKey),
+        },
+      },
+    };
+  }
 
   return {
-    policy_id: proofPayload.policy_id,
-    prefix: proofPayload.prefix,
-    flags: proofPayload.flags,
-    proof: proofJsonToAikenProof(proofPayload.proof),
+    policy_nsfw: policyNsfw,
+    // policy_proof is unused in the WithOverride branch on-chain, but the
+    // redeemer type still requires it. Provide the real proof so the witness
+    // remains verifiable off-chain end-to-end.
+    policy_proof: await membershipProof(trie, polKey),
+    override: {
+      WithOverride: {
+        nsfw: override.nsfw,
+        proof: await membershipProof(trie, ovrKey),
+      },
+    },
   };
 }

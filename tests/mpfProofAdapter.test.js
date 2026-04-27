@@ -2,76 +2,141 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Proof } from "@aiken-lang/merkle-patricia-forestry";
 import {
-  buildPolicyApprovalProof,
   buildPolicyApprovalRedeemer,
   buildPolicyIndexTrie,
-  encodePolicyFlags,
-  policyIndexKey,
+  encodeNsfw,
+  overrideKey,
+  policyKey,
 } from "../mpfProofAdapter.js";
 
 const FIXTURE_POLICY_ID =
   "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c";
+const SECOND_POLICY_ID =
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-const FIXTURE_ENTRIES = [
-  {
-    policyId: FIXTURE_POLICY_ID,
-    prefix: "bg_",
-    flags: { nsfw: 1, trial: 0, aux: 0 },
-  },
-  {
-    policyId: FIXTURE_POLICY_ID,
-    prefix: "pfp_",
-    flags: { nsfw: 0, trial: 1, aux: 0 },
-  },
-];
+function policyEntry(policyId, nsfw) {
+  return { type: "policy", policyId, nsfw };
+}
 
-test("encodePolicyFlags matches on-chain compact encoding", () => {
+function overrideEntry(policyId, assetName, nsfw) {
+  return { type: "override", policyId, assetName, nsfw };
+}
+
+test("encodeNsfw produces a single byte 0x00 or 0x01", () => {
+  assert.equal(encodeNsfw(0).toString("hex"), "00");
+  assert.equal(encodeNsfw(1).toString("hex"), "01");
+  assert.throws(() => encodeNsfw(2));
+});
+
+test("policyKey is the raw policy id bytes", () => {
+  assert.equal(policyKey(FIXTURE_POLICY_ID).toString("hex"), FIXTURE_POLICY_ID);
+});
+
+test("overrideKey concatenates policy id with asset name bytes", () => {
+  const k = overrideKey(FIXTURE_POLICY_ID, "asset_x");
   assert.equal(
-    encodePolicyFlags({ nsfw: 1, trial: 0, aux: 7 }).toString("hex"),
-    "010007",
-  );
-  assert.equal(
-    encodePolicyFlags({ nsfw: 24, trial: 25, aux: 26 }).toString("hex"),
-    "18181819181a",
+    k.toString("hex"),
+    FIXTURE_POLICY_ID + Buffer.from("asset_x").toString("hex"),
   );
 });
 
-test("buildPolicyApprovalProof produces stable root and proof vector", async () => {
-  const trie = await buildPolicyIndexTrie(FIXTURE_ENTRIES);
-  const payload = await buildPolicyApprovalProof(trie, FIXTURE_ENTRIES[0]);
+test("NoOverride redeemer carries valid policy + non-membership proofs", async () => {
+  const entries = [
+    policyEntry(FIXTURE_POLICY_ID, 0),
+    policyEntry(SECOND_POLICY_ID, 1),
+    overrideEntry(SECOND_POLICY_ID, "naughty_42", 1),
+  ];
+  const trie = await buildPolicyIndexTrie(entries);
+  const redeemer = await buildPolicyApprovalRedeemer({
+    trie,
+    policyId: FIXTURE_POLICY_ID,
+    policyNsfw: 0,
+    assetName: "safe_asset",
+    override: null,
+  });
 
-  assert.equal(
-    trie.hash.toString("hex"),
-    "256e8792c4dd0c7ec077dd9501a7e0233bbbeb9cdf659795d5be1b4bdcd16bda",
-  );
-  assert.equal(
-    payload.proof_cbor_hex,
-    "9fd87b9f005820dee1e67fa44579fb2c71a029d1e0d2052da47a7cb6ea4dc0c90b07f7835a0e0658205c93c26839a17cb5acf27e89aac00f9dd3f51d1a1aa4b482f690f643639fe872ffff",
-  );
+  assert.equal(redeemer.policy_nsfw, 0);
+  assert.ok(redeemer.override.NoOverride);
 
-  const key = policyIndexKey(FIXTURE_ENTRIES[0].policyId, FIXTURE_ENTRIES[0].prefix);
-  const value = encodePolicyFlags(FIXTURE_ENTRIES[0].flags);
-  const verifiedRoot = Proof.fromJSON(key, value, payload.proof).verify();
+  // Policy membership proof reproduces the trie root.
+  const polRoot = Proof.fromJSON(
+    policyKey(FIXTURE_POLICY_ID),
+    encodeNsfw(0),
+    aikenProofToJson(redeemer.policy_proof),
+  ).verify();
+  assert.equal(polRoot.toString("hex"), trie.hash.toString("hex"));
 
+  // Override non-membership proof, verified in exclusion mode, reproduces the
+  // trie root — equivalent to on-chain mpf.miss(trie, asset_key, proof).
+  const ovrKeyBytes = overrideKey(FIXTURE_POLICY_ID, "safe_asset");
+  const ovrRoot = Proof.fromJSON(
+    ovrKeyBytes,
+    undefined,
+    aikenProofToJson(redeemer.override.NoOverride.proof),
+  ).verify(false);
+  assert.equal(ovrRoot.toString("hex"), trie.hash.toString("hex"));
+});
+
+test("buildPolicyApprovalRedeemer (WithOverride) carries override proof and nsfw", async () => {
+  const entries = [
+    policyEntry(SECOND_POLICY_ID, 0),
+    overrideEntry(SECOND_POLICY_ID, "naughty_42", 1),
+  ];
+  const trie = await buildPolicyIndexTrie(entries);
+
+  const redeemer = await buildPolicyApprovalRedeemer({
+    trie,
+    policyId: SECOND_POLICY_ID,
+    policyNsfw: 0,
+    assetName: "naughty_42",
+    override: { nsfw: 1 },
+  });
+
+  assert.ok(redeemer.override.WithOverride);
+  assert.equal(redeemer.override.WithOverride.nsfw, 1);
+
+  const ovrKeyBytes = overrideKey(SECOND_POLICY_ID, "naughty_42");
+  const verifiedRoot = Proof.fromJSON(
+    ovrKeyBytes,
+    encodeNsfw(1),
+    aikenProofToJson(redeemer.override.WithOverride.proof),
+  ).verify();
   assert.ok(verifiedRoot);
-  assert.equal(
-    verifiedRoot.toString("hex"),
-    "256e8792c4dd0c7ec077dd9501a7e0233bbbeb9cdf659795d5be1b4bdcd16bda",
-  );
+  assert.equal(verifiedRoot.toString("hex"), trie.hash.toString("hex"));
 });
 
-test("buildPolicyApprovalRedeemer serializes proof into Aiken shape", async () => {
-  const trie = await buildPolicyIndexTrie(FIXTURE_ENTRIES);
-  const redeemer = await buildPolicyApprovalRedeemer(trie, FIXTURE_ENTRIES[0]);
-
-  assert.equal(redeemer.policy_id.toString("hex"), FIXTURE_POLICY_ID);
-  assert.equal(redeemer.prefix.toString(), "bg_");
-  assert.deepEqual(redeemer.flags, { nsfw: 1, trial: 0, aux: 0 });
-  assert.equal(redeemer.proof.length, 1);
-  assert.ok(redeemer.proof[0].Leaf);
-  assert.equal(redeemer.proof[0].Leaf.skip, 0);
-  assert.equal(
-    redeemer.proof[0].Leaf.key.toString("hex"),
-    "dee1e67fa44579fb2c71a029d1e0d2052da47a7cb6ea4dc0c90b07f7835a0e06",
-  );
-});
+// Round-trip helper: convert Aiken-shaped proof back to the MPF JSON form
+// so we can run Proof.fromJSON(...).verify() on it.
+function aikenProofToJson(steps) {
+  return steps.map((step) => {
+    if (step.Branch) {
+      return {
+        type: "branch",
+        skip: step.Branch.skip,
+        neighbors: step.Branch.neighbors.toString("hex"),
+      };
+    }
+    if (step.Fork) {
+      return {
+        type: "fork",
+        skip: step.Fork.skip,
+        neighbor: {
+          nibble: step.Fork.neighbor.nibble,
+          prefix: step.Fork.neighbor.prefix.toString("hex"),
+          root: step.Fork.neighbor.root.toString("hex"),
+        },
+      };
+    }
+    if (step.Leaf) {
+      return {
+        type: "leaf",
+        skip: step.Leaf.skip,
+        neighbor: {
+          key: step.Leaf.key.toString("hex"),
+          value: step.Leaf.value.toString("hex"),
+        },
+      };
+    }
+    throw new Error("unknown aiken proof step");
+  });
+}
