@@ -12,6 +12,7 @@ import {
 } from "./deploymentTx.js";
 import { PERSONALIZATION_SETTINGS_HANDLES } from "./deploymentState.js";
 import { buildPatchedSettingsDatum } from "./buildPatchedSettingsDatum.js";
+import { buildSettingsUpdateTx } from "./settingsUpdateTx.js";
 
 const REPO_NAME = "handles-personalization";
 const COMPARABLE_SETTINGS_HANDLE = "pz_settings";
@@ -353,6 +354,34 @@ export const buildPersonalizationSettingsUpdateArtifact = ({
     newDatumCborBytes: Buffer.from(newDatumHex, "hex"),
     changeLog,
   };
+};
+
+// Wraps buildSettingsUpdateTx so the planner can emit a tx-XX.cbor artifact
+// alongside the patched-datum-only artifact. Pre-checks: only build a tx
+// when there are actual field changes (otherwise the tx would consume fees
+// to mutate nothing).
+export const buildPersonalizationSettingsUpdateTxArtifact = async ({
+  live,
+  desired,
+  nativeScriptCborHex,
+  blockfrostApiKey,
+  userAgent,
+  buildSettingsArtifactFn = buildPersonalizationSettingsUpdateArtifact,
+  buildSettingsUpdateTxFn = buildSettingsUpdateTx,
+}) => {
+  const settingsArtifact = buildSettingsArtifactFn({ live, desired });
+  if (settingsArtifact.changeLog.length === 0) {
+    return { settingsArtifact, txArtifact: null };
+  }
+  const txArtifact = await buildSettingsUpdateTxFn({
+    network: desired.network,
+    settingsHandleName: settingsArtifact.handleName,
+    patchedDatumHex: settingsArtifact.newDatumHex,
+    nativeScriptCborHex,
+    blockfrostApiKey,
+    userAgent,
+  });
+  return { settingsArtifact, txArtifact };
 };
 
 export const buildPersonalizationDeploymentTxArtifact = async ({

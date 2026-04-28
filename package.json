@@ -32,6 +32,11 @@
     },
     "dependencies": {
         "@aiken-lang/merkle-patricia-forestry": "^1.3.1",
+        "@cardano-sdk/core": "^0.46.12",
+        "@cardano-sdk/input-selection": "^0.14.29",
+        "@cardano-sdk/tx-construction": "^0.28.11",
+        "@cardano-sdk/util": "^0.16.0",
+        "cbor": "^9.0.2",
         "yaml": "^2.8.2"
     }
 }
