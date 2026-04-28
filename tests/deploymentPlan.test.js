@@ -269,18 +269,18 @@ test("reuses an already minted replacement handle", async () => {
   assert.equal(subhandle, "pers_proxy1@handlecontract");
 });
 
-test("builds raw CBOR bytes and a matching hex artifact for the unsigned deployment tx", async () => {
+test("passes through the cardano-sdk deployment tx artifact shape", async () => {
   // Feature: deployment artifacts must write raw CBOR bytes to `tx-NN.cbor` and keep hex in a sidecar file, parameterized by contract slug.
   // Failure mode: wallets would reject the artifact because the `.cbor` file contained printable hex text instead of CBOR bytes.
-  const tx = {
-    witnessCount: 0,
-    witnesses: {
-      addDummySignatures(count) { tx.witnessCount += count; },
-      removeDummySignatures(count) { tx.witnessCount -= count; },
-    },
-    toCbor() {
-      return tx.witnessCount === 1 ? [0x84, 0x01, 0x02, 0x03] : [0x84, 0x01, 0x02];
-    },
+  const fakeBuilderResult = {
+    cborHex: "840102",
+    cborBytes: Buffer.from([0x84, 0x01, 0x02]),
+    estimatedSignedTxSize: 4,
+    maxTxSize: 10,
+    contractSlug: "pers_proxy",
+    txId: "0".repeat(64),
+    handleUtxoRef: "ab".repeat(32) + "#0",
+    consumedInputs: new Set([`${"ab".repeat(32)}#0`]),
   };
 
   const artifact = await buildPersonalizationDeploymentTxArtifact({
@@ -289,8 +289,8 @@ test("builds raw CBOR bytes and a matching hex artifact for the unsigned deploym
     handleName: "pers_proxy7@handlecontract",
     changeAddress: "addr_test1qpzxs06vn7qagrqsm7wtquul8s5drxzk82wwr9qx3886m8lv7yv3mukuwdkne3v3va8dgd3xjkzqv90pu9gsc8hrl2xs9yqkej",
     cborUtxos: ["abcd"],
-    buildTxFn: async () => tx,
-    fetchNetworkParametersFn: async () => ({ maxTxSize: 10 }),
+    blockfrostApiKey: "preview-test",
+    buildTxFn: async () => fakeBuilderResult,
   });
 
   assert.deepEqual([...artifact.cborBytes], [0x84, 0x01, 0x02]);
@@ -303,15 +303,12 @@ test("builds raw CBOR bytes and a matching hex artifact for the unsigned deploym
 test("rejects unsigned deployment tx artifacts that would exceed max tx size after signing", async () => {
   // Feature: the planner must fail before uploading a tx artifact that becomes oversized once the signer adds its witness.
   // Failure mode: ops would receive a CBOR file that imports locally but is rejected on submit because the signed tx exceeds protocol size limits.
-  const tx = {
-    witnessCount: 0,
-    witnesses: {
-      addDummySignatures(count) { tx.witnessCount += count; },
-      removeDummySignatures(count) { tx.witnessCount -= count; },
-    },
-    toCbor() {
-      return tx.witnessCount === 1 ? new Array(301).fill(0x80) : new Array(200).fill(0x80);
-    },
+  const fakeBuilderResult = {
+    cborHex: "00".repeat(150),
+    cborBytes: Buffer.alloc(150),
+    estimatedSignedTxSize: 350,
+    maxTxSize: 300,
+    contractSlug: "pers_proxy",
   };
 
   await assert.rejects(
@@ -321,8 +318,8 @@ test("rejects unsigned deployment tx artifacts that would exceed max tx size aft
       handleName: "pers_proxy7@handlecontract",
       changeAddress: "addr_test1qpzxs06vn7qagrqsm7wtquul8s5drxzk82wwr9qx3886m8lv7yv3mukuwdkne3v3va8dgd3xjkzqv90pu9gsc8hrl2xs9yqkej",
       cborUtxos: ["abcd"],
-      buildTxFn: async () => tx,
-      fetchNetworkParametersFn: async () => ({ maxTxSize: 300 }),
+      blockfrostApiKey: "preview-test",
+      buildTxFn: async () => fakeBuilderResult,
     }),
     /too large after adding 1 required signature/i
   );

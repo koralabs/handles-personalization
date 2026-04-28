@@ -33,19 +33,14 @@ test("Aiken MPF verification cost stays within guard rails", () => {
 
   const limits = [
     {
-      title: "verify_policy_approval_accepts_valid_bg_proof",
-      mem: 100000,
-      cpu: 41000000,
-    },
-    {
-      title: "verify_policy_approval_rejects_bad_proof",
+      title: "rejects_when_policy_nsfw_does_not_match_trie_value",
       mem: 165000,
       cpu: 64000000,
     },
     {
-      title: "verify_policy_approval_rejects_policy_mismatch",
-      mem: 55000,
-      cpu: 22000000,
+      title: "rejects_when_no_override_proof_is_invalid",
+      mem: 165000,
+      cpu: 64000000,
     },
   ];
 
@@ -186,12 +181,12 @@ test("Aiken personalize MPF-context helper cost stays within guard rails", () =>
       cpu: 65000000,
     },
     {
-      title: "approval_status_for_asset_accepts_precomputed_bg_and_pfp_proofs",
-      mem: 400000,
-      cpu: 135000000,
+      title: "approval_status_rejects_missing_proof_for_non_empty_asset",
+      mem: 55000,
+      cpu: 21000000,
     },
     {
-      title: "approval_status_for_asset_rejects_missing_proof_for_non_empty_asset",
+      title: "approval_status_for_empty_asset_is_not_required",
       mem: 55000,
       cpu: 21000000,
     },
@@ -220,12 +215,12 @@ test("Aiken policy-datum helper cost stays within guard rails", () => {
 
   const limits = [
     {
-      title: "policy_datum_is_valid_accepts_valid_flags_and_image_rules",
+      title: "policy_datum_is_valid_accepts_matching_nsfw_and_image_rules",
       mem: 73000,
       cpu: 28000000,
     },
     {
-      title: "policy_datum_is_valid_rejects_bg_and_pfp_image_mismatches",
+      title: "policy_datum_is_valid_rejects_image_set_parity",
       mem: 112000,
       cpu: 40000000,
     },

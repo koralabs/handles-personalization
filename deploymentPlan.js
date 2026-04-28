@@ -419,39 +419,26 @@ export const buildPersonalizationDeploymentTxArtifact = async ({
   handleName,
   changeAddress,
   cborUtxos,
+  blockfrostApiKey,
   buildTxFn = buildReferenceScriptDeploymentTx,
-  fetchNetworkParametersFn = fetchNetworkParameters,
 }) => {
   if (!contract) {
     throw new Error("buildPersonalizationDeploymentTxArtifact: contract is required");
   }
-  const tx = await buildTxFn({
+  const result = await buildTxFn({
     network: desired.network,
     contractSlug: contract.contractSlug,
     handleName,
     changeAddress,
     cborUtxos,
+    blockfrostApiKey,
   });
-  tx.witnesses.addDummySignatures(1);
-  const estimatedSignedTxSize = tx.toCbor().length;
-  tx.witnesses.removeDummySignatures(1);
-
-  const networkParams = await fetchNetworkParametersFn(desired.network);
-  const maxTxSize = networkParams.maxTxSize;
-  if (estimatedSignedTxSize > maxTxSize) {
+  if (result.estimatedSignedTxSize > result.maxTxSize) {
     throw new Error(
-      `unsigned deployment tx for ${handleName} (${contract.contractSlug}) is too large after adding 1 required signature: ${estimatedSignedTxSize} > ${maxTxSize}`
+      `unsigned deployment tx for ${handleName} (${contract.contractSlug}) is too large after adding 1 required signature: ${result.estimatedSignedTxSize} > ${result.maxTxSize}`
     );
   }
-
-  const cborBytes = Buffer.from(tx.toCbor());
-  return {
-    cborBytes,
-    cborHex: cborBytes.toString("hex"),
-    estimatedSignedTxSize,
-    maxTxSize,
-    contractSlug: contract.contractSlug,
-  };
+  return result;
 };
 
 const toListFromCbor = (value, label) => {

@@ -144,7 +144,7 @@ const main = async () => {
   // Per-contract reference-script deploys: emit one tx-NN.cbor per contract
   // with script-hash drift (in YAML order). Each is signed by the deployer
   // who holds the corresponding deployment SubHandle.
-  if (changeAddress && cborUtxosJson) {
+  if (changeAddress && cborUtxosJson && blockfrostApiKey) {
     for (const contractEntry of plan.summaryJson.contracts) {
       if (contractEntry.drift_type !== "script_hash_only") continue;
       if (contractEntry.subhandle.action !== "allocate") continue;
@@ -161,6 +161,7 @@ const main = async () => {
         handleName,
         changeAddress,
         cborUtxos: JSON.parse(cborUtxosJson),
+        blockfrostApiKey,
       });
       const ordinal = String(transactionOrder.length + 1).padStart(2, "0");
       const fileName = `tx-${ordinal}.cbor`;

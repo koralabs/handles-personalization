@@ -4,25 +4,15 @@
     "description": "",
     "type": "module",
     "scripts": {
-        "compile:helios": "node compile.js",
-        "compile:aiken": "node compileAiken.js",
-        "compile:all": "npm run compile:helios && npm run compile:aiken",
-        "test:aiken": "node --test tests/aiken.cost.test.js tests/compileAiken.test.js tests/mpfProofAdapter.test.js tests/parityRunner.test.js tests/aiken.intentCoverage.test.js",
-        "test:parity": "node tests/parityRunner.js",
-        "test": "npm run test:old && npm run test:new",
-        "test:old": "node --es-module-specifier-resolution=node tests/tests.js",
-        "test:new": "tsx -r dotenv/config tests/txTests.ts"
+        "compile": "node compileAiken.js",
+        "test": "node --test tests/aiken.cost.test.js tests/aiken.intentCoverage.test.js tests/buildPatchedSettingsDatum.test.js tests/cborSplice.test.js tests/compileAiken.test.js tests/deploymentPlan.test.js tests/deploymentState.test.js tests/mpfProofAdapter.test.js tests/settingsUpdateTx.test.js"
     },
     "author": "et",
     "license": "MIT",
     "devDependencies": {
-        "@koralabs/helios": "0.16.8-1",
-        "@koralabs/kora-labs-common": "^4.0.7",
-        "@koralabs/kora-labs-contract-testing": "0.0.7",
         "@types/node": "^20.0",
         "bs58": "^5.0.0",
-        "dotenv": "^16.4.5",
-        "tsx": "^4.7.0"
+        "dotenv": "^16.4.5"
     },
     "resolutions": {
         "bn.js": "5.2.3"
