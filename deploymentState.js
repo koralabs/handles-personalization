@@ -42,6 +42,83 @@ export const parseDesiredDeploymentState = (
   }
 
   const value = parsed;
+  rejectObservedOnly(value, sourceLabel);
+
+  const schemaVersion = requireNumber(value, "schema_version", sourceLabel);
+  if (schemaVersion !== 3) {
+    throw new Error(`${sourceLabel} schema_version must equal 3`);
+  }
+
+  const network = requireString(value, "network", sourceLabel);
+  if (!ALLOWED_NETWORKS.has(network)) {
+    throw new Error(`${sourceLabel} network must be one of preview, preprod, mainnet`);
+  }
+
+  const subhandleStrategy = requireObject(value, "subhandle_strategy", sourceLabel);
+  const namespace = requireString(
+    subhandleStrategy,
+    "namespace",
+    `${sourceLabel}.subhandle_strategy`
+  );
+  const format = requireString(
+    subhandleStrategy,
+    "format",
+    `${sourceLabel}.subhandle_strategy`
+  );
+  if (!ALLOWED_SUBHANDLE_FORMATS.has(format)) {
+    throw new Error(
+      `${sourceLabel}.subhandle_strategy format must be contract_slug_ordinal`
+    );
+  }
+
+  const contractsRaw = value.contracts;
+  if (!Array.isArray(contractsRaw) || contractsRaw.length === 0) {
+    throw new Error(`${sourceLabel} must include non-empty array field \`contracts\``);
+  }
+  const contracts = contractsRaw.map((entry, index) =>
+    parseContract(entry, `${sourceLabel}.contracts[${index}]`)
+  );
+  const slugs = contracts.map((c) => c.contractSlug);
+  if (new Set(slugs).size !== slugs.length) {
+    throw new Error(`${sourceLabel}.contracts must have unique contract_slug values`);
+  }
+
+  const assignedHandles = requireObject(value, "assigned_handles", sourceLabel);
+  const settings = requireObject(value, "settings", sourceLabel);
+
+  return {
+    schemaVersion: 3,
+    network,
+    subhandleStrategy: { namespace, format },
+    contracts,
+    assignedHandles: {
+      settings: requireStringArrayAllowEmpty(
+        assignedHandles,
+        "settings",
+        `${sourceLabel}.assigned_handles`
+      ),
+      scripts: requireStringArrayAllowEmpty(
+        assignedHandles,
+        "scripts",
+        `${sourceLabel}.assigned_handles`
+      ),
+    },
+    ignoredSettings: requireStringArrayAllowEmpty(
+      value,
+      "ignored_settings",
+      sourceLabel
+    ),
+    settings: {
+      type: requireString(settings, "type", `${sourceLabel}.settings`),
+      values: parseSettingsValues(
+        requireObject(settings, "values", `${sourceLabel}.settings.values`),
+        `${sourceLabel}.settings.values`
+      ),
+    },
+  };
+};
+
+const rejectObservedOnly = (value, sourceLabel) => {
   const observedOnlyField = Object.keys(value).find((key) =>
     OBSERVED_ONLY_FIELDS.has(key)
   );
@@ -50,16 +127,13 @@ export const parseDesiredDeploymentState = (
       `${sourceLabel} must not include observed-only field \`${observedOnlyField}\``
     );
   }
+};
 
-  const schemaVersion = requireNumber(value, "schema_version", sourceLabel);
-  if (schemaVersion !== 2) {
-    throw new Error(`${sourceLabel} schema_version must equal 2`);
+const parseContract = (value, sourceLabel) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${sourceLabel} must be a YAML object`);
   }
-
-  const network = requireString(value, "network", sourceLabel);
-  if (!ALLOWED_NETWORKS.has(network)) {
-    throw new Error(`${sourceLabel} network must be one of preview, preprod, mainnet`);
-  }
+  rejectObservedOnly(value, sourceLabel);
 
   const contractSlug = requireShortHandleSlug(value, "contract_slug", sourceLabel);
   const scriptType = requireShortHandleSlug(value, "script_type", sourceLabel);
@@ -81,29 +155,7 @@ export const parseDesiredDeploymentState = (
   }
   const buildParameters = requireObject(build, "parameters", `${sourceLabel}.build`);
 
-  const subhandleStrategy = requireObject(value, "subhandle_strategy", sourceLabel);
-  const namespace = requireString(
-    subhandleStrategy,
-    "namespace",
-    `${sourceLabel}.subhandle_strategy`
-  );
-  const format = requireString(
-    subhandleStrategy,
-    "format",
-    `${sourceLabel}.subhandle_strategy`
-  );
-  if (!ALLOWED_SUBHANDLE_FORMATS.has(format)) {
-    throw new Error(
-      `${sourceLabel}.subhandle_strategy format must be contract_slug_ordinal`
-    );
-  }
-
-  const assignedHandles = requireObject(value, "assigned_handles", sourceLabel);
-  const settings = requireObject(value, "settings", sourceLabel);
-
   return {
-    schemaVersion: 2,
-    network,
     contractSlug,
     scriptType,
     oldScriptType: requireOptionalScriptType(value, "old_script_type", sourceLabel),
@@ -112,34 +164,6 @@ export const parseDesiredDeploymentState = (
       target: buildTarget,
       kind: buildKind,
       parameters: buildParameters,
-    },
-    subhandleStrategy: {
-      namespace,
-      format,
-    },
-    assignedHandles: {
-      settings: requireStringArrayAllowEmpty(
-        assignedHandles,
-        "settings",
-        `${sourceLabel}.assigned_handles`
-      ),
-      scripts: requireStringArrayAllowEmpty(
-        assignedHandles,
-        "scripts",
-        `${sourceLabel}.assigned_handles`
-      ),
-    },
-    ignoredSettings: requireStringArrayAllowEmpty(
-      value,
-      "ignored_settings",
-      sourceLabel
-    ),
-    settings: {
-      type: requireString(settings, "type", `${sourceLabel}.settings`),
-      values: parseSettingsValues(
-        requireObject(settings, "values", `${sourceLabel}.settings`),
-        `${sourceLabel}.settings.values`
-      ),
     },
   };
 };
@@ -219,8 +243,8 @@ const requireShortHandleSlug = (value, key, sourceLabel) => {
   if (resolved.length > 10) {
     throw new Error(`${sourceLabel}.${key} must be 10 characters or fewer`);
   }
-  if (resolved.includes("-") || resolved.includes("_")) {
-    throw new Error(`${sourceLabel}.${key} must not include separators`);
+  if (resolved.includes("-")) {
+    throw new Error(`${sourceLabel}.${key} must not include "-"`);
   }
   return resolved;
 };

@@ -5,10 +5,10 @@ import {
   buildPersonalizationDeploymentTxArtifact,
   buildPersonalizationSettingsUpdateArtifact,
   buildPersonalizationSettingsUpdateTxArtifact,
-  buildExpectedPersonalizationScriptHash,
+  buildExpectedScriptHashes,
   buildPersonalizationDeploymentPlan,
   discoverNextContractSubhandle,
-  fetchLivePersonalizationDeploymentState,
+  fetchLiveDeploymentState,
   renderTransactionOrderMarkdown,
 } from "../deploymentPlan.js";
 import { loadDesiredDeploymentState } from "../deploymentState.js";
@@ -72,31 +72,41 @@ const main = async () => {
 
   const desired = await loadDesiredDeploymentState(desiredPath);
   const userAgent = (process.env.KORA_USER_AGENT || "kora-contract-deployments/1.0").trim();
-  const expectedScriptHash = buildExpectedPersonalizationScriptHash();
-  const live = await fetchLivePersonalizationDeploymentState({
+  const expectedScriptHashes = buildExpectedScriptHashes();
+  const live = await fetchLiveDeploymentState({
     network: desired.network,
-    oldScriptType: desired.oldScriptType,
+    desired,
     userAgent,
   });
+
+  // Discover the next available SubHandle for any contract whose script
+  // hash is drifting. Logic contracts get a fresh slot if there's no live
+  // entry; proxy contracts try to replace at a higher ordinal.
+  const nextSubhandles = {};
+  for (const contract of desired.contracts) {
+    const liveContract = live.contracts[contract.contractSlug] || {};
+    if (liveContract.currentScriptHash === expectedScriptHashes[contract.contractSlug]) continue;
+    nextSubhandles[contract.contractSlug] = await discoverNextContractSubhandle({
+      network: desired.network,
+      deploymentHandleSlug: contract.deploymentHandleSlug,
+      namespace: desired.subhandleStrategy.namespace,
+      currentSubhandle: liveContract.currentSubhandle || null,
+      userAgent,
+    });
+  }
+
   const plan = buildPersonalizationDeploymentPlan({
     desired,
-    expectedScriptHash,
+    expectedScriptHashes,
     live,
-    nextSubhandle: live.currentScriptHash === expectedScriptHash
-      ? null
-      : await discoverNextContractSubhandle({
-          network: desired.network,
-          deploymentHandleSlug: desired.deploymentHandleSlug,
-          namespace: desired.subhandleStrategy.namespace,
-          currentSubhandle: live.currentSubhandle,
-          userAgent,
-        }),
+    nextSubhandles,
   });
 
   await fs.mkdir(artifactsDir, { recursive: true });
   const generatedArtifacts = ["summary.json", "summary.md", "deployment-plan.json"];
   let transactionOrder = [];
   let txArtifactGenerated = false;
+
   const writePlanFiles = async () => {
     await fs.writeFile(
       path.join(artifactsDir, "summary.json"),
@@ -131,40 +141,43 @@ const main = async () => {
   };
   await writePlanFiles();
 
-  // Script-deploy tx-01.cbor: wallet-funded, single-signer (deployer wallet
-  // holds the deployment SubHandle). Built when --change-address +
-  // --cbor-utxos-json are supplied AND there's script-hash drift with an
-  // allocate-able SubHandle.
-  if (
-    changeAddress &&
-    cborUtxosJson &&
-    (plan.driftType === "script_hash_only" || plan.driftType === "script_hash_and_settings") &&
-    plan.summaryJson.contracts[0].subhandle.action === "allocate"
-  ) {
-    const handleName = String(plan.summaryJson.contracts[0].subhandle.value ?? "").trim();
-    if (!handleName) {
-      throw new Error("missing deployment handle for personalization tx artifact generation");
+  // Per-contract reference-script deploys: emit one tx-NN.cbor per contract
+  // with script-hash drift (in YAML order). Each is signed by the deployer
+  // who holds the corresponding deployment SubHandle.
+  if (changeAddress && cborUtxosJson) {
+    for (const contractEntry of plan.summaryJson.contracts) {
+      if (contractEntry.drift_type !== "script_hash_only") continue;
+      if (contractEntry.subhandle.action !== "allocate") continue;
+      const handleName = String(contractEntry.subhandle.value ?? "").trim();
+      if (!handleName) {
+        throw new Error(
+          `missing deployment handle for contract ${contractEntry.contract_slug}`
+        );
+      }
+      const contract = desired.contracts.find((c) => c.contractSlug === contractEntry.contract_slug);
+      const txArtifact = await buildPersonalizationDeploymentTxArtifact({
+        desired,
+        contract,
+        handleName,
+        changeAddress,
+        cborUtxos: JSON.parse(cborUtxosJson),
+      });
+      const ordinal = String(transactionOrder.length + 1).padStart(2, "0");
+      const fileName = `tx-${ordinal}.cbor`;
+      await fs.writeFile(path.join(artifactsDir, fileName), txArtifact.cborBytes);
+      await fs.writeFile(path.join(artifactsDir, `${fileName}.hex`), `${txArtifact.cborHex}\n`);
+      generatedArtifacts.push(fileName, `${fileName}.hex`);
+      transactionOrder.push(fileName);
+      txArtifactGenerated = true;
+      await writePlanFiles();
     }
-    const txArtifact = await buildPersonalizationDeploymentTxArtifact({
-      desired,
-      handleName,
-      changeAddress,
-      cborUtxos: JSON.parse(cborUtxosJson),
-    });
-    const fileName = "tx-01.cbor";
-    await fs.writeFile(path.join(artifactsDir, fileName), txArtifact.cborBytes);
-    await fs.writeFile(path.join(artifactsDir, `${fileName}.hex`), `${txArtifact.cborHex}\n`);
-    generatedArtifacts.push(fileName, `${fileName}.hex`);
-    transactionOrder.push(fileName);
-    txArtifactGenerated = true;
-    await writePlanFiles();
   }
 
   // Settings update artifact: always emit the patched datum file when
   // settings drift exists. When --blockfrost-api-key + --native-script-cbor-file
   // are supplied AND there are actual field changes, also emit a full
-  // tx-NN.cbor (numbered after any preceding deploy tx) signed by the native
-  // script multisig.
+  // tx-NN.cbor (numbered after any preceding deploy txs) signed by the
+  // native script multisig.
   if (plan.driftType === "settings_only" || plan.driftType === "script_hash_and_settings") {
     const haveTxInputs = Boolean(blockfrostApiKey && nativeScriptCborFile);
     let txArtifact = null;

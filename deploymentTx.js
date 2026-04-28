@@ -14,18 +14,25 @@ const compilePersonalizationArtifacts = () => {
   execFileSync("node", ["./compileAiken.js"], { stdio: "inherit" });
 };
 
-const loadPersonalizationSpendProgram = ({
+// Reads the optimized UPLC CBOR for a given validator slug from the per-
+// validator artifact written by compileAiken.js.
+const loadPersonalizationProgram = ({
+  contractSlug,
   compileFn = compilePersonalizationArtifacts,
-  validatorsPath = getAikenArtifactPaths().validators,
+  artifactPaths = getAikenArtifactPaths(),
 } = {}) => {
-  compileFn();
-  const validators = JSON.parse(fs.readFileSync(validatorsPath, "utf8")).validators || [];
-  const spendValidator =
-    validators.find((validator) => validator.title?.endsWith(".spend")) || validators[0];
-  if (!spendValidator?.compiledCode) {
-    throw new Error("personalization Aiken validator metadata missing compiledCode");
+  if (!contractSlug) {
+    throw new Error("loadPersonalizationProgram: contractSlug is required");
   }
-  return helios.UplcProgram.fromCbor(spendValidator.compiledCode);
+  compileFn();
+  const compiledCborPath = artifactPaths.perValidator(contractSlug).compiledCbor;
+  if (!fs.existsSync(compiledCborPath)) {
+    throw new Error(
+      `compiled CBOR not found for contract ${contractSlug} at ${compiledCborPath}`
+    );
+  }
+  const compiledCbor = fs.readFileSync(compiledCborPath, "utf8").trim();
+  return helios.UplcProgram.fromCbor(compiledCbor);
 };
 
 export const fetchNetworkParameters = async (network, fetchFn = fetch) =>
@@ -33,12 +40,16 @@ export const fetchNetworkParameters = async (network, fetchFn = fetch) =>
 
 export const buildReferenceScriptDeploymentTx = async ({
   network,
+  contractSlug,
   handleName,
   changeAddress,
   cborUtxos,
-  loadProgramFn = loadPersonalizationSpendProgram,
+  loadProgramFn = loadPersonalizationProgram,
   fetchNetworkParametersFn = fetchNetworkParameters,
 }) => {
+  if (!contractSlug) {
+    throw new Error("buildReferenceScriptDeploymentTx: contractSlug is required");
+  }
   const networkParams = await fetchNetworkParametersFn(network);
   const address = helios.Address.fromBech32(changeAddress);
   if (!address.pubKeyHash) {
@@ -60,7 +71,7 @@ export const buildReferenceScriptDeploymentTx = async ({
   const tx = new helios.Tx();
   tx.addInput(spareUtxos.splice(handleInputIndex, 1)[0]);
 
-  const output = new helios.TxOutput(address, handleValue, null, loadProgramFn());
+  const output = new helios.TxOutput(address, handleValue, null, loadProgramFn({ contractSlug }));
   output.correctLovelace(networkParams);
   tx.addOutput(output);
 

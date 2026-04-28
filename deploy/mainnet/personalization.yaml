@@ -1,15 +1,25 @@
-schema_version: 2
+schema_version: 3
 network: mainnet
-contract_slug: pers
-script_type: pers
-deployment_handle_slug: pers
-build:
-  target: aiken/validators/pers.ak
-  kind: validator
-  parameters: {}
 subhandle_strategy:
   namespace: handlecontract
   format: contract_slug_ordinal
+contracts:
+  - contract_slug: pers_logic
+    script_type: pers_logic
+    old_script_type: null
+    deployment_handle_slug: pers_logic
+    build:
+      target: aiken/validators/pers_logic.ak
+      kind: validator
+      parameters: {}
+  - contract_slug: pers_proxy
+    script_type: pers_proxy
+    old_script_type: pz
+    deployment_handle_slug: pers_proxy
+    build:
+      target: aiken/validators/pers_proxy.ak
+      kind: validator
+      parameters: {}
 assigned_handles:
   settings:
     - pz_settings

@@ -17,6 +17,10 @@ export const getContractArtifactPaths = (contractDirectory = "./contract") => {
   };
 };
 
+// Slugs match the validator file names under aiken/validators/.
+// Keep alpha-ordered (the deploy plan iterates in this order).
+export const PERSONALIZATION_VALIDATOR_SLUGS = ["pers_logic", "pers_proxy"];
+
 export const getAikenArtifactPaths = (contractDirectory = "./contract") => {
   const directory = contractDirectory.endsWith("/")
     ? contractDirectory.slice(0, -1)
@@ -27,11 +31,14 @@ export const getAikenArtifactPaths = (contractDirectory = "./contract") => {
     blueprint: `${directory}/aiken.plutus.json`,
     validators: `${directory}/aiken.validators.json`,
     addresses: `${directory}/aiken.addresses.json`,
-    spendHash: `${directory}/aiken.spend.hash`,
-    spendAddrTestnet: `${directory}/aiken.spend.addr_testnet`,
-    spendAddrMainnet: `${directory}/aiken.spend.addr_mainnet`,
-    withdrawHash: `${directory}/aiken.withdraw.hash`,
-    withdrawStakeAddrTestnet: `${directory}/aiken.withdraw.stake_addr_testnet`,
-    withdrawStakeAddrMainnet: `${directory}/aiken.withdraw.stake_addr_mainnet`,
+    perValidator: (slug) => ({
+      slug,
+      hash: `${directory}/aiken.${slug}.hash`,
+      addrTestnet: `${directory}/aiken.${slug}.addr_testnet`,
+      addrMainnet: `${directory}/aiken.${slug}.addr_mainnet`,
+      stakeAddrTestnet: `${directory}/aiken.${slug}.stake_addr_testnet`,
+      stakeAddrMainnet: `${directory}/aiken.${slug}.stake_addr_mainnet`,
+      compiledCbor: `${directory}/aiken.${slug}.compiled.cbor`,
+    }),
   };
 };

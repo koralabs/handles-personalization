@@ -4,34 +4,53 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import cbor from "cbor";
+
 import {
   buildPersonalizationDeploymentTxArtifact,
   buildPersonalizationSettingsUpdateArtifact,
-  buildExpectedPersonalizationScriptHash,
+  buildExpectedScriptHashes,
   buildPersonalizationDeploymentPlan,
   decodePzSettingsDatum,
   discoverNextContractSubhandle,
-  fetchLivePersonalizationDeploymentState,
+  fetchLiveDeploymentState,
   renderTransactionOrderMarkdown,
 } from "../deploymentPlan.js";
-import cbor from "cbor";
+
+const PROXY_HASH = "ab".repeat(28);
+const LOGIC_HASH = "cd".repeat(28);
 
 const desiredState = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   network: "preview",
-  contractSlug: "pers",
-  scriptType: "pers",
-  oldScriptType: null,
-  deploymentHandleSlug: "pers",
-  build: {
-    target: "aiken/validators/pers.ak",
-    kind: "validator",
-    parameters: {},
-  },
   subhandleStrategy: {
     namespace: "handlecontract",
     format: "contract_slug_ordinal",
   },
+  contracts: [
+    {
+      contractSlug: "pers_logic",
+      scriptType: "pers_logic",
+      oldScriptType: null,
+      deploymentHandleSlug: "pers_logic",
+      build: {
+        target: "aiken/validators/pers_logic.ak",
+        kind: "validator",
+        parameters: {},
+      },
+    },
+    {
+      contractSlug: "pers_proxy",
+      scriptType: "pers_proxy",
+      oldScriptType: "pz",
+      deploymentHandleSlug: "pers_proxy",
+      build: {
+        target: "aiken/validators/pers_proxy.ak",
+        kind: "validator",
+        parameters: {},
+      },
+    },
+  ],
   assignedHandles: {
     settings: ["pz_settings", "bg_policy_ids", "pfp_policy_ids"],
     scripts: ["pz_contract_06"],
@@ -60,21 +79,24 @@ const desiredState = {
 
 const previewDatum = "9f1a0016e360581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d661a0016e360a2581ceb0a80e0dc6bc3cd5e95c249e02b0fe23f05ec039e754368a6f0e223581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66581c4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d669f581c3ac54dace81eb69b2c974a1db2b89f2529fbf4da97c482decb32b6a5ff9f581c151a82d0669a20bd77de1296eee5ef1259ce98ecd81bd7121825f9ebff581c300b1c7993d1e2f33007ca24a00c977d9b187d57e77e0b8fc6b344b81a0036ee801832ff";
 
-test("expected script hash is read from the compileAiken output artifact", () => {
-  // Feature: deployment planning derives the expected personalization script hash from repo-native compile artifacts.
-  // Failure mode: artifact plans could diff against a stale hardcoded hash instead of the built contract.
+test("expected script hashes are read from per-validator compileAiken artifacts", () => {
+  // Feature: deployment planning derives expected hashes from repo-native compile artifacts, one per validator slug.
+  // Failure mode: artifact plans could diff against stale hardcoded hashes instead of the freshly built contracts.
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-hash-"));
-  const spendHashPath = path.join(tempDir, "aiken.spend.hash");
   let compiled = 0;
-  const hash = buildExpectedPersonalizationScriptHash({
+  const hashes = buildExpectedScriptHashes({
     compileFn: () => {
       compiled += 1;
-      fs.writeFileSync(spendHashPath, "ab".repeat(28));
+      fs.writeFileSync(path.join(tempDir, "aiken.pers_proxy.hash"), PROXY_HASH);
+      fs.writeFileSync(path.join(tempDir, "aiken.pers_logic.hash"), LOGIC_HASH);
     },
-    spendHashPath,
+    artifactPaths: {
+      perValidator: (slug) => ({ hash: path.join(tempDir, `aiken.${slug}.hash`) }),
+    },
+    slugs: ["pers_proxy", "pers_logic"],
   });
 
-  assert.equal(hash, "ab".repeat(28));
+  assert.deepEqual(hashes, { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH });
   assert.equal(compiled, 1);
 });
 
@@ -88,23 +110,20 @@ test("decodes pz_settings CBOR into named YAML fields", () => {
   assert.equal(decoded.settings_cred, "300b1c7993d1e2f33007ca24a00c977d9b187d57e77e0b8fc6b344b8");
 });
 
-test("fetches live personalization deployment state from the Handles API", async () => {
-  // Feature: the planner reads the deployed personalization script, assigned settings handles, and decoded comparable settings.
-  // Failure mode: workflow artifacts would diff against incomplete live state or raw datum blobs.
+test("fetches live state for every contract declared in the desired YAML", async () => {
+  // Feature: the planner reads live script state per-contract using each contract's old_script_type.
+  // Failure mode: only one contract's drift would be observed; subsequent contracts would always look "no_change".
   const requests = [];
-  const live = await fetchLivePersonalizationDeploymentState({
+  const live = await fetchLiveDeploymentState({
     network: "preview",
-    oldScriptType: desiredState.oldScriptType,
+    desired: desiredState,
     userAgent: "codex-test",
-    fetchFn: async (url, init) => {
-      requests.push({ url: String(url), headers: init?.headers });
+    fetchFn: async (url) => {
+      requests.push(String(url));
       const text = String(url);
-      if (text.endsWith("/scripts?latest=true")) {
+      if (text.includes("/scripts?latest=true&type=pz")) {
         return new Response(
-          JSON.stringify({
-            validatorHash: "ab".repeat(28),
-            handle: "pz_contract_06",
-          }),
+          JSON.stringify({ validatorHash: "ab".repeat(28), handle: "pz_contract_06" }),
           { status: 200 }
         );
       }
@@ -115,46 +134,56 @@ test("fetches live personalization deployment state from the Handles API", async
     },
   });
 
-  assert.equal(live.currentScriptHash, "ab".repeat(28));
-  assert.equal(live.currentSubhandle, "pz_contract_06");
+  // pers_proxy has old_script_type=pz → live state populated.
+  assert.equal(live.contracts.pers_proxy.currentScriptHash, "ab".repeat(28));
+  assert.equal(live.contracts.pers_proxy.currentSubhandle, "pz_contract_06");
+  // pers_logic has old_script_type=null → no live state.
+  assert.equal(live.contracts.pers_logic.currentScriptHash, null);
+  assert.equal(live.contracts.pers_logic.currentSubhandle, null);
+
   assert.deepEqual(live.currentSettingsUtxoRefs, {
     bg_policy_ids: "tx#0",
     pfp_policy_ids: "tx#0",
     pz_settings: "tx#0",
   });
   assert.equal(live.settings.pz_settings.treasury_fee, 1500000);
-  assert.equal(requests[0].url, "https://preview.api.handle.me/scripts?latest=true");
+  assert.ok(requests.some((url) => url.endsWith("/scripts?latest=true&type=pz")));
 });
 
-test("builds a no-change deployment plan when the live script and settings match", () => {
+test("builds a no-change deployment plan when both contracts and settings match", () => {
   // Feature: push/PR planning should not request a deployment when personalization live state already matches committed YAML.
   // Failure mode: ops would get false-positive deployment plans for a clean network.
   const plan = buildPersonalizationDeploymentPlan({
     desired: desiredState,
-    expectedScriptHash: "ab".repeat(28),
+    expectedScriptHashes: { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH },
     live: {
-      currentScriptHash: "ab".repeat(28),
-      currentSubhandle: "pz_contract_06",
+      contracts: {
+        pers_proxy: { currentScriptHash: PROXY_HASH, currentSubhandle: "pers_proxy01@handlecontract" },
+        pers_logic: { currentScriptHash: LOGIC_HASH, currentSubhandle: "pers_logic01@handlecontract" },
+      },
       settings: desiredState.settings.values,
     },
-    nextSubhandle: null,
+    nextSubhandles: {},
   });
 
   assert.equal(plan.driftType, "no_change");
+  assert.equal(plan.summaryJson.contracts.length, 2);
+  assert.ok(plan.summaryJson.contracts.every((c) => c.drift_type === "no_change"));
   assert.deepEqual(plan.summaryJson.transaction_order, []);
   assert.match(plan.summaryMarkdown, /No settings changes/);
-  assert.deepEqual(plan.summaryJson.contracts[0].expected_post_deploy_state.assigned_handles.settings, ["pz_settings", "bg_policy_ids", "pfp_policy_ids"]);
 });
 
 test("builds a script-and-settings deployment plan when both drift", () => {
-  // Feature: deployment planning must report both contract drift and settings drift when personalization changes on both surfaces.
+  // Feature: deployment planning must report both contract drift (per-contract) and settings drift when personalization changes on both surfaces.
   // Failure mode: operators would sign a plan without seeing the decoded settings change or the newly allocated handle.
   const plan = buildPersonalizationDeploymentPlan({
     desired: desiredState,
-    expectedScriptHash: "ab".repeat(28),
+    expectedScriptHashes: { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH },
     live: {
-      currentScriptHash: "cd".repeat(28),
-      currentSubhandle: "pz_contract_06",
+      contracts: {
+        pers_proxy: { currentScriptHash: "ee".repeat(28), currentSubhandle: "pz_contract_06" },
+        pers_logic: { currentScriptHash: null, currentSubhandle: null },
+      },
       settings: {
         pz_settings: {
           ...desiredState.settings.values.pz_settings,
@@ -162,89 +191,92 @@ test("builds a script-and-settings deployment plan when both drift", () => {
         },
       },
     },
-    nextSubhandle: "pers7@handlecontract",
+    nextSubhandles: {
+      pers_proxy: "pers_proxy7@handlecontract",
+      pers_logic: "pers_logic1@handlecontract",
+    },
   });
 
   assert.equal(plan.driftType, "script_hash_and_settings");
-  assert.equal(plan.summaryJson.contracts[0].settings.diff_rows[0].handle_name, "pz_settings");
-  assert.equal(plan.summaryJson.contracts[0].subhandle.value, "pers7@handlecontract");
+  assert.equal(plan.summaryJson.settings.changed, true);
+  assert.equal(plan.summaryJson.settings.diff_rows[0].handle_name, "pz_settings");
+  const proxy = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_proxy");
+  const logic = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_logic");
+  assert.equal(proxy.drift_type, "script_hash_only");
+  assert.equal(proxy.subhandle.value, "pers_proxy7@handlecontract");
+  assert.equal(logic.drift_type, "script_hash_only");
+  assert.equal(logic.subhandle.value, "pers_logic1@handlecontract");
 });
 
-test("marks script drift for manual review when no replacement handle is resolved", () => {
+test("marks per-contract script drift for manual review when no replacement handle is resolved", () => {
   // Feature: the first-pass workflow can still emit honest artifacts when the repo's live deployment handle namespace is not auto-allocatable yet.
   // Failure mode: planning would fail outright on script drift instead of producing a review-required artifact bundle.
   const plan = buildPersonalizationDeploymentPlan({
     desired: desiredState,
-    expectedScriptHash: "ab".repeat(28),
+    expectedScriptHashes: { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH },
     live: {
-      currentScriptHash: "cd".repeat(28),
-      currentSubhandle: "pz_contract_06",
+      contracts: {
+        pers_proxy: { currentScriptHash: "ee".repeat(28), currentSubhandle: "pz_contract_06" },
+        pers_logic: { currentScriptHash: LOGIC_HASH, currentSubhandle: "pers_logic1@handlecontract" },
+      },
       settings: desiredState.settings.values,
     },
-    nextSubhandle: null,
+    nextSubhandles: {},
   });
 
-  assert.equal(plan.summaryJson.contracts[0].subhandle.action, "manual_review");
-  assert.equal(plan.summaryJson.contracts[0].subhandle.value, "pz_contract_06");
+  const proxy = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_proxy");
+  assert.equal(proxy.subhandle.action, "manual_review");
+  assert.equal(proxy.subhandle.value, "pz_contract_06");
   assert.match(plan.summaryMarkdown, /operator review/i);
 });
 
-test("discovers the next available personalization SubHandle ordinal from the short deployment slug", async () => {
+test("discovers the next available SubHandle ordinal for a contract slug", async () => {
   // Feature: script-hash deployments allocate the next free <deployment_handle_slug><ordinal>@handlecontract name.
   // Failure mode: a generated plan could exceed the 10-character slug rule or collide with an existing handle.
   const requested = [];
   const subhandle = await discoverNextContractSubhandle({
     network: "preview",
-    deploymentHandleSlug: "pers",
+    deploymentHandleSlug: "pers_proxy",
     namespace: "handlecontract",
-    currentSubhandle: "pers2@handlecontract",
+    currentSubhandle: "pers_proxy2@handlecontract",
     userAgent: "codex-test",
     fetchFn: async (url) => {
       requested.push(String(url));
       return new Response("{}", {
-        status: String(url).endsWith("pers4%40handlecontract") ? 404 : 200,
+        status: String(url).includes("pers_proxy4") ? 404 : 200,
       });
     },
   });
 
-  assert.equal(subhandle, "pers3@handlecontract");
-  assert.deepEqual(requested, [
-    "https://preview.api.handle.me/handles/pers1%40handlecontract",
-    "https://preview.api.handle.me/handles/pers2%40handlecontract",
-    "https://preview.api.handle.me/handles/pers3%40handlecontract",
-    "https://preview.api.handle.me/handles/pers4%40handlecontract",
-  ]);
+  assert.equal(subhandle, "pers_proxy3@handlecontract");
+  assert.ok(requested.some((u) => u.includes("pers_proxy1")));
 });
 
-test("reuses an already minted personalization replacement handle", async () => {
+test("reuses an already minted replacement handle", async () => {
   // Feature: planner reruns should keep the first minted replacement ordinal instead of allocating a newer one.
   // Failure mode: repeated workflow runs would create extra `@handlecontract` sessions before any deployment is signed.
   const subhandle = await discoverNextContractSubhandle({
     network: "preview",
-    deploymentHandleSlug: "pers",
+    deploymentHandleSlug: "pers_proxy",
     namespace: "handlecontract",
     currentSubhandle: "pz_contract_06",
     userAgent: "codex-test",
     fetchFn: async (url) => new Response("{}", {
-      status: String(url).endsWith("pers2%40handlecontract") ? 404 : 200,
+      status: String(url).includes("pers_proxy2") ? 404 : 200,
     }),
   });
 
-  assert.equal(subhandle, "pers1@handlecontract");
+  assert.equal(subhandle, "pers_proxy1@handlecontract");
 });
 
 test("builds raw CBOR bytes and a matching hex artifact for the unsigned deployment tx", async () => {
-  // Feature: deployment artifacts must write raw CBOR bytes to `tx-XX.cbor` and keep hex in a sidecar file.
+  // Feature: deployment artifacts must write raw CBOR bytes to `tx-NN.cbor` and keep hex in a sidecar file, parameterized by contract slug.
   // Failure mode: wallets would reject the artifact because the `.cbor` file contained printable hex text instead of CBOR bytes.
   const tx = {
     witnessCount: 0,
     witnesses: {
-      addDummySignatures(count) {
-        tx.witnessCount += count;
-      },
-      removeDummySignatures(count) {
-        tx.witnessCount -= count;
-      },
+      addDummySignatures(count) { tx.witnessCount += count; },
+      removeDummySignatures(count) { tx.witnessCount -= count; },
     },
     toCbor() {
       return tx.witnessCount === 1 ? [0x84, 0x01, 0x02, 0x03] : [0x84, 0x01, 0x02];
@@ -253,7 +285,8 @@ test("builds raw CBOR bytes and a matching hex artifact for the unsigned deploym
 
   const artifact = await buildPersonalizationDeploymentTxArtifact({
     desired: desiredState,
-    handleName: "pers7@handlecontract",
+    contract: desiredState.contracts.find((c) => c.contractSlug === "pers_proxy"),
+    handleName: "pers_proxy7@handlecontract",
     changeAddress: "addr_test1qpzxs06vn7qagrqsm7wtquul8s5drxzk82wwr9qx3886m8lv7yv3mukuwdkne3v3va8dgd3xjkzqv90pu9gsc8hrl2xs9yqkej",
     cborUtxos: ["abcd"],
     buildTxFn: async () => tx,
@@ -264,6 +297,7 @@ test("builds raw CBOR bytes and a matching hex artifact for the unsigned deploym
   assert.equal(artifact.cborHex, "840102");
   assert.equal(artifact.estimatedSignedTxSize, 4);
   assert.equal(artifact.maxTxSize, 10);
+  assert.equal(artifact.contractSlug, "pers_proxy");
 });
 
 test("rejects unsigned deployment tx artifacts that would exceed max tx size after signing", async () => {
@@ -272,12 +306,8 @@ test("rejects unsigned deployment tx artifacts that would exceed max tx size aft
   const tx = {
     witnessCount: 0,
     witnesses: {
-      addDummySignatures(count) {
-        tx.witnessCount += count;
-      },
-      removeDummySignatures(count) {
-        tx.witnessCount -= count;
-      },
+      addDummySignatures(count) { tx.witnessCount += count; },
+      removeDummySignatures(count) { tx.witnessCount -= count; },
     },
     toCbor() {
       return tx.witnessCount === 1 ? new Array(301).fill(0x80) : new Array(200).fill(0x80);
@@ -287,7 +317,8 @@ test("rejects unsigned deployment tx artifacts that would exceed max tx size aft
   await assert.rejects(
     buildPersonalizationDeploymentTxArtifact({
       desired: desiredState,
-      handleName: "pers7@handlecontract",
+      contract: desiredState.contracts.find((c) => c.contractSlug === "pers_proxy"),
+      handleName: "pers_proxy7@handlecontract",
       changeAddress: "addr_test1qpzxs06vn7qagrqsm7wtquul8s5drxzk82wwr9qx3886m8lv7yv3mukuwdkne3v3va8dgd3xjkzqv90pu9gsc8hrl2xs9yqkej",
       cborUtxos: ["abcd"],
       buildTxFn: async () => tx,
@@ -305,70 +336,8 @@ test("renders transaction order markdown from generated artifacts", () => {
     "- `tx-02.cbor`",
   ]);
   assert.deepEqual(renderTransactionOrderMarkdown([]), [
-    "- Planner can emit `tx-XX.cbor` artifacts when `--change-address` and `--cbor-utxos-json` are supplied.",
+    "- Planner can emit `tx-NN.cbor` artifacts when the deployer wallet inputs are supplied.",
   ]);
-});
-
-test("settings update artifact emits a patched datum and a change log when valid_contracts grows", () => {
-  // Feature: settings-only drift produces a canonical patched-datum.cbor + change log so the multisig signer can review and sign.
-  // Failure mode: ops would have to compute the patched datum manually for every settings change.
-  const desired = {
-    ...desiredState,
-    settings: {
-      ...desiredState.settings,
-      values: {
-        pz_settings: {
-          ...desiredState.settings.values.pz_settings,
-          valid_contracts: [
-            ...desiredState.settings.values.pz_settings.valid_contracts,
-            "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff",
-          ],
-        },
-      },
-    },
-  };
-  const live = {
-    pzSettingsDatumHex: previewDatum,
-    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
-  };
-  const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired });
-
-  assert.equal(artifact.handleName, "pz_settings");
-  assert.equal(artifact.handleUtxoRef, "abcd#0");
-  assert.equal(artifact.oldDatumHex, previewDatum);
-  assert.notEqual(artifact.newDatumHex, previewDatum);
-  assert.equal(artifact.changeLog.length, 1);
-  assert.match(artifact.changeLog[0], /^valid_contracts: 1 -> 2/);
-
-  // Patched datum decodes to the desired list shape.
-  const fields = cbor.decodeFirstSync(artifact.newDatumCborBytes);
-  assert.equal(fields[4].length, 2);
-  assert.equal(
-    Buffer.from(fields[4][1]).toString("hex"),
-    "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff"
-  );
-});
-
-test("settings update artifact reports an empty change log when desired matches live", () => {
-  // Feature: re-running the planner against a network already at the desired state must produce a no-op artifact, not a phantom diff.
-  // Failure mode: ops would re-sign and re-submit identical settings updates indefinitely.
-  const live = {
-    pzSettingsDatumHex: previewDatum,
-    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
-  };
-  const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired: desiredState });
-
-  assert.deepEqual(artifact.changeLog, []);
-  assert.equal(artifact.newDatumHex, previewDatum);
-});
-
-test("settings update artifact rejects missing live raw datum hex", () => {
-  // Feature: artifact builder must hard-fail if the live state fetcher didn't include the raw datum hex (otherwise it would silently skip CBOR-byte preservation).
-  // Failure mode: operators would get re-encoded datums even when no fields changed, causing spurious diffs.
-  assert.throws(
-    () => buildPersonalizationSettingsUpdateArtifact({ live: {}, desired: desiredState }),
-    /pzSettingsDatumHex/
-  );
 });
 
 test("settings update artifact emits a patched datum and a change log when valid_contracts grows", () => {

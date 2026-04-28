@@ -1,7 +1,8 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import * as helios from "@koralabs/helios";
-import { getAikenArtifactPaths } from "./compileHelpers.js";
+
+import { Cardano } from "./helpers/cardano-sdk/index.js";
+import { getAikenArtifactPaths, PERSONALIZATION_VALIDATOR_SLUGS } from "./compileHelpers.js";
 
 const artifactPaths = getAikenArtifactPaths();
 
@@ -14,61 +15,106 @@ fs.mkdirSync(artifactPaths.directory, { recursive: true });
 fs.copyFileSync("./aiken/plutus.json", artifactPaths.blueprint);
 
 const blueprint = JSON.parse(fs.readFileSync(artifactPaths.blueprint, "utf8"));
-const validators = [...(blueprint.validators || [])].sort((a, b) =>
+
+const validatorsRaw = [...(blueprint.validators || [])].sort((a, b) =>
   a.title.localeCompare(b.title)
 );
 
-const toAddressBundle = (hashHex) => {
-  const hash = helios.ValidatorHash.fromHex(hashHex);
-  helios.config.set({ IS_TESTNET: true });
-  const testnet = helios.Address.fromValidatorHash(hash).toBech32();
-  helios.config.set({ IS_TESTNET: false });
-  const mainnet = helios.Address.fromValidatorHash(hash).toBech32();
-
-  return { testnet, mainnet };
+// Plutus.json titles are "<file>.<validator_name>.<handler>" — group by file.
+const parseTitle = (title) => {
+  const parts = title.split(".");
+  if (parts.length < 3) {
+    throw new Error(`unexpected validator title shape: ${title}`);
+  }
+  return { fileSlug: parts[0], handler: parts[parts.length - 1] };
 };
 
-const toStakeAddressBundle = (hashHex) => {
-  const hash = helios.StakingValidatorHash.fromHex(hashHex);
-  const testnet = helios.StakeAddress.fromStakingValidatorHash(true, hash).toBech32();
-  const mainnet = helios.StakeAddress.fromStakingValidatorHash(false, hash).toBech32();
-
-  return { testnet, mainnet };
-};
-
-const validatorMetadata = validators.map((validator) => {
-  const addresses = toAddressBundle(validator.hash);
-  return {
-    title: validator.title,
-    hash: validator.hash,
-    address_testnet: addresses.testnet,
-    address_mainnet: addresses.mainnet,
-    compiledCode: validator.compiledCode,
-  };
+const buildScriptCredential = (hashHex) => ({
+  type: Cardano.CredentialType.ScriptHash,
+  hash: hashHex,
 });
 
-const addresses = validatorMetadata.map((validator) => ({
-  title: validator.title,
-  hash: validator.hash,
-  address_testnet: validator.address_testnet,
-  address_mainnet: validator.address_mainnet,
-}));
+const buildAddresses = (hashHex) => ({
+  testnet: Cardano.EnterpriseAddress.fromCredentials(0, buildScriptCredential(hashHex))
+    .toAddress()
+    .toBech32(),
+  mainnet: Cardano.EnterpriseAddress.fromCredentials(1, buildScriptCredential(hashHex))
+    .toAddress()
+    .toBech32(),
+});
 
-const spendValidator =
-  validatorMetadata.find((validator) => validator.title.endsWith(".spend")) ||
-  validatorMetadata[0];
-const withdrawValidator = validatorMetadata.find((validator) =>
-  validator.title.endsWith(".withdraw")
-);
+const buildStakeAddresses = (hashHex) => ({
+  testnet: Cardano.RewardAddress.fromCredentials(0, buildScriptCredential(hashHex))
+    .toAddress()
+    .toBech32(),
+  mainnet: Cardano.RewardAddress.fromCredentials(1, buildScriptCredential(hashHex))
+    .toAddress()
+    .toBech32(),
+});
 
-if (!spendValidator) {
-  throw new Error("No validators found in Aiken blueprint");
+// Group entries by file slug, picking the canonical entry per slug. The
+// canonical entry is the spend or withdraw handler (whichever exists);
+// "else" is a fallback that compiles to the same script — skip it.
+const validatorsBySlug = new Map();
+for (const entry of validatorsRaw) {
+  const { fileSlug, handler } = parseTitle(entry.title);
+  if (handler === "else") continue;
+  if (!validatorsBySlug.has(fileSlug)) validatorsBySlug.set(fileSlug, []);
+  validatorsBySlug.get(fileSlug).push({ ...entry, handler });
 }
-if (!withdrawValidator) {
-  throw new Error("No .withdraw validator found in Aiken blueprint");
+
+// Sanity-check that each declared slug is present.
+for (const slug of PERSONALIZATION_VALIDATOR_SLUGS) {
+  if (!validatorsBySlug.has(slug)) {
+    throw new Error(`Aiken blueprint missing validator file ${slug}`);
+  }
 }
 
-const withdrawStakeAddresses = toStakeAddressBundle(withdrawValidator.hash);
+const validatorMetadata = [];
+const addresses = [];
+
+for (const slug of [...validatorsBySlug.keys()].sort()) {
+  const entries = validatorsBySlug.get(slug);
+  // All non-"else" handlers in one file produce the same script hash (Aiken
+  // multi-handler validators share a binary), so we can pick any.
+  const canonical = entries[0];
+  const handlers = entries.map((e) => e.handler);
+  const addr = buildAddresses(canonical.hash);
+
+  const meta = {
+    slug,
+    title: canonical.title,
+    handlers,
+    hash: canonical.hash,
+    address_testnet: addr.testnet,
+    address_mainnet: addr.mainnet,
+    compiledCode: canonical.compiledCode,
+  };
+  validatorMetadata.push(meta);
+  addresses.push({
+    slug,
+    title: canonical.title,
+    handlers,
+    hash: canonical.hash,
+    address_testnet: addr.testnet,
+    address_mainnet: addr.mainnet,
+  });
+
+  const paths = artifactPaths.perValidator(slug);
+  fs.writeFileSync(paths.hash, `${canonical.hash}\n`);
+  fs.writeFileSync(paths.addrTestnet, `${addr.testnet}\n`);
+  fs.writeFileSync(paths.addrMainnet, `${addr.mainnet}\n`);
+  fs.writeFileSync(paths.compiledCbor, canonical.compiledCode);
+
+  // Withdraw validators also need a reward (stake) address — that's the form
+  // used when registering the script as a withdrawal credential and when
+  // matching `transaction.Withdraw(credential)` in the proxy delegation.
+  if (handlers.includes("withdraw")) {
+    const stake = buildStakeAddresses(canonical.hash);
+    fs.writeFileSync(paths.stakeAddrTestnet, `${stake.testnet}\n`);
+    fs.writeFileSync(paths.stakeAddrMainnet, `${stake.mainnet}\n`);
+  }
+}
 
 fs.writeFileSync(
   artifactPaths.validators,
@@ -77,16 +123,4 @@ fs.writeFileSync(
 fs.writeFileSync(
   artifactPaths.addresses,
   `${JSON.stringify({ validators: addresses }, null, 2)}\n`
-);
-fs.writeFileSync(artifactPaths.spendHash, `${spendValidator.hash}\n`);
-fs.writeFileSync(artifactPaths.spendAddrTestnet, `${spendValidator.address_testnet}\n`);
-fs.writeFileSync(artifactPaths.spendAddrMainnet, `${spendValidator.address_mainnet}\n`);
-fs.writeFileSync(artifactPaths.withdrawHash, `${withdrawValidator.hash}\n`);
-fs.writeFileSync(
-  artifactPaths.withdrawStakeAddrTestnet,
-  `${withdrawStakeAddresses.testnet}\n`
-);
-fs.writeFileSync(
-  artifactPaths.withdrawStakeAddrMainnet,
-  `${withdrawStakeAddresses.mainnet}\n`
 );

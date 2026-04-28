@@ -5,7 +5,10 @@ import { Buffer } from "node:buffer";
 
 import * as helios from "@koralabs/helios";
 
-import { getAikenArtifactPaths } from "./compileHelpers.js";
+import {
+  getAikenArtifactPaths,
+  PERSONALIZATION_VALIDATOR_SLUGS,
+} from "./compileHelpers.js";
 import {
   buildReferenceScriptDeploymentTx,
   fetchNetworkParameters,
@@ -27,18 +30,25 @@ export const compilePersonalizationArtifacts = () => {
   execFileSync("node", ["./compileAiken.js"], { stdio: "inherit" });
 };
 
-export const buildExpectedPersonalizationScriptHash = ({
+// Returns a map of validator slug → expected script hash hex.
+export const buildExpectedScriptHashes = ({
   compileFn = compilePersonalizationArtifacts,
-  spendHashPath = getAikenArtifactPaths().spendHash,
+  artifactPaths = getAikenArtifactPaths(),
+  slugs = PERSONALIZATION_VALIDATOR_SLUGS,
 } = {}) => {
   compileFn();
-  return fs.readFileSync(spendHashPath, "utf8").trim();
+  const result = {};
+  for (const slug of slugs) {
+    const path = artifactPaths.perValidator(slug).hash;
+    result[slug] = fs.readFileSync(path, "utf8").trim();
+  }
+  return result;
 };
 
 export const renderTransactionOrderMarkdown = (transactionOrder) =>
   transactionOrder.length > 0
     ? transactionOrder.map((fileName) => `- \`${fileName}\``)
-    : ["- Planner can emit `tx-XX.cbor` artifacts when `--change-address` and `--cbor-utxos-json` are supplied."];
+    : ["- Planner can emit `tx-NN.cbor` artifacts when the deployer wallet inputs are supplied."];
 
 export const decodePzSettingsDatum = (datumHex) => {
   const fields = requireListData(
@@ -72,27 +82,47 @@ export const decodePzSettingsDatum = (datumHex) => {
   };
 };
 
-export const fetchLivePersonalizationDeploymentState = async ({
+// Fetches the latest live state for every contract declared in the desired
+// YAML, plus the pz_settings datum. Per-contract scripts are looked up by
+// `old_script_type` (or, if null, treated as "never deployed under that slug").
+export const fetchLiveDeploymentState = async ({
   network,
-  oldScriptType = null,
+  desired,
   userAgent,
   fetchFn = fetch,
 }) => {
   const baseUrl = handlesApiBaseUrlForNetwork(network);
   const headers = { "User-Agent": userAgent };
-  const scriptUrl = oldScriptType
-    ? `${baseUrl}/scripts?latest=true&type=${encodeURIComponent(oldScriptType)}`
-    : `${baseUrl}/scripts?latest=true`;
-  const scriptResponse = await fetchFn(scriptUrl, { headers });
-  if (!scriptResponse.ok) {
-    throw new Error(`failed to load live personalization script: HTTP ${scriptResponse.status}`);
-  }
-  const scriptPayload = await scriptResponse.json();
-  const currentScriptHash = String(
-    scriptPayload.validatorHash ?? scriptPayload.scriptHash ?? ""
-  ).trim();
-  if (!currentScriptHash) {
-    throw new Error("live personalization script response missing validatorHash/scriptHash");
+
+  const contracts = {};
+  for (const contract of desired.contracts) {
+    if (!contract.oldScriptType) {
+      contracts[contract.contractSlug] = {
+        currentScriptHash: null,
+        currentSubhandle: null,
+      };
+      continue;
+    }
+    const scriptUrl = `${baseUrl}/scripts?latest=true&type=${encodeURIComponent(contract.oldScriptType)}`;
+    const scriptResponse = await fetchFn(scriptUrl, { headers });
+    if (scriptResponse.status === 404) {
+      contracts[contract.contractSlug] = {
+        currentScriptHash: null,
+        currentSubhandle: null,
+      };
+      continue;
+    }
+    if (!scriptResponse.ok) {
+      throw new Error(
+        `failed to load live script for ${contract.contractSlug} (type=${contract.oldScriptType}): HTTP ${scriptResponse.status}`
+      );
+    }
+    const scriptPayload = await scriptResponse.json();
+    contracts[contract.contractSlug] = {
+      currentScriptHash:
+        String(scriptPayload.validatorHash ?? scriptPayload.scriptHash ?? "").trim() || null,
+      currentSubhandle: String(scriptPayload.handle ?? "").trim() || null,
+    };
   }
 
   const currentSettingsUtxoRefs = {};
@@ -120,25 +150,18 @@ export const fetchLivePersonalizationDeploymentState = async ({
       `failed to load datum for ${COMPARABLE_SETTINGS_HANDLE}: HTTP ${datumResponse.status}`
     );
   }
-
   const pzSettingsDatumHex = (await datumResponse.text()).trim();
 
   return {
-    currentScriptHash,
-    currentSubhandle: String(scriptPayload.handle ?? "").trim() || null,
-    currentSettingsUtxoRefs,
-    settings: {
-      pz_settings: decodePzSettingsDatum(pzSettingsDatumHex),
-    },
-    // Raw datum bytes for the comparable settings handle, used by the
-    // settings-only artifact path so unchanged fields preserve their CBOR
-    // representation rather than being re-encoded from the JSON shape.
+    contracts,
+    settings: { pz_settings: decodePzSettingsDatum(pzSettingsDatumHex) },
     pzSettingsDatumHex,
+    currentSettingsUtxoRefs,
   };
 };
 
 const parseHandleOrdinal = ({ candidate, deploymentHandleSlug, namespace }) => {
-  const prefix = `${deploymentHandleSlug}`;
+  const prefix = deploymentHandleSlug;
   const suffix = `@${namespace}`;
   if (!candidate.startsWith(prefix) || !candidate.endsWith(suffix)) {
     return null;
@@ -183,11 +206,14 @@ export const discoverNextContractSubhandle = async ({
   throw new Error(`no available SubHandle found for ${deploymentHandleSlug}@${namespace}`);
 };
 
+// `nextSubhandles` is an optional map of contractSlug → SubHandle string.
+// When omitted for a slug that needs allocation, the contract's subhandle
+// action is reported as `manual_review`.
 export const buildPersonalizationDeploymentPlan = ({
   desired,
-  expectedScriptHash,
+  expectedScriptHashes,
   live,
-  nextSubhandle,
+  nextSubhandles = {},
 }) => {
   const settingsChanged =
     stableStringify(live.settings.pz_settings) !==
@@ -200,57 +226,68 @@ export const buildPersonalizationDeploymentPlan = ({
       }]
     : [];
 
-  const scriptChanged = live.currentScriptHash !== expectedScriptHash;
-  const driftType = scriptChanged && settingsChanged
+  const contractEntries = desired.contracts.map((contract) => {
+    const expectedHash = expectedScriptHashes[contract.contractSlug];
+    if (!expectedHash) {
+      throw new Error(`expected script hash missing for contract ${contract.contractSlug}`);
+    }
+    const liveContract = live.contracts[contract.contractSlug] || {};
+    const currentHash = liveContract.currentScriptHash || null;
+    const currentSubhandle = liveContract.currentSubhandle || null;
+    const scriptChanged = currentHash !== expectedHash;
+    const requestedSubhandle = nextSubhandles[contract.contractSlug] || null;
+
+    const plannedSubhandle = scriptChanged
+      ? requestedSubhandle ||
+        currentSubhandle ||
+        `${contract.deploymentHandleSlug}@${desired.subhandleStrategy.namespace}`
+      : currentSubhandle;
+    const subhandleAction = scriptChanged
+      ? requestedSubhandle
+        ? "allocate"
+        : "manual_review"
+      : "reuse";
+
+    return {
+      contract_slug: contract.contractSlug,
+      drift_type: scriptChanged ? "script_hash_only" : "no_change",
+      script_hashes: { current: currentHash, expected: expectedHash },
+      subhandle: {
+        action: subhandleAction,
+        value: plannedSubhandle,
+        is_new: scriptChanged && Boolean(requestedSubhandle),
+      },
+      build: {
+        target: contract.build.target,
+        kind: contract.build.kind,
+      },
+    };
+  });
+
+  const anyScriptChanged = contractEntries.some((c) => c.drift_type !== "no_change");
+  const overallDriftType = anyScriptChanged && settingsChanged
     ? "script_hash_and_settings"
-    : scriptChanged
+    : anyScriptChanged
       ? "script_hash_only"
       : settingsChanged
         ? "settings_only"
         : "no_change";
-
-  const plannedSubhandle = scriptChanged
-    ? nextSubhandle || live.currentSubhandle || `${desired.deploymentHandleSlug}@${desired.subhandleStrategy.namespace}`
-    : live.currentSubhandle;
-  if (!plannedSubhandle) {
-    throw new Error("deployment plan requires a resolved SubHandle");
-  }
-  const subhandleAction = scriptChanged
-    ? nextSubhandle
-      ? "allocate"
-      : "manual_review"
-    : "reuse";
-
-  const expectedPostDeployState = {
-    repo: REPO_NAME,
-    network: desired.network,
-    contract_slug: desired.contractSlug,
-    expected_script_hash: expectedScriptHash,
-    expected_subhandle: plannedSubhandle,
-    assigned_handles: {
-      settings: desired.assignedHandles.settings,
-      scripts: scriptChanged ? [plannedSubhandle] : desired.assignedHandles.scripts,
-    },
-    settings: {
-      type: desired.settings.type,
-      values: desired.settings.values,
-      ignored_paths: desired.ignoredSettings,
-    },
-  };
 
   const planId = crypto
     .createHash("sha256")
     .update(
       stableStringify({
         network: desired.network,
-        contract_slug: desired.contractSlug,
-        current_script_hash: live.currentScriptHash,
-        expected_script_hash: expectedScriptHash,
+        contracts: contractEntries.map((c) => ({
+          slug: c.contract_slug,
+          current: c.script_hashes.current,
+          expected: c.script_hashes.expected,
+          subhandle: c.subhandle.value,
+        })),
         current_settings: live.settings,
         desired_settings: desired.settings.values,
         assigned_handles: desired.assignedHandles,
         ignored_settings: desired.ignoredSettings,
-        planned_subhandle: plannedSubhandle,
       })
     )
     .digest("hex");
@@ -259,28 +296,15 @@ export const buildPersonalizationDeploymentPlan = ({
     plan_id: planId,
     repo: REPO_NAME,
     network: desired.network,
-    contracts: [
-      {
-        contract_slug: desired.contractSlug,
-        drift_type: driftType,
-        script_hashes: {
-          current: live.currentScriptHash,
-          expected: expectedScriptHash,
-        },
-        settings: {
-          type: desired.settings.type,
-          diff_rows: settingsDiffRows,
-          desired_values: desired.settings.values,
-          ignored_paths: desired.ignoredSettings,
-        },
-        subhandle: {
-          action: subhandleAction,
-          value: plannedSubhandle,
-          is_new: scriptChanged && Boolean(nextSubhandle),
-        },
-        expected_post_deploy_state: expectedPostDeployState,
-      },
-    ],
+    drift_type: overallDriftType,
+    settings: {
+      type: desired.settings.type,
+      changed: settingsChanged,
+      diff_rows: settingsDiffRows,
+      desired_values: desired.settings.values,
+      ignored_paths: desired.ignoredSettings,
+    },
+    contracts: contractEntries,
     transaction_order: [],
   };
 
@@ -290,33 +314,40 @@ export const buildPersonalizationDeploymentPlan = ({
     `- Plan ID: \`${planId}\``,
     `- Repo: \`${REPO_NAME}\``,
     `- Network: \`${desired.network}\``,
-    `- Contract: \`${desired.contractSlug}\``,
-    `- Drift Type: \`${driftType}\``,
-    `- Script Hash: \`${live.currentScriptHash}\` -> \`${expectedScriptHash}\``,
-    `- SubHandle: \`${plannedSubhandle}\``,
+    `- Overall drift: \`${overallDriftType}\``,
     "",
-    "## Settings Drift",
+    "## Per-contract drift",
+    ...contractEntries.flatMap((c) => [
+      `### \`${c.contract_slug}\``,
+      `- Drift: \`${c.drift_type}\``,
+      `- Script hash: \`${c.script_hashes.current ?? "(none)"}\` -> \`${c.script_hashes.expected}\``,
+      `- SubHandle: \`${c.subhandle.value ?? "(unassigned)"}\` (\`${c.subhandle.action}\`)`,
+      "",
+    ]),
+    "## Settings drift",
     ...(settingsDiffRows.length > 0
       ? settingsDiffRows.map((row) => `- \`${row.handle_name}\``)
       : ["- No settings changes."]),
     "",
     "## Transaction Order",
     ...renderTransactionOrderMarkdown([]),
-    ...(subhandleAction === "manual_review"
+    ...(contractEntries.some((c) => c.subhandle.action === "manual_review")
       ? ["- Script drift requires operator review of the replacement deployment handle namespace."]
       : []),
   ].join("\n");
 
   return {
     planId,
-    driftType,
+    driftType: overallDriftType,
     summaryJson,
     summaryMarkdown,
     deploymentPlanJson: {
       plan_id: planId,
       repo: REPO_NAME,
       network: desired.network,
-      contracts: [expectedPostDeployState],
+      drift_type: overallDriftType,
+      contracts: contractEntries,
+      settings_drift: summaryJson.settings,
       transaction_order: [],
     },
   };
@@ -326,7 +357,7 @@ export const buildPersonalizationDeploymentPlan = ({
 // patches from the desired YAML, leaving every unchanged field's bytes
 // alone. Returns the new datum hex and a human-readable change log so the
 // multisig signer can review what's being changed before producing a
-// signed tx (existing scripts/build_pz_settings_cred_refresh.js shape).
+// signed tx.
 export const buildPersonalizationSettingsUpdateArtifact = ({
   live,
   desired,
@@ -334,7 +365,7 @@ export const buildPersonalizationSettingsUpdateArtifact = ({
 }) => {
   if (!live?.pzSettingsDatumHex) {
     throw new Error(
-      "settings-only artifact requires live.pzSettingsDatumHex; ensure fetchLivePersonalizationDeploymentState ran"
+      "settings-only artifact requires live.pzSettingsDatumHex; ensure fetchLiveDeploymentState ran"
     );
   }
   const desiredPzSettings =
@@ -356,10 +387,6 @@ export const buildPersonalizationSettingsUpdateArtifact = ({
   };
 };
 
-// Wraps buildSettingsUpdateTx so the planner can emit a tx-XX.cbor artifact
-// alongside the patched-datum-only artifact. Pre-checks: only build a tx
-// when there are actual field changes (otherwise the tx would consume fees
-// to mutate nothing).
 export const buildPersonalizationSettingsUpdateTxArtifact = async ({
   live,
   desired,
@@ -386,14 +413,19 @@ export const buildPersonalizationSettingsUpdateTxArtifact = async ({
 
 export const buildPersonalizationDeploymentTxArtifact = async ({
   desired,
+  contract,
   handleName,
   changeAddress,
   cborUtxos,
   buildTxFn = buildReferenceScriptDeploymentTx,
   fetchNetworkParametersFn = fetchNetworkParameters,
 }) => {
+  if (!contract) {
+    throw new Error("buildPersonalizationDeploymentTxArtifact: contract is required");
+  }
   const tx = await buildTxFn({
     network: desired.network,
+    contractSlug: contract.contractSlug,
     handleName,
     changeAddress,
     cborUtxos,
@@ -406,7 +438,7 @@ export const buildPersonalizationDeploymentTxArtifact = async ({
   const maxTxSize = networkParams.maxTxSize;
   if (estimatedSignedTxSize > maxTxSize) {
     throw new Error(
-      `unsigned deployment tx for ${handleName} is too large after adding 1 required signature: ${estimatedSignedTxSize} > ${maxTxSize}`
+      `unsigned deployment tx for ${handleName} (${contract.contractSlug}) is too large after adding 1 required signature: ${estimatedSignedTxSize} > ${maxTxSize}`
     );
   }
 
@@ -416,6 +448,7 @@ export const buildPersonalizationDeploymentTxArtifact = async ({
     cborHex: cborBytes.toString("hex"),
     estimatedSignedTxSize,
     maxTxSize,
+    contractSlug: contract.contractSlug,
   };
 };
 
