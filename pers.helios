@@ -1,0 +1,815 @@
+spending pers
+
+// 100 (Pz) or 000 is (Vir) are locked here
+// Refinput and output indexes are passed in the redeemer
+
+enum HandleType {
+    HANDLE
+    NFT_SUBHANDLE
+    VIRTUAL_SUBHANDLE
+}
+
+struct Handle {
+    type: HandleType
+    name: ByteArray
+}
+
+struct PzIndexes {
+    pfp_approver: Int
+    bg_approver: Int
+    pfp_datum: Int
+    bg_datum: Int
+    required_asset: Int
+    owner_settings: Int
+    contract_output: Int
+    pz_assets: Int
+    provider_fee: Int
+}
+
+struct VirtIndexes {
+    admin_settings: Int
+    root_settings: Int
+    contract_output: Int
+    root_handle: Int
+}
+
+enum Redeemer {
+    PERSONALIZE { 
+        handle: Handle
+        root_handle: ByteArray
+        indexes: PzIndexes
+        designer: Map[String]Data
+        reset: Int
+    }
+    MIGRATE {
+        handle: Handle
+        output_index: Int
+    }
+    REVOKE {
+        handle: Handle
+        root_handle: ByteArray
+        owner_index: Int
+    }
+    UPDATE {
+        handle: Handle
+        root_handle: ByteArray
+        indexes: VirtIndexes
+    }
+    RETURN_TO_SENDER
+}
+
+struct MainSubHandleSettings { // Kora's settings
+    valid_contracts: []ByteArray
+    admin_creds: []ByteArray
+    virtual_price: Int
+    base_price: Int
+    buy_down_prices: [][]Int
+    payment_address: ByteArray
+    expiry_duration: Int
+    renewal_window: Int
+}
+
+struct SubHandleSettings {
+    public_minting_enabled: Int
+    pz_enabled: Int
+    tier_pricing: [][]Int
+    default_styles: Data
+    save_original_address: Int
+}
+
+//(001) token
+struct OwnerSettings {
+    nft: SubHandleSettings
+    virtual: SubHandleSettings
+    buy_down_price: Int
+    buy_down_paid: Int
+    buy_down_percent: Int
+    agreed_terms: Data
+    migrate_sig_required: Int
+    payment_address: ByteArray
+}
+
+struct PzSettings {
+    treasury_fee: Int
+    treasury_cred: ByteArray
+    pz_min_fee: Int
+    pz_providers: Map[ByteArray]ByteArray
+    valid_contracts: []ByteArray
+    admin_creds: []ByteArray
+    settings_cred: ByteArray
+    grace_period: Int
+    subhandle_share_percent: Int
+}
+
+struct FontShadowSize {
+    x: Int
+    y: Int
+    blur: Int
+}
+
+struct PfpOffset {
+    x: Int
+    y: Int
+}
+
+enum Datum {
+    CIP68 {
+        nft: Map[String]Data
+        version: Int
+        extra: Data
+    }
+}
+
+func get_extra(extra: Data) -> Map[String]Data {
+    extra.switch {
+        Map[Data]Data => Map[String]Data::from_data(extra),
+        (Int, fields: []Data) => {
+            if (fields.length == 0) {
+                Map[String]Data{}
+            } else {
+                Map[String]Data::from_data(extra)
+            }
+        },
+        _ => Map[String]Data{}
+    }
+}
+
+const EMPTY_DATA: Data = OutputDatum::new_inline(#).data
+const EMPTY_ASSET: AssetClass = AssetClass::new(MintingPolicyHash::new(#), #)
+const EMPTY_CIP_68: Datum::CIP68 = Datum::CIP68 { nft: Map[String]Data{}, version: 0, extra: EMPTY_DATA }
+
+func get_datum(output_datum: OutputDatum, datums: Map[DatumHash]Data) -> Data {
+    output_datum.switch{
+        hash: Hash => {
+            datums.get(hash.hash)
+        },
+        inline: Inline => {
+            inline.data
+        },
+        _ => EMPTY_DATA
+    }
+
+}
+
+const HANDLE_HASH: ByteArray = #f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a
+const HANDLE_POLICY: MintingPolicyHash = MintingPolicyHash::new(HANDLE_HASH)
+const LBL_444: ByteArray = #001bc280
+const LBL_222: ByteArray = #000de140
+const LBL_100: ByteArray = #000643b0
+const LBL_001: ByteArray = #00001070
+const LBL_000: ByteArray = #00000000
+const PZ_HANDLE: AssetClass = AssetClass::new(HANDLE_POLICY, LBL_222 + b"pz_settings")
+const agreed_terms: String = "https://handle.me/$/tou"
+
+func holder_addresses_match(address1: Address, address2: Address) -> Bool {
+    if (address1.staking_credential == Option[StakingCredential]::None || address2.staking_credential == Option[StakingCredential]::None) {
+        address1.credential == address2.credential
+    }
+    else {
+        address1.staking_credential == address2.staking_credential
+    }
+}
+
+func is_valid_contract(output: TxOutput, valid_contracts: []ByteArray, ctx: ScriptContext) -> Bool {
+    output_cred: Credential = output.address.credential;
+    current_cred: Credential = Credential::new_validator(ctx.get_current_validator_hash());
+    assert(valid_contracts.any((cred: ByteArray) -> Bool {
+        Credential::new_validator(ValidatorHash::new(cred)) == current_cred
+    }), "Current contract not found in valid contracts list");
+    
+    assert(valid_contracts.any((cred: ByteArray) -> Bool {
+        Credential::new_validator(ValidatorHash::new(cred)) == output_cred
+    }), "Contract output not found in valid contracts list");
+    
+    true
+}
+
+func load_pz_settings(ref_inputs: []TxInput) -> PzSettings {
+    pz_output: TxOutput = ref_inputs.find((ref: TxInput) -> Bool {ref.output.value.contains(Value::new(PZ_HANDLE, 1))}).output;
+    settings = PzSettings::from_data(pz_output.datum.get_inline_data());
+    assert(pz_output.address.credential == Credential::new_validator(ValidatorHash::new(settings.settings_cred)), "pz_settings reference input not from ADA Handle");
+    settings
+}
+
+func has_value_unwrapped(data: Option[Data]) -> (Bool, Data) {
+    if (data == Option[Data]::None) {
+        (false, EMPTY_DATA)
+    }
+    else{
+        data.unwrap().switch {
+            Int => {(true, data.unwrap())},
+            b: ByteArray => {(b != #, data.unwrap())},
+            _ => {(false, EMPTY_DATA)}
+        }
+    }
+}
+
+func get_approver_datum(asset_type: String, index:Int, pz_providers: Map[ByteArray]ByteArray, settings_cred: ByteArray, ref_inputs: []TxInput) -> Map[ByteArray]Map[ByteArray][]Int {
+    output: TxOutput = ref_inputs.get(index).output;
+    add_cred: Credential = output.address.credential;
+    assert(output.value.contains_policy(HANDLE_POLICY) 
+        && output.value.get_policy(HANDLE_POLICY).any((asset_name: ByteArray, count: Int) -> Bool { (asset_name == (asset_type+"_policy_ids").encode_utf8() || asset_name.ends_with(("@"+asset_type+"_policy_ids").encode_utf8())) && count == 1 })
+        && ((pz_providers.any((_, cred: ByteArray) -> Bool { add_cred.switch {
+            p: PubKey => {p == Credential::new_pubkey(PubKeyHash::new(cred))}, 
+            v: Validator => {v == Credential::new_validator(ValidatorHash::new(cred))}}}))
+        || add_cred == Credential::new_validator(ValidatorHash::new(settings_cred))), asset_type + "_policy_ids reference input not present or not from valid provider");
+    Map[ByteArray]Map[ByteArray][]Int::from_data(output.datum.get_inline_data())
+}
+
+func fees_are_paid(time_range: TimeRange, outputs: []TxOutput, tx: Tx, grace_period:Int, treasury_cred: ByteArray, treasury_fee: Int, pz_min_fee: Int, subhandle_share_percent: Int, pz_providers: Map[ByteArray]ByteArray, handle: ByteArray, index: Int, is_sub:Bool, last_edited_time_opt: Option[Data], payment_address: ByteArray) -> Bool {
+    if (last_edited_time_opt != Option[Data]::None && (
+        last_edited_time: Int = Int::from_data(last_edited_time_opt.unwrap());
+        time_range.start < Time::new(last_edited_time + grace_period)))
+    {
+            // We don't charge the fees if within the grace period
+            true
+    }
+    else {
+        // Treasury fee paid and datum is attached so it can be spent (also guard against double satisfaction)
+        treas: []TxOutput = tx.outputs_locked_by_datum(ValidatorHash::new(treasury_cred), handle, true);
+        assert(treas.length > 0 && treas.head.value.contains(Value::lovelace(treasury_fee)), "Handle treasury fee unpaid");
+
+        // PZ provider fee paid
+        provider: TxOutput = outputs.get(index);
+        shared_fee: Int = (if (is_sub) {pz_min_fee / (100 / subhandle_share_percent)} else {0});
+        assert(pz_providers.any((_, cred: ByteArray) -> Bool { provider.address.credential.switch {
+            p: PubKey => {p == Credential::new_pubkey(PubKeyHash::new(cred))}, 
+            v: Validator => {v == Credential::new_validator(ValidatorHash::new(cred))}}
+            && provider.value.contains(Value::lovelace(pz_min_fee - shared_fee))
+            // Check that datum is attached so it can be spent (also guard against double satisfaction)
+            && provider.datum.get_inline_data().switch{b: ByteArray => { b == handle }, else => {false}}
+        }), "Personalization provider not found or fee unpaid");
+        assert(is_sub == false || tx.value_paid_to(Address::from_bytes(payment_address), handle).contains(Value::lovelace(shared_fee)), "Fee not paid to root Handle");
+        true
+    }
+}
+
+func parse_asset(asset_data: Data) -> AssetClass {
+    if (asset_data == EMPTY_DATA) {
+        EMPTY_ASSET
+    }
+    else {
+        asset_bytes: ByteArray = ByteArray::from_data(asset_data);
+        AssetClass::new(MintingPolicyHash::new(asset_bytes.slice(0, 28)), asset_bytes.slice(28, asset_bytes.length))
+    }
+}
+
+func get_asset_datum(asset: AssetClass, index: Int, ref_inputs: []TxInput) -> OutputDatum {
+    if (asset.token_name.starts_with(LBL_222) || asset.token_name.starts_with(LBL_444)) {
+        reference_token: AssetClass = AssetClass::new(asset.mph, LBL_100 + asset.token_name.slice(4, asset.token_name.length));
+        output: TxOutput = ref_inputs.get(index).output;
+        assert(output.value.contains(Value::new(reference_token, 1)) && output.datum != OutputDatum::new_none(), "Asset datum not found");
+        output.datum
+    }
+    else {
+        OutputDatum::new_none()
+    }
+}
+
+func asset_is_approved(pz_asset_output: TxOutput, asset: AssetClass, approvers: Map[ByteArray]Map[ByteArray][]Int) -> Bool {
+    asset == EMPTY_ASSET || (pz_asset_output.value.contains(Value::new(asset, 1)) && approvers.any((pol: ByteArray, pattern: Map[ByteArray][]Int) -> Bool {
+        pol.serialize() == asset.mph.serialize() && pattern.any((p: ByteArray, _) -> Bool { asset.token_name.starts_with(p) })
+    }))
+}
+
+func check_required_assets(pz_asset_output: TxOutput, req_asset_index: Int, handle: ByteArray, pfp_asset: AssetClass, defaults: Map[String]Data, ref_inputs: []TxInput, signatories: []PubKeyHash, datums: Map[DatumHash]Data) -> Bool {
+    if (defaults != Map[String]Data{}) {
+        required_sig_opt: Option[Data] = defaults.get_safe("required_signature");
+        assert(required_sig_opt == Option[Data]::None || signatories.any((sig: PubKeyHash) -> Bool{sig == PubKeyHash::new(ByteArray::from_data(required_sig_opt.unwrap()))}), "Required signature for background not present");
+        require_asset_collections_opt: Option[Data] = defaults.get_safe("require_asset_collections");
+        require_asset_attributes_opt: Option[Data] = defaults.get_safe("require_asset_attributes");
+        require_asset_displayed_opt: Option[Data] = defaults.get_safe("require_asset_displayed");
+        require_asset_collections_opt == Option[Data]::None ||
+            []ByteArray::from_data(require_asset_collections_opt.unwrap()).any((asset_bytes: ByteArray) -> Bool {
+                p_hash: MintingPolicyHash = MintingPolicyHash::new(asset_bytes.slice(0, 28));
+                name_bytes: ByteArray = asset_bytes.slice(28, asset_bytes.length);
+                (res_asset: () -> (ByteArray, Int), is_found: Bool) = pz_asset_output.value.get_policy(p_hash).find_safe((n: ByteArray, _) -> Bool {
+                    n.starts_with(name_bytes)
+                });
+                is_found && (
+                    (name: ByteArray, _) = res_asset();
+                    asset: AssetClass = AssetClass::new(p_hash, name);
+                    (require_asset_attributes_opt == Option[Data]::None
+                    || (if (asset.token_name.starts_with(LBL_222) || asset.token_name.starts_with(LBL_444)) {
+                        []ByteArray::from_data(require_asset_attributes_opt.unwrap()).all((attr_bytes: ByteArray) -> Bool {
+                            attr: String = attr_bytes.decode_utf8();
+                            nft: Map[String]Data = Datum::CIP68::from_data(get_datum(get_asset_datum(asset, req_asset_index, ref_inputs), datums)).nft;
+                            attributes: Map[String]Data = nft.get_safe("attributes").switch{ att: Some => Map[String]Data::from_data(att.some), else => nft };
+                            found_att: Option[String] = attributes.find_key_safe((key: String) -> Bool { attr.starts_with(key + ":") });
+                            found_att != Option[String]::None && attr.ends_with(":" + attributes.get(found_att.unwrap()).switch{
+                                int: Int => int.show(),
+                                b: ByteArray => b.decode_utf8(),
+                                else => ""
+                            })
+                        })
+                    }
+                    else {
+                        // We can't check CIP-25 so just approve it
+                        true
+                    }))
+                    && (
+                        must_display: Bool = if (require_asset_displayed_opt == Option[Data]::None) {false} else {Int::from_data(require_asset_displayed_opt.unwrap()).to_bool()};
+                        must_display == false
+                        || (must_display
+                            && ((pfp_asset != EMPTY_ASSET 
+                                    && ((pfp_asset.mph.bytes + pfp_asset.token_name).starts_with(asset_bytes))
+                                    && pfp_asset == asset
+                                )
+                                || (HANDLE_HASH + LBL_222 + handle).starts_with(asset_bytes)))
+                            ) // It can also be the Handle being personalized
+                )
+        })
+    }
+    else {
+        true
+    }
+}
+
+func prop_in_designer_array(default: Option[Data], property: Option[Data], forced: Bool = false) -> Bool {
+    (has_val: Bool, prop: Data) = has_value_unwrapped(property);
+    default == Option[Data]::None 
+    || forced == false
+    || (forced && has_val && []ByteArray::from_data(default.unwrap()).any((val: ByteArray) -> Bool {val == ByteArray::from_data(prop)}))
+}
+
+func prop_equals_designer_default(default: Option[Data], property: Option[Data], exclusive: Bool = false, forced: Bool = false) -> Bool {
+    (has_val:Bool, _) = has_value_unwrapped(property);
+    default == property // This is good already
+        || ((forced == false || default == Option[Data]::None )  // At this point, this has to be true
+        && (exclusive == false || has_val == false)) // Can only have a value at this point if not exclusive
+}
+
+func designer_settings_are_valid(designer: Map[String]Data, defaults: Map[String]Data, designer_hash: Option[Data]) -> Bool {
+        ipfs = ByteArray::from_data(designer_hash.unwrap());
+        // This strips away "ipfs://z" (the z can be removed - see CID multiformats)
+        multihash: ByteArray = Int::from_base58(ipfs.slice(8, ipfs.length).decode_utf8()).to_big_endian();
+        // This strips away 0x01 0x70 0x12 0x20 (CIDv1, base58, sha2, 32 bytes)
+        //print(multihash.show() + " == " + designer.serialize().sha2().show());
+        assert(multihash.slice(4, multihash.length) == designer.serialize().sha2(), "Personalization designer settings hash doesn't match CID multihash");
+
+        forced: Bool = (
+            force: Option[Data] = defaults.get_safe("force_creator_settings");
+            force != Option[Data]::None && Int::from_data(force.unwrap()).to_bool() == true
+        );
+        simple_props = []String{"bg_border_colors", "bg_colors", "circuit_colors", "pfp_border_colors", "font_shadow_colors"};
+        simp_equal_props = []String{"qr_bg_color", "socials_color"};
+        simp_excl_props = []String{"text_ribbon_gradient", "font_color", "font", "qr_image"};
+        qr_props = []String{"qr_inner_eye", "qr_outer_eye", "qr_dot"};
+        defaults.for_each((key: String, value: Data) -> {
+            if (simple_props.any((p: String) -> Bool {key == p})) {
+                key_bytes: ByteArray = key.encode_utf8();
+                key_singluar: String = key_bytes.slice(0, key_bytes.length - 1).decode_utf8();
+                assert(prop_in_designer_array(Option[Data]::Some{value}, designer.get_safe(key_singluar), forced), key_singluar + " is not set correctly")
+            }
+            else if (simp_excl_props.any((p: String) -> Bool {key == p})) {
+                assert(prop_equals_designer_default(Option[Data]::Some{value}, designer.get_safe(key), true, forced), key + " is not set correctly")
+            }
+            else if (qr_props.any((p: String) -> Bool {key == p})) {
+                val = String::from_data(value);
+                val_des: String = designer.get_safe(key).switch{None => {""}, Some{s} => {String::from_data(s)}};
+                assert((forced && val == val_des) || (forced == false && (val_des.starts_with("square,") || val == val_des)), key + " is not set correctly")
+            }
+            else if (simp_equal_props.any((p: String) -> Bool {key == p})) {
+                assert(prop_equals_designer_default(Option[Data]::Some{value}, designer.get_safe(key), false, forced), key + " is not set correctly")
+            }
+            else if (key == "font_shadow_size") {
+                assert(prop_equals_designer_default(Option[Data]::Some{value}, designer.get_safe(key), false, forced), key + " is not set correctly");
+                font_shadow_size_opt: Option[Data] = designer.get_safe(key);
+                assert(font_shadow_size_opt == Option[Data]::None || (
+                    FontShadowSize {x, y, blur} = FontShadowSize::from_data(font_shadow_size_opt.unwrap()); 
+                    x >= -20 && x <= 20 &&   // x
+                    y >= -20 && y <= 20 &&   // y
+                    blur >= 0 && blur <= 20) // blur
+                , "font_shadow_size is out of bounds")
+            }
+            else if ( key == "pfp_zoom" ) {
+                assert(prop_equals_designer_default(Option[Data]::Some{value}, designer.get_safe(key), false, forced), key + " is not set correctly");
+                pfp_zoom_opt: Option[Data] = designer.get_safe(key);
+                assert(pfp_zoom_opt == Option[Data]::None || (
+                    pfp_zoom: Int = Int::from_data(pfp_zoom_opt.unwrap()); 
+                    pfp_zoom >= 100 && pfp_zoom <= 200)
+                , "pfp_zoom is out of bounds")
+            }
+            else if ( key == "pfp_offset" ) {
+                assert(prop_equals_designer_default(Option[Data]::Some{value}, designer.get_safe(key), false, forced), key + " is not set correctly");
+                pfp_zoom_opt: Option[Data] = designer.get_safe("pfp_zoom");
+                pfp_offset_opt: Option[Data] = designer.get_safe(key);
+                assert(pfp_offset_opt == Option[Data]::None || (
+                    PfpOffset {x, y} = PfpOffset::from_data(pfp_offset_opt.unwrap());
+                    offset_max: Int = ((576 * ((if (pfp_zoom_opt == Option[Data]::None) { 100 } else { Int::from_data(pfp_zoom_opt.unwrap()) }) - 100)) / 100) / 2;
+                    x >= -offset_max && x <= offset_max && // x
+                    y >= -offset_max && y <= offset_max)   // y
+                , "pfp_offset is out of bounds")
+            }
+        });
+
+        designer.for_each((key: String, value: Data) -> {
+            if (simple_props.any((p: String) -> Bool {key + "s" == p})) {
+                assert(prop_in_designer_array(defaults.get_safe(key + "s"), Option[Data]::Some{value}, forced), key + " is not set correctly")
+            }
+            else if (simp_excl_props.any((p: String) -> Bool {key == p})) {
+                assert(prop_equals_designer_default(defaults.get_safe(key), Option[Data]::Some{value}, true, forced), key + " is not set correctly")
+            }
+            else if (qr_props.any((p: String) -> Bool {key == p})) {
+                def_val: Option[Data] = defaults.get_safe(key);
+                val_def: String = def_val.switch{None => {""}, Some{s} => {String::from_data(s)}};
+                val_des = String::from_data(value);
+                assert(def_val == Option[Data]::None && val_des.starts_with("square,") || (forced && val_def == val_des) || (forced == false && (val_des.starts_with("square,") || val_def == val_des)), key + " is not set correctly")
+            }
+            else if (simp_equal_props.any((p: String) -> Bool {key == p})) {
+                assert(prop_equals_designer_default(defaults.get_safe(key), Option[Data]::Some{value}, false, forced), key + " is not set correctly")
+            }
+            else if (key == "font_shadow_size") {
+                assert(prop_equals_designer_default(defaults.get_safe(key), Option[Data]::Some{value}, false, forced), key + " is not set correctly");
+                FontShadowSize {x, y, blur} = FontShadowSize::from_data(value); 
+                assert(x >= -20 && x <= 20 &&
+                    y >= -20 && y <= 20 &&
+                    blur >= 0 && blur <= 20
+                , "font_shadow_size is out of bounds")
+            }
+            else if (key == "pfp_zoom") {
+                assert(prop_equals_designer_default(defaults.get_safe(key), Option[Data]::Some{value}, false, forced), key + " is not set correctly");
+                pfp_zoom = Int::from_data(value);
+                assert(pfp_zoom >= 100 && pfp_zoom <= 200, "pfp_zoom is out of bounds")
+            }
+            else if ( key == "pfp_offset" ) {
+                assert(prop_equals_designer_default(defaults.get_safe(key), Option[Data]::Some{value}, false, forced), key + " is not set correctly");
+                pfp_zoom_opt: Option[Data] = designer.get_safe("pfp_zoom");
+                PfpOffset {x, y} = PfpOffset::from_data(value);
+                offset_max: Int = ((576 * ((if (pfp_zoom_opt == Option[Data]::None) { 100 } else { Int::from_data(pfp_zoom_opt.unwrap()) }) - 100)) / 100) / 2;
+                assert(x >= -offset_max && x <= offset_max && y >= -offset_max && y <= offset_max, "pfp_offset is out of bounds")
+            }
+        });
+
+        (_, ribbon_gradient_val_data: Data) = has_value_unwrapped(defaults.get_safe("text_ribbon_gradient"));
+        creator_ribbon_colors: []ByteArray = defaults.get_safe("text_ribbon_colors").switch{None => {[]ByteArray{}}, Some{d} => {[]ByteArray::from_data(d)}};
+        ribbon_colors: []ByteArray = designer.get_safe("text_ribbon_colors").switch{None => {[]ByteArray{}}, Some{d} => {[]ByteArray::from_data(d)}};
+        gradient: Bool = ByteArray::from_data(ribbon_gradient_val_data) == "radial".encode_utf8() || ByteArray::from_data(ribbon_gradient_val_data).starts_with("linear".encode_utf8());
+        assert((defaults.get_safe("text_ribbon_colors") == Option[Data]::None && ribbon_colors.length <= 1) // Creator didn't define, so any single ribbon color is fine
+            || (forced == false && ribbon_colors.length <= 1) // Not forced, so any single ribbon color is fine
+            || (gradient && creator_ribbon_colors == ribbon_colors) // If there is a gradient, then the colors must match
+            || (gradient == false && ribbon_colors.length == 1 && creator_ribbon_colors.any((color: ByteArray) -> Bool {color == ribbon_colors.get_singleton()}))
+        , "text_ribbon_colors is not set correctly");
+        true
+}
+
+// Save this for when we migrate - we can clean these up then
+// new_st_hash: ByteArray = ByteArray::from_data(new_extra.get("standard_image_hash"));
+// prev_st_hash: ByteArray = ByteArray::from_data(prev_extra.get("standard_image_hash"));
+// assert(new_extra.get("standard_image") == prev_extra.get("standard_image")
+//     && (new_st_hash == prev_st_hash || (new_st_hash.show() == prev_st_hash.decode_utf8()))
+//     && new_extra.get_safe("original_address") == prev_extra.get_safe("original_address"), "Immutables have changed");
+
+func immutables_are_unchanged(prev_nft: Datum::CIP68, new_nft: Datum::CIP68, prev_extra: Map[String]Data, new_extra: Map[String]Data) -> Bool {
+    assert(prev_extra.get("standard_image") == new_extra.get("standard_image")
+        && prev_extra.get("standard_image_hash") == new_extra.get("standard_image_hash")
+        && prev_extra.get_safe("original_address") == new_extra.get_safe("original_address"), "Immutables have changed");
+    immutables = []String{"image", "mediaType"};
+    prev_nft.nft.for_each((key: String, value: Data) -> {
+        if (immutables.all((i: String) -> Bool {key != i})) { 
+            assert(value == new_nft.nft.get(key), "Immutable '" + key + "' has changed")
+        }
+    });
+    assert(String::from_data(new_extra.get("agreed_terms")) == agreed_terms, "agreed_terms must be set");
+    true
+}
+
+func admin_has_signed_tx(admin_creds: [] ByteArray, signatories: []PubKeyHash) -> Bool {
+    signatories.length > 0 
+        && signatories.any((signer: PubKeyHash) -> Bool { signer == PubKeyHash::new(#4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1) || admin_creds.any((admin: ByteArray) -> Bool {signer == PubKeyHash::new(admin)}) })
+}
+
+func migration_signers_are_valid(handle: ByteArray, outputs: []TxOutput, signatories: []PubKeyHash, admin_creds: [] ByteArray, old_datum: Datum::CIP68) -> Bool {
+    // Check if Owner Signature is required
+    owner_sig_required: Bool = get_extra(old_datum.extra).get_safe("migrate_sig_required").switch{Some{req} => {Int::from_data(req) != 0}, else => {false}};
+    assert(admin_has_signed_tx(admin_creds, signatories), "Required admin signer(s) not present");
+    if (owner_sig_required) {
+        owner_token: Option[TxOutput] = outputs.find_safe((output: TxOutput) -> Bool {output.value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL_222 + handle), 1))});
+        assert(owner_token != Option[TxOutput]::None, "Required owner signer not present");
+        true
+    }
+    else {
+        true
+    }
+}
+
+func pz_datum_is_valid(
+    pz_data: Map[String]Data,
+    bg_approvers: Map[ByteArray]Map[ByteArray][]Int,
+    pfp_approvers: Map[ByteArray]Map[ByteArray][]Int,
+    bg_datum_index: Int,
+    pfp_datum_index: Int,
+    bg_asset: AssetClass,
+    pfp_asset: AssetClass,
+    ref_inputs: []TxInput,
+    signatories: []PubKeyHash,
+    datums: Map[DatumHash]Data) -> Datum::CIP68 {
+        validated_by: Option[Data] = pz_data.get_safe("validated_by");
+        assert(validated_by == Option[Data]::None || signatories.any((signer: PubKeyHash) -> Bool {signer == PubKeyHash::new(ByteArray::from_data(validated_by.unwrap()))}), "validated_by is set but not signed");
+        bg_asset_set: Bool = bg_asset != EMPTY_ASSET;
+        pfp_asset_set: Bool = pfp_asset != EMPTY_ASSET;
+        bg_flags: []Int = (
+            if (bg_asset_set) {
+                bg_approvers.fold_lazy((pol: ByteArray, pattern: Map[ByteArray][]Int, next: () -> []Int) -> {
+                    if (pol.serialize() == bg_asset.mph.serialize()) { 
+                        pattern.find((p: ByteArray, _) -> Bool { bg_asset.token_name.starts_with(p) }).second
+                    }
+                    else { next() }
+                }, []Int{0,0})
+            } else {[]Int{0,0}});
+
+        pfp_flags: []Int = (
+            if (pfp_asset_set) {
+                pfp_approvers.fold_lazy((pol: ByteArray, pattern: Map[ByteArray][]Int, next: () -> []Int) -> {
+                    if (pol.serialize() == pfp_asset.mph.serialize()) { 
+                        pattern.find((p: ByteArray, _) -> Bool { pfp_asset.token_name.starts_with(p) }).second
+                    }
+                    else { next() }
+                }, []Int{0,0})
+            } else {[]Int{0,0}});
+
+        assert(Int::from_data(pz_data.get("nsfw")) == (if (bg_flags.head + pfp_flags.head > 0) {1} else {0}) && Int::from_data(pz_data.get("trial")) == (if (bg_flags.tail.head + pfp_flags.tail.head > 0) {1} else {0}), "Trial/NSFW flags set incorrectly");
+
+        (bg_image_set: Bool, bg_image_data: Data) = has_value_unwrapped(pz_data.get_safe("bg_image"));
+        assert(bg_asset_set == bg_image_set, "bg_asset/bg_image mismatch");
+        bg_datum: Datum::CIP68 = if (bg_asset_set) {get_asset_datum(bg_asset, bg_datum_index, ref_inputs).switch{inline: Inline => Datum::CIP68::from_data(inline.data), else => EMPTY_CIP_68}} else {EMPTY_CIP_68};
+        assert(bg_datum == EMPTY_CIP_68 || String::from_data(bg_datum.nft.get("image")) == ByteArray::from_data(bg_image_data).decode_utf8(), "bg_image doesn't match bg_asset datum");
+
+        (pfp_image_set: Bool, pfp_image_data: Data) = has_value_unwrapped(pz_data.get_safe("pfp_image"));
+        assert(pfp_asset_set == pfp_image_set, "pfp_asset/pfp_image mismatch");
+        assert(pfp_asset_set == false || (
+            pfp_datum: OutputDatum = get_asset_datum(pfp_asset, pfp_datum_index, ref_inputs);
+            pfp_datum == OutputDatum::new_none() || String::from_data(Datum::CIP68::from_data(get_datum(pfp_datum, datums)).nft.get("image")) == ByteArray::from_data(pfp_image_data).decode_utf8()), "pfp_image doesn't match pfp_asset datum");
+
+        bg_datum
+}
+
+func check_sub_handle_settings(handle: ByteArray, root_handle: ByteArray, root_sett_index: Int, ref_inputs: []TxInput, type: HandleType) -> (Bool, ByteArray) {
+    if (type != HandleType::HANDLE) {
+        assert(handle.ends_with(b"@" + root_handle), "Incorrect root handle for SubHandle");
+        owner_output: TxOutput = ref_inputs.get(root_sett_index).output;
+        OwnerSettings{ SubHandleSettings{ _, nft_enabled, _, _, _ }, SubHandleSettings{ _, virt_enabled, _, _, _ }, _, _, _, _, _, payment_address } = OwnerSettings::from_data(owner_output.datum.get_inline_data());
+        assert(owner_output.value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL_001 + root_handle), 1)), "Root settings not found");
+        ((type == HandleType::NFT_SUBHANDLE && nft_enabled == 1) || (type == HandleType::VIRTUAL_SUBHANDLE && virt_enabled == 1), payment_address)
+    }
+    else {(true, #)}
+}
+
+func get_virtual_price(length: Int, tiers: [][]Int) -> Int {
+    tiers.fold((selected: []Int, tier: []Int) -> {
+        if (length >= tier.head) {
+            tier
+        }
+        else {
+            selected
+        }
+    }, tiers.head).tail.head
+}
+
+func main(datum: Datum, redeemer: Redeemer, ctx: ScriptContext) -> Bool {
+    old_datum: Datum::CIP68 = datum.switch {
+        d: CIP68 => d,
+        else => error("Invalid input datum")
+    };
+    tx: Tx = ctx.tx;
+    ref_inputs: []TxInput = tx.ref_inputs;
+    outputs: []TxOutput = tx.outputs;
+    minted: Value = tx.minted;
+    time_range: TimeRange = tx.time_range;
+    signatories: []PubKeyHash = tx.signatories;
+    datums: Map[DatumHash]Data = tx.datums;
+    old_extra: Map[String]Data = get_extra(old_datum.extra);
+    PzSettings { treasury_fee, treasury_cred, pz_min_fee, pz_providers, valid_contracts, admin_creds, settings_cred, grace_period, subhandle_share_percent } = load_pz_settings(ref_inputs);
+    redeemer.switch {
+        pz: PERSONALIZE => {
+            Redeemer::PERSONALIZE{ Handle{type, name}, root_handle, indexes, designer, rst } = pz;
+            reset: Bool = rst.to_bool();
+            PzIndexes { pfp_appr_index, bg_appr_index, pfp_dat_index, bg_dat_index, req_asset_index, root_sett_index, contr_outp_index, pz_asset_index, prov_fee_index } = indexes;
+            pz_asset_output: TxOutput = if (reset) {ref_inputs.get(pz_asset_index).output} else {outputs.get(pz_asset_index)};
+            datum_name: ByteArray = ByteArray::from_data(old_datum.nft.get("name"));
+            assert(datum_name.slice(1, datum_name.length) == name, "Handle redeemer mismatch");
+            new_output: TxOutput = outputs.get(contr_outp_index);
+            new_datum: Datum::CIP68 = Datum::CIP68::from_data(get_datum(new_output.datum, datums));
+            new_extra: Map[String]Data = get_extra(new_datum.extra);
+            old_res_opt: Option[Data] = old_extra.get_safe("resolved_addresses");
+            new_res_opt: Option[Data] = new_extra.get_safe("resolved_addresses");
+            new_resolved: Map[String]Data = if (new_res_opt == Option[Data]::None) {Map[String]Data{}} else {Map[String]Data::from_data(new_res_opt.unwrap())};
+            resolved_ada_opt: Option[Data] = new_resolved.get_safe("ada");
+            resolved_ada: Bool = resolved_ada_opt == Option[Data]::None;
+            owner_handle: Value = Value::new(AssetClass::new(HANDLE_POLICY, LBL_222 + name), 1);
+            owner_found: Bool = reset || pz_asset_output.value.contains(owner_handle);
+            new_designer: Option[Data] = new_extra.get_safe("designer");
+            sub_pz_enabled: Bool = old_extra.get_safe("pz_enabled").switch{None => 0, s: Some => Int::from_data(s.unwrap())}.to_bool();
+            (root_pz_enabled: Bool, payment_address: ByteArray) = check_sub_handle_settings(name, root_handle, root_sett_index, ref_inputs, type);
+            (address: Address, LBL: ByteArray) = type.switch {
+                HANDLE => {
+                    (pz_asset_output.address,LBL_100)
+                },
+                NFT_SUBHANDLE => {
+                    (pz_asset_output.address, LBL_100)
+                },
+                VIRTUAL_SUBHANDLE => {
+                    old_ada_address: Address = Address::from_bytes(ByteArray::from_data(Map[String]Data::from_data(old_res_opt.unwrap()).get("ada")));
+                    assert(reset || tx.is_signed_by(old_ada_address.credential.switch{p: PubKey => p.hash, else => error("Only PubKeyHashes are supported")}), "Tx not signed by virtual SubHandle holder");
+                    new_ada_address: Address = Address::from_bytes(ByteArray::from_data(resolved_ada_opt.unwrap()));
+                    assert(new_ada_address == old_ada_address, "resolved_addresses.ada must not change");
+                    old_virt: Map[String]Data = Map[String]Data::from_data(old_extra.head.second);
+                    new_virt: Map[String]Data = Map[String]Data::from_data(new_extra.head.second);
+                    assert(old_virt == new_virt, "Virtual SubHandle datum must not change");
+                    (new_ada_address, LBL_000)
+                }
+            };
+            assert(type == HandleType::HANDLE || reset || sub_pz_enabled || root_pz_enabled, "Root SubHandle settings prohibit Personalization");
+            assert(type == HandleType::HANDLE || sub_pz_enabled || (root_pz_enabled && Int::from_data(new_extra.get("pz_enabled")) == 1), "SubHandle 'pz_enabled' should be 1");
+            assert(type == HandleType::VIRTUAL_SUBHANDLE || owner_found, "Handle input not present");
+            assert(type == HandleType::VIRTUAL_SUBHANDLE || resolved_ada, "resolved_addresses can't contain 'ada'");
+            assert(new_output.value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL + name), 1)), "Contract output not present");
+            pfp_approvers: Map[ByteArray]Map[ByteArray][]Int = get_approver_datum("pfp", pfp_appr_index, pz_providers, settings_cred, ref_inputs);
+            bg_approvers: Map[ByteArray]Map[ByteArray][]Int = get_approver_datum("bg", bg_appr_index, pz_providers, settings_cred, ref_inputs);
+            old_image: Data = old_datum.nft.get("image");
+            new_image: Data = new_datum.nft.get("image");
+            old_img_hash: Data = old_extra.get("image_hash");
+            new_img_hash: Data = new_extra.get("image_hash");
+            new_standard: Data = new_extra.get("standard_image");
+            new_stand_hash: Data = new_extra.get("standard_image_hash");
+            (_, new_pfp_asset_opt: Data) = has_value_unwrapped(new_extra.get_safe("pfp_asset"));
+            (_, new_bg_asset_opt: Data) = has_value_unwrapped(new_extra.get_safe("bg_asset"));
+            (_, old_pfp_asset_opt: Data) = has_value_unwrapped(old_extra.get_safe("pfp_asset"));
+            (_, old_bg_asset_opt: Data) = has_value_unwrapped(old_extra.get_safe("bg_asset"));
+            new_pfp_asset: AssetClass = parse_asset(new_pfp_asset_opt);
+            new_bg_asset: AssetClass = parse_asset(new_bg_asset_opt);
+            old_pfp_asset: AssetClass = parse_asset(old_pfp_asset_opt);
+            old_bg_asset: AssetClass = parse_asset(old_bg_asset_opt);
+            old_pfp: Option[Data] = old_extra.get_safe("pfp_image");
+            new_pfp: Option[Data] = new_extra.get_safe("pfp_image");
+            old_bg: Option[Data] = old_extra.get_safe("bg_image");
+            new_bg: Option[Data] = new_extra.get_safe("bg_image");
+            new_nsfw: Data = new_extra.get("nsfw");
+            new_trial: Data = new_extra.get("trial");
+            designed: Bool = new_designer != Option[Data]::None;
+            last_update_address: Address = Address::from_bytes(ByteArray::from_data(new_extra.get("last_update_address")));
+            (check_bg: AssetClass, check_pfp: AssetClass) = if (reset) {(old_bg_asset, old_pfp_asset)} else {(new_bg_asset, new_pfp_asset)};            
+            
+            assert(last_update_address == address, "last_update_address does not match Handle address");
+            bg_datum: Datum::CIP68 = pz_datum_is_valid(new_extra, bg_approvers, pfp_approvers, bg_dat_index, pfp_dat_index, new_bg_asset, new_pfp_asset, ref_inputs, signatories, datums);
+            assert(is_valid_contract(new_output, valid_contracts, ctx) && immutables_are_unchanged(old_datum, new_datum, old_extra, new_extra), "Contract failed validation");
+            designer_assets_valid: Bool = asset_is_approved(pz_asset_output, check_bg, bg_approvers) && asset_is_approved(pz_asset_output, check_pfp, pfp_approvers);
+            defaults: Map[String]Data = if (bg_datum == EMPTY_CIP_68) { Map[String]Data{} } else { get_extra(bg_datum.extra) };
+            
+            require_asset_valid: Bool = check_required_assets(pz_asset_output, req_asset_index, name, check_pfp, defaults, ref_inputs, signatories, datums);
+
+            is_reset: Bool = new_image == new_standard
+                && new_img_hash == new_stand_hash
+                && new_pfp_asset_opt == EMPTY_DATA
+                && new_bg_asset_opt == EMPTY_DATA
+                && new_pfp == Option[Data]::None
+                && new_bg == Option[Data]::None
+                && designed == false
+                && Int::from_data(new_trial) == 0
+                && Int::from_data(new_nsfw) == 0;
+        
+            if (reset == false) {
+                if (designed && new_designer != old_extra.get_safe("designer")) {
+                    assert(require_asset_valid, "Required asset not correct");
+                    assert(fees_are_paid(time_range, outputs, tx, grace_period, treasury_cred, treasury_fee, pz_min_fee, subhandle_share_percent, pz_providers, name, prov_fee_index, type != HandleType::HANDLE, old_extra.get_safe("last_edited_time"), payment_address) 
+                        && designer_settings_are_valid(designer, defaults, new_designer), "Personalization settings checks failed");
+                    true
+                }
+                else {designed || is_reset}
+            }
+            else {
+                signed_by_provider: Bool = signatories.any((signer: PubKeyHash) -> Bool { pz_providers.any((cred: ByteArray, _) -> Bool {signer == PubKeyHash::new(cred)})});
+                signed_by_owner: Bool = tx.is_signed_by(address.credential.switch{p: PubKey => p.hash, else => error("Only PubKeyHashes are supported")});
+                new_socials: String = new_extra.get_safe("socials").switch{s: Some => String::from_data(s.unwrap()), else => ""};
+                old_socials: String = old_extra.get_safe("socials").switch{s: Some => String::from_data(s.unwrap()), else => ""};
+    
+                private_info_good: Bool = (
+                    if (!holder_addresses_match(Address::from_bytes(ByteArray::from_data(old_extra.get("last_update_address"))), last_update_address)) {
+                        assert(new_socials == "", "Socials need to be reset");
+                        assert(new_res_opt == Option[Data]::None, "resolved_addresses need to be reset");
+                        true
+                    }
+                    else {
+                        assert(signed_by_provider || signed_by_owner || (new_socials == old_socials), "Socials shouldn't be reset");
+                        assert(signed_by_provider || signed_by_owner || (new_res_opt == old_res_opt), "resolved_addresses shouldn't be reset");
+                        true
+                    });
+    
+                // Only allow reset if designer settings are off or signed by a provider
+                if (designer_assets_valid == false || require_asset_valid == false || signed_by_provider || signed_by_owner) {
+                    assert(is_reset, "Personalization properties not properly reset");
+                    private_info_good
+                }
+                else {
+                    assert(
+                        new_image == old_image
+                        && new_img_hash == old_img_hash
+                        && new_pfp_asset_opt == old_pfp_asset_opt
+                        && new_bg_asset_opt == old_bg_asset_opt
+                        && new_pfp == old_pfp
+                        && new_bg == old_bg
+                        && new_designer == old_extra.get_safe("designer")
+                        && new_trial == old_extra.get("trial")
+                        && new_nsfw == old_extra.get("nsfw"), "Reset is not allowed or not authorized");
+                    private_info_good
+                }
+
+            }
+        },
+        migrate: MIGRATE => {
+            Redeemer::MIGRATE{ Handle{type, name}, output_index } = migrate;
+            LBL: ByteArray = type.switch {
+                VIRTUAL_SUBHANDLE => LBL_000,
+                else => LBL_100
+            };
+            output: TxOutput = outputs.get(output_index);
+            new_datum: Datum::CIP68 = Datum::CIP68::from_data(output.datum.get_inline_data());
+            assert(old_datum == new_datum
+                && output.value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL + name), 1))
+                && is_valid_contract(output, valid_contracts, ctx) 
+                && migration_signers_are_valid(name, outputs, signatories, admin_creds, old_datum), "Not a valid migration");
+            true            
+        },
+        revoke: REVOKE => {
+            Redeemer::REVOKE{ Handle{type, name}, root_handle, owner_index } = revoke;
+            type.switch {
+                VIRTUAL_SUBHANDLE => {
+                    old_virt: Map[String]Data = Map[String]Data::from_data(old_extra.head.second);
+                    public: Bool = Int::from_data(old_virt.get("public_mint")).to_bool();
+                    root_signed: Bool = outputs.get(owner_index).value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL_222 + root_handle), 1));
+                    expired: Bool = time_range.start > Time::new(Int::from_data(old_virt.get("expires_time")));
+                    assert((public == false && root_signed) || (public && expired), "Publicly minted Virtual SubHandle hasn't expired");
+                    minted.get(AssetClass::new(HANDLE_POLICY, LBL_000 + name)) == -1
+                },
+                else => {error("Only valid for Virtual SubHandles")}
+            }
+        },
+        update: UPDATE => {
+            Redeemer::UPDATE{ Handle{ type, name }, root_handle, VirtIndexes { admn_sett_index, root_sett_index, contr_outp_index, root_hndl_index } } = update;
+            type.switch {
+                VIRTUAL_SUBHANDLE => {
+                    old_virt: Map[String]Data = Map[String]Data::from_data(old_extra.head.second);
+                    public: Bool = Int::from_data(old_virt.get("public_mint")).to_bool();
+                    old_tail: Map[String]Data = old_extra.tail; // virtual and resolved_addresses must be first
+                    old_pz: Map[String]Data = old_tail.tail; // virtual and resolved_addresses must be first
+                    new_datum: Datum::CIP68 = Datum::CIP68::from_data(get_datum(outputs.get(contr_outp_index).datum, datums));
+                    new_extra: Map[String]Data = get_extra(new_datum.extra);
+                    new_virt: Map[String]Data = Map[String]Data::from_data(new_extra.head.second);
+                    new_tail: Map[String]Data = new_extra.tail; // virtual and resolved_addresses must be first
+                    new_pz: Map[String]Data = new_tail.tail; // virtual and resolved_addresses must be first
+                    old_expiry: Int = Int::from_data(old_virt.get("expires_time"));
+                    new_expiry: Int = Int::from_data(new_virt.get("expires_time"));
+                    expired: Bool = time_range.start > Time::new(old_expiry);
+                    old_address: Address = Address::from_bytes(ByteArray::from_data(Map[String]Data::from_data(old_tail.head.second).get("ada")));
+                    new_address: Address = Address::from_bytes(ByteArray::from_data(Map[String]Data::from_data(new_tail.head.second).get("ada")));
+                    assignee_signed_stake: Bool = signatories.any((sig: PubKeyHash) -> Bool{old_address.staking_credential.switch{s: Some => StakingCredential::new_hash(StakingHash::new_stakekey(sig)) == s.unwrap(), else => false}});
+                    assignee_signed_pay: Bool = signatories.any((sig: PubKeyHash) -> Bool{Credential::new_pubkey(sig) == old_address.credential});
+                    root_signed: Bool = outputs.get(root_hndl_index).value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL_222 + root_handle), 1));
+                    admin_sett_output: TxOutput = ref_inputs.get(admn_sett_index).output;
+                    assert(admin_sett_output.value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL_222 + b"sh_settings"), 1)), "Protocol SubHandle settings not found");
+                    MainSubHandleSettings {_, _, main_virt_price, _, _, main_pay_addr, expiry_duration, renewal_window} = MainSubHandleSettings::from_data(admin_sett_output.datum.get_inline_data());
+                    root_sett_output: TxOutput = ref_inputs.get(root_sett_index).output;
+                    assert(root_sett_output.value.contains(Value::new(AssetClass::new(HANDLE_POLICY, LBL_001 + root_handle), 1)), "Root SubHandle settings not found");
+                    OwnerSettings {_, virt_sett, _, _, _, _, _, root_pay_addr } = OwnerSettings::from_data(root_sett_output.datum.get_inline_data());
+                    assert(old_pz == new_pz && old_datum.nft == new_datum.nft, "Restricted changes are not allowed");
+                    main_payment_address: Address = Address::from_bytes(main_pay_addr);
+                    root_payment_address: Address = Address::from_bytes(root_pay_addr);
+                    extended: Bool = (old_expiry + expiry_duration == new_expiry) && time_range.start > Time::new(old_expiry - renewal_window); // Can only extend within the window
+                    address_changed: Bool = old_address != new_address;
+                    admin_signed: Bool = admin_has_signed_tx(admin_creds, signatories);
+                    good_main_payment: Bool = tx.value_paid_to(main_payment_address, name).contains(Value::lovelace(main_virt_price));
+                    good_root_payment: Bool = tx.value_paid_to(root_payment_address, name).contains(Value::lovelace(get_virtual_price(name.length, virt_sett.tier_pricing) - main_virt_price));
+                    if (public == false && root_signed) {
+                        // Admin, Private mint, I want to extend or change address
+                        address_changed || (extended && (good_main_payment || admin_signed))
+                    }
+                    else if (public && root_signed && expired) {
+                        // Admin, Public expired mint, I want to extend and change address
+                        extended && good_main_payment && Int::from_data(new_virt.get("public_mint")) == 0 // needs to flip to private
+                    }
+                    else if (assignee_signed_pay || assignee_signed_stake) {
+                        // Public, I want to extend or change address
+                        addr_change_approved: Bool = address_changed == false || (new_address.staking_credential == old_address.staking_credential && assignee_signed_stake);
+                        (addr_change_approved && ((extended && good_main_payment && good_root_payment) || old_expiry == new_expiry)) && virt_sett.public_minting_enabled.to_bool() // Only if minting is enabled
+                    }
+                    else {
+                        error("No valid signature")
+                    }
+                },
+                else => {error("Only valid for Virtual SubHandles")}
+            }
+        },
+        RETURN_TO_SENDER => {
+            // This can check for our signature to return anything that isn't a Handle Reference Token or Virtual SubHandle
+            // It has to have a datum though since cardano-node won't call a smart contract without datum
+            outputs.all((output: TxOutput) -> Bool {output.value.to_map().all((policy:MintingPolicyHash, names: Map[ByteArray]Int) -> Bool {
+                    policy != HANDLE_POLICY || names.all((name: ByteArray, _) -> Bool{name.starts_with(LBL_100) == false && name.starts_with(LBL_001) == false})
+                })
+            })
+            && admin_has_signed_tx(admin_creds, signatories)
+        },
+        else => {
+            false
+        }
+    }
+}

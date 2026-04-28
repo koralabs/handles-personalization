@@ -126,12 +126,29 @@ After Phase C the YAML/code references `pers@handle_settings` etc., but the live
 ### `?type=<scripttype>` script lookup is 404 on preview
 The `/scripts?latest=true&type=<oldScriptType>` query I used in `fetchLiveDeploymentState` returns 404 for known live contracts (e.g., `?type=pz` 404s even though `pers6@handlecontract` is live at `91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff`). The handler in fetchLiveDeploymentState treats 404 as "never deployed under that slug" — so pers_proxy reports `current_script_hash: null`. Drift detection still works (both contracts correctly flagged as needing deployment), but the planner can't *replace* an old contract with a new one in the auto-allocate flow. To make this work at cutover time, we'll need a different lookup — probably scan `/scripts?latest=true` (returns all live scripts as an address-keyed map) and filter by validator hash or by the deployment-handle namespace. Bookmark for Phase E or the deployment-tooling pass.
 
-## Open questions parked for you
+## Resolved questions (your answers)
 
-1. **Existing Helios `pers.helios` file** — delete outright, or keep as historical reference until live cutover (Phase E)? Default: keep for now, delete in final cleanup pass.
+1. **`pers.helios`** — *Keep until mainnet cutover successful.* I had deleted it in commit 5; restored in a follow-up commit. The file is back in the repo at the root. Once mainnet cutover lands, it goes for good. (Tooling around it — `compile.js`, parity tests — stays deleted; we can `git checkout 65c3643~ -- compile.js` if we ever need to recompile to verify hash parity.)
 
-2. **`scripts/build_pz_settings_cred_refresh.js`** — confirmed superseded by Phase A.5's `tx-NN.cbor` flow. Will delete in final cleanup pass.
+2. **`scripts/build_pz_settings_cred_refresh.js`** — *OK to delete.* Already deleted in commit 5.
 
-3. **Old `pz_settings` data on-chain** — when we rename to `pers@handle_settings`, do we need an on-chain migration to move the settings UTxO from the old handle to the new one, or does the new handle just get minted fresh with the same datum? **Default: fresh mint at cutover (Phase E).**
+3. **Phase E datum-attachment workflow** — *Minting happens in the minting engine which knows nothing of datum. Datum always has to be attached after mint.*
 
-4. **`pers_proxy` parameterization** — DeMi parameterizes the proxy with `mint_governor` (the logic hash) so the proxy doesn't have to read settings each spend. We could parameterize `pers_proxy` with the `valid_contracts` policy if we wanted, but that defeats the point of state-key registration (you'd have to redeploy proxy to change the registry). **Default: keep `pers_proxy` un-parameterized; it reads `valid_contracts` from settings each spend.**
+   So the Phase E sequence per network is:
+
+   1. Mint `pers@handle_settings`, `pers_bg@handle_settings`, `pers_pfp@handle_settings` to the deployer wallet via the standard minting engine (no datum).
+   2. Build a settings-attach tx (separate from the standard mint) that:
+       - Spends the just-minted handle UTxO
+       - Outputs the same handle UTxO at the multisig native-script address with the inline datum attached
+       - Native-script witness from the multisig signers
+   3. (For `pers@handle_settings` only — `pers_bg`/`pers_pfp` carry root-hash datums that are populated by the partners-trie seeding flow.) Sanity-check: re-run `scripts/generateDeploymentPlan.js` — should report `no_change` for settings.
+
+   Implementation note: this is essentially the same shape as `settingsUpdateTx.js` but with a different input (a plain wallet UTxO holding the handle, no existing datum) and a different output address (multisig script, not the wallet). Plan to extend or fork `settingsUpdateTx.js` for the cutover tx — bookmarked for Phase E.
+
+4. **`pers_proxy` parameterization** — *Whatever makes it work like a true proxy. More like DeMi is preferred.*
+
+   Current implementation (commit 2) keeps the proxy *un-parameterized* — it reads `valid_contracts` from `pz_settings` at every spend. This is what satisfies your earlier "swap that out without reassigning where tokens are locked to" constraint: a single stable proxy address, ever; logic upgrades = settings update, no token migration.
+
+   **DeMi-strict alternative** would parameterize `pers_proxy` on the logic credential, the way `demimntprx` is parameterized on `mint_governor`. That makes the proxy a "true" delegating proxy in the literal Solidity-pattern sense, but it changes the proxy's script hash whenever logic changes — i.e., new logic deploy = new proxy address = ref NFTs at the OLD proxy stay at the OLD proxy and only spend via the OLD logic. This is functionally how DeMi handles upgrades (you don't migrate; you live with multi-version state).
+
+   I went with the un-parameterized path because (a) it matches your original explicit constraint about stable token addresses, (b) it's what the committed code already does, and (c) reading settings at every spend is a small CPU cost for a big operational simplification. If you want the strict DeMi style, the change is roughly: add a parameter to `validator personalization_proxy(logic_credential: ByteArray) { spend(...) { ... } }` and replace the `update.observer_withdrawal_is_valid(tx, own_ref, redeemer, settings.valid_contracts)` call with a check that `tx.withdrawals` includes a zero-withdraw from `logic_credential`. Settings still drives `valid_contracts`, but only off-chain (for the planner / migration tooling). Tell me which way and I'll do the rewrite.
