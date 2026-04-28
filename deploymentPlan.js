@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { Buffer } from "node:buffer";
 
-import * as helios from "@koralabs/helios";
+import cbor from "cbor";
 
 import {
   getAikenArtifactPaths,
@@ -50,35 +50,38 @@ export const renderTransactionOrderMarkdown = (transactionOrder) =>
     ? transactionOrder.map((fileName) => `- \`${fileName}\``)
     : ["- Planner can emit `tx-NN.cbor` artifacts when the deployer wallet inputs are supplied."];
 
+// Decode the on-chain pz_settings datum (a 9-element CBOR list) into the
+// named YAML shape. Uses the `cbor` lib directly so this works against either
+// definite (`89...`) or indefinite (`9f...ff`) length encodings — both forms
+// appear in the wild depending on how the datum was last produced.
 export const decodePzSettingsDatum = (datumHex) => {
-  const fields = requireListData(
-    helios.UplcData.fromCbor(stripHexPrefix(datumHex)),
-    "pz_settings datum"
-  );
-  if (fields.length !== 9) {
-    throw new Error(`pz_settings datum must contain 9 fields, received ${fields.length}`);
+  const fields = cbor.decodeFirstSync(Buffer.from(stripHexPrefix(datumHex), "hex"));
+  if (!Array.isArray(fields) || fields.length !== 9) {
+    throw new Error(
+      `pz_settings datum must decode to a 9-element list, got ${Array.isArray(fields) ? fields.length : typeof fields}`
+    );
   }
   return {
-    treasury_fee: requireInt(fields[0], "treasury_fee"),
-    treasury_cred: requireByteArray(fields[1], "treasury_cred"),
-    pz_min_fee: requireInt(fields[2], "pz_min_fee"),
+    treasury_fee: toNumberFromCbor(fields[0], "treasury_fee"),
+    treasury_cred: toHexFromCbor(fields[1], "treasury_cred"),
+    pz_min_fee: toNumberFromCbor(fields[2], "pz_min_fee"),
     pz_providers: Object.fromEntries(
-      requireMapData(fields[3], "pz_providers")
+      toMapFromCbor(fields[3], "pz_providers")
         .map(([key, value]) => [
-          requireByteArray(key, "pz_providers key"),
-          requireByteArray(value, "pz_providers value"),
+          toHexFromCbor(key, "pz_providers key"),
+          toHexFromCbor(value, "pz_providers value"),
         ])
         .sort(([left], [right]) => left.localeCompare(right))
     ),
-    valid_contracts: requireListData(fields[4], "valid_contracts").map((field) =>
-      requireByteArray(field, "valid_contracts item")
+    valid_contracts: toListFromCbor(fields[4], "valid_contracts").map((field) =>
+      toHexFromCbor(field, "valid_contracts item")
     ),
-    admin_creds: requireListData(fields[5], "admin_creds").map((field) =>
-      requireByteArray(field, "admin_creds item")
+    admin_creds: toListFromCbor(fields[5], "admin_creds").map((field) =>
+      toHexFromCbor(field, "admin_creds item")
     ),
-    settings_cred: requireByteArray(fields[6], "settings_cred"),
-    grace_period: requireInt(fields[7], "grace_period"),
-    subhandle_share_percent: requireInt(fields[8], "subhandle_share_percent"),
+    settings_cred: toHexFromCbor(fields[6], "settings_cred"),
+    grace_period: toNumberFromCbor(fields[7], "grace_period"),
+    subhandle_share_percent: toNumberFromCbor(fields[8], "subhandle_share_percent"),
   };
 };
 
@@ -451,32 +454,32 @@ export const buildPersonalizationDeploymentTxArtifact = async ({
   };
 };
 
-const requireListData = (value, label) => {
-  if (!value || !Array.isArray(value.list)) {
-    throw new Error(`${label} must decode to a list`);
+const toListFromCbor = (value, label) => {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must decode to a CBOR list`);
   }
-  return value.list;
+  return value;
 };
 
-const requireMapData = (value, label) => {
-  if (!value || !Array.isArray(value.map)) {
-    throw new Error(`${label} must decode to a map`);
+const toMapFromCbor = (value, label) => {
+  if (!(value instanceof Map)) {
+    throw new Error(`${label} must decode to a CBOR map`);
   }
-  return value.map;
+  return [...value.entries()];
 };
 
-const requireByteArray = (value, label) => {
-  if (!value || typeof value.hex !== "string") {
-    throw new Error(`${label} must decode to a byte array`);
+const toHexFromCbor = (value, label) => {
+  if (!Buffer.isBuffer(value) && !(value instanceof Uint8Array)) {
+    throw new Error(`${label} must decode to a CBOR byte string`);
   }
-  return value.hex;
+  return Buffer.from(value).toString("hex");
 };
 
-const requireInt = (value, label) => {
-  if (!value || (typeof value.value !== "bigint" && typeof value.value !== "number")) {
-    throw new Error(`${label} must decode to an int`);
+const toNumberFromCbor = (value, label) => {
+  if (typeof value !== "bigint" && typeof value !== "number") {
+    throw new Error(`${label} must decode to a CBOR int`);
   }
-  return Number(value.value);
+  return Number(value);
 };
 
 const stripHexPrefix = (value) => value.startsWith("0x") ? value.slice(2) : value;
