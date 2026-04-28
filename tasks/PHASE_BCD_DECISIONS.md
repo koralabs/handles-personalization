@@ -2,19 +2,53 @@
 
 Decisions made while you were AFK. Each entry: what I chose, why, and what to push back on if it's wrong.
 
-## TL;DR — final state
+## Phase E — live cutover sequence
 
-Five commits on `feature/policy-override-mpt`, **not yet pushed** (push needs your nod):
+Per network (preview → preprod → mainnet, staggered):
+
+1. **Mint the three new handles to the deployer wallet** (via the legacy handle policy):
+   - `pers@handle_settings`
+   - `pers_bg@handle_settings`
+   - `pers_pfp@handle_settings`
+
+   Each is a CIP-25/Kora-format LBL_222 handle under the legacy policy `f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a`. They have **no datum** at this stage; the minting engine doesn't attach datums. Holder = deployer wallet.
+
+2. **Run the datum-attach tx for each handle** (one tx per handle), using `settingsAttachTx.js`. Each tx:
+   - Consumes the just-minted handle UTxO (deployer wallet input).
+   - Outputs the handle UTxO at the multisig native-script address (the existing `pz_settings` script address per network — addresses are in `docs/spec/assets/<network>-wallet-payment-native-script.json`) with the inline datum attached.
+   - Signed by deployer vkey only.
+
+   Datums per handle:
+   - `pers@handle_settings`: copy of the live `pz_settings` 9-field datum (use `cbor.decodeFirstSync` of the live `/handles/pz_settings/datum` response, optionally apply any patches from the desired YAML, and re-encode — same logic as `buildPatchedSettingsDatum.js`).
+   - `pers_bg@handle_settings`: bare 32-byte ByteArray = the partners trie root for bg category. Currently this lives on `bg_policy_ids` so we copy that datum verbatim.
+   - `pers_pfp@handle_settings`: same as bg, but for pfp category. Copy from `pfp_policy_ids`.
+
+3. **Verify on-chain.** Run `scripts/generateDeploymentPlan.js --desired deploy/<network>/personalization.yaml --artifacts-dir /tmp/...` — should now resolve the new handles, decode the migrated datum, and report `drift_type: no_change` (or just script_hash drift, since pers_proxy/pers_logic still need deploying).
+
+4. **Decommission the old handles** (separate, post-verification step). Once cutover is verified working at all three networks, the old `pz_settings` / `bg_policy_ids` / `pfp_policy_ids` UTxOs can be spent (via the multisig) to consolidate ADA back to the deployer or wherever. No on-chain functional dependency on them after cutover; they're just cosmetic until burned.
+
+**Next-step blockers I hit while planning the live submit:**
+- The legacy handle policy `f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a` minting requires the kora policy key. The `minting.handle.me` repo has a `manualMint.ts` skeleton but its imports are stale (`../helpers/wallet/minting` doesn't exist anymore); the modern minting flow is wired through Firebase + state machines that aren't easily invoked one-off. Easiest path forward is probably either (a) ask the kora-bot maintainer to mint the three handles per network, or (b) build a fresh minimal minter using `@cardano-sdk` + the policy key from KMS. Option (b) is what I'd default to — a one-off `scripts/mintSettingsHandle.js` that takes `--handle <name> --network <net> --to <address>`, signs with the policy key, and submits. **I haven't done this yet — sanity-check ask before I touch live policy keys.**
+
+## TL;DR — current state
+
+Nine commits on `feature/policy-override-mpt`, **not yet pushed**:
 
 1. `feat(deploy): emit signed tx-NN.cbor for settings updates` (Phase A.5)
 2. `feat(pers): proxy + logic validator split with multi-contract deploy plan` (Phase B)
 3. `feat(pers): atomic flip to pers@handle_settings namespace` (Phase C)
 4. `feat(pers): cbor-splice multisig merger + drop helios from datum decoder` (Phase D narrow)
 5. `chore(pers): remove helios + CSL from handles-personalization` (Phase D cleanup)
+6. `docs(tasks): TL;DR for the Phase B/C/D push`
+7. `docs(tasks): resolve open questions from the Phase B/C/D push` (restored pers.helios)
+8. `docs(tasks): clarify Q4 — non-strict proxy is the upgradeable one`
+9. `feat(deploy): add settingsAttachTx for Phase E datum-attach flow`
 
-**Tests:** 51 pass, 0 fail. The aiken.cost.test.js stale-name issue is fixed in commit 5.
+**Tests:** 54 pass, 0 fail.
 
-**Live planner is intentionally broken against preview/preprod/mainnet** — see decision C3 + the Phase C section in "Pre-existing issues observed during Phase B." It becomes runnable again at Phase E (live cutover).
+**Live planner is intentionally broken against preview/preprod/mainnet** until Phase E cutover. See above.
+
+**Branching:** match decentralized-minting — single `master`, per-network workflow dispatch via GitHub `environment`s. handles-personalization does NOT need preview/preprod/mainnet branches.
 
 ---
 
