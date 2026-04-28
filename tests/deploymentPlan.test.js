@@ -52,14 +52,14 @@ const desiredState = {
     },
   ],
   assignedHandles: {
-    settings: ["pz_settings", "bg_policy_ids", "pfp_policy_ids"],
+    settings: ["pers@handle_settings", "pers_bg@handle_settings", "pers_pfp@handle_settings"],
     scripts: ["pz_contract_06"],
   },
   ignoredSettings: [],
   settings: {
     type: "personalization_settings",
     values: {
-      pz_settings: {
+      "pers@handle_settings": {
         treasury_fee: 1500000,
         treasury_cred: "195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66",
         pz_min_fee: 1500000,
@@ -127,7 +127,7 @@ test("fetches live state for every contract declared in the desired YAML", async
           { status: 200 }
         );
       }
-      if (text.endsWith("pz_settings/datum")) {
+      if (text.includes("/datum")) {
         return new Response(previewDatum, { status: 200 });
       }
       return new Response(JSON.stringify({ utxo: "tx#0" }), { status: 200 });
@@ -142,11 +142,11 @@ test("fetches live state for every contract declared in the desired YAML", async
   assert.equal(live.contracts.pers_logic.currentSubhandle, null);
 
   assert.deepEqual(live.currentSettingsUtxoRefs, {
-    bg_policy_ids: "tx#0",
-    pfp_policy_ids: "tx#0",
-    pz_settings: "tx#0",
+    "pers_bg@handle_settings": "tx#0",
+    "pers_pfp@handle_settings": "tx#0",
+    "pers@handle_settings": "tx#0",
   });
-  assert.equal(live.settings.pz_settings.treasury_fee, 1500000);
+  assert.equal(live.settings["pers@handle_settings"].treasury_fee, 1500000);
   assert.ok(requests.some((url) => url.endsWith("/scripts?latest=true&type=pz")));
 });
 
@@ -185,8 +185,8 @@ test("builds a script-and-settings deployment plan when both drift", () => {
         pers_logic: { currentScriptHash: null, currentSubhandle: null },
       },
       settings: {
-        pz_settings: {
-          ...desiredState.settings.values.pz_settings,
+        "pers@handle_settings": {
+          ...desiredState.settings.values["pers@handle_settings"],
           subhandle_share_percent: 40,
         },
       },
@@ -199,7 +199,7 @@ test("builds a script-and-settings deployment plan when both drift", () => {
 
   assert.equal(plan.driftType, "script_hash_and_settings");
   assert.equal(plan.summaryJson.settings.changed, true);
-  assert.equal(plan.summaryJson.settings.diff_rows[0].handle_name, "pz_settings");
+  assert.equal(plan.summaryJson.settings.diff_rows[0].handle_name, "pers@handle_settings");
   const proxy = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_proxy");
   const logic = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_logic");
   assert.equal(proxy.drift_type, "script_hash_only");
@@ -348,10 +348,10 @@ test("settings update artifact emits a patched datum and a change log when valid
     settings: {
       ...desiredState.settings,
       values: {
-        pz_settings: {
-          ...desiredState.settings.values.pz_settings,
+        "pers@handle_settings": {
+          ...desiredState.settings.values["pers@handle_settings"],
           valid_contracts: [
-            ...desiredState.settings.values.pz_settings.valid_contracts,
+            ...desiredState.settings.values["pers@handle_settings"].valid_contracts,
             "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff",
           ],
         },
@@ -360,11 +360,11 @@ test("settings update artifact emits a patched datum and a change log when valid
   };
   const live = {
     pzSettingsDatumHex: previewDatum,
-    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
+    currentSettingsUtxoRefs: { "pers@handle_settings": "abcd#0" },
   };
   const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired });
 
-  assert.equal(artifact.handleName, "pz_settings");
+  assert.equal(artifact.handleName, "pers@handle_settings");
   assert.equal(artifact.handleUtxoRef, "abcd#0");
   assert.equal(artifact.oldDatumHex, previewDatum);
   assert.notEqual(artifact.newDatumHex, previewDatum);
@@ -384,7 +384,7 @@ test("settings update artifact reports an empty change log when desired matches 
   // Failure mode: ops would re-sign and re-submit identical settings updates indefinitely.
   const live = {
     pzSettingsDatumHex: previewDatum,
-    currentSettingsUtxoRefs: { pz_settings: "abcd#0" },
+    currentSettingsUtxoRefs: { "pers@handle_settings": "abcd#0" },
   };
   const artifact = buildPersonalizationSettingsUpdateArtifact({ live, desired: desiredState });
 

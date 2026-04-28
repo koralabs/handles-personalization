@@ -13,12 +13,12 @@ import {
   buildReferenceScriptDeploymentTx,
   fetchNetworkParameters,
 } from "./deploymentTx.js";
-import { PERSONALIZATION_SETTINGS_HANDLES } from "./deploymentState.js";
+import { PERSONALIZATION_SETTINGS_HANDLES, SETTINGS_HANDLE_NAME } from "./deploymentState.js";
 import { buildPatchedSettingsDatum } from "./buildPatchedSettingsDatum.js";
 import { buildSettingsUpdateTx } from "./settingsUpdateTx.js";
 
 const REPO_NAME = "handles-personalization";
-const COMPARABLE_SETTINGS_HANDLE = "pz_settings";
+const COMPARABLE_SETTINGS_HANDLE = SETTINGS_HANDLE_NAME;
 
 const handlesApiBaseUrlForNetwork = (network) => {
   if (network === "preview") return "https://preview.api.handle.me";
@@ -154,7 +154,7 @@ export const fetchLiveDeploymentState = async ({
 
   return {
     contracts,
-    settings: { pz_settings: decodePzSettingsDatum(pzSettingsDatumHex) },
+    settings: { [SETTINGS_HANDLE_NAME]: decodePzSettingsDatum(pzSettingsDatumHex) },
     pzSettingsDatumHex,
     currentSettingsUtxoRefs,
   };
@@ -216,13 +216,13 @@ export const buildPersonalizationDeploymentPlan = ({
   nextSubhandles = {},
 }) => {
   const settingsChanged =
-    stableStringify(live.settings.pz_settings) !==
-    stableStringify(desired.settings.values.pz_settings);
+    stableStringify(live.settings[SETTINGS_HANDLE_NAME]) !==
+    stableStringify(desired.settings.values[SETTINGS_HANDLE_NAME]);
   const settingsDiffRows = settingsChanged
     ? [{
         handle_name: COMPARABLE_SETTINGS_HANDLE,
-        current: live.settings.pz_settings,
-        desired: desired.settings.values.pz_settings,
+        current: live.settings[SETTINGS_HANDLE_NAME],
+        desired: desired.settings.values[SETTINGS_HANDLE_NAME],
       }]
     : [];
 
@@ -368,10 +368,9 @@ export const buildPersonalizationSettingsUpdateArtifact = ({
       "settings-only artifact requires live.pzSettingsDatumHex; ensure fetchLiveDeploymentState ran"
     );
   }
-  const desiredPzSettings =
-    desired?.settings?.values?.pz_settings ?? desired?.settings?.values?.[COMPARABLE_SETTINGS_HANDLE];
+  const desiredPzSettings = desired?.settings?.values?.[COMPARABLE_SETTINGS_HANDLE];
   if (!desiredPzSettings) {
-    throw new Error(`desired settings.values.${COMPARABLE_SETTINGS_HANDLE} missing from YAML`);
+    throw new Error(`desired settings.values["${COMPARABLE_SETTINGS_HANDLE}"] missing from YAML`);
   }
   const { newDatumHex, changeLog } = buildPatchedDatumFn(
     live.pzSettingsDatumHex,

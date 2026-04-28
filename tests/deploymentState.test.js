@@ -30,12 +30,12 @@ test("loads the preview desired deployment YAML fixture into the normalized shap
   assert.equal(logicContract.oldScriptType, null);
   assert.equal(proxyContract.build.target, "aiken/validators/pers_proxy.ak");
   assert.equal(logicContract.build.target, "aiken/validators/pers_logic.ak");
-  assert.deepEqual(state.assignedHandles.settings, ["pz_settings", "bg_policy_ids", "pfp_policy_ids"]);
+  assert.deepEqual(state.assignedHandles.settings, ["pers@handle_settings", "pers_bg@handle_settings", "pers_pfp@handle_settings"]);
   assert.deepEqual(state.assignedHandles.scripts, ["pz_contract_06"]);
-  assert.equal(state.settings.values.pz_settings.treasury_fee, 1500000);
-  assert.equal(state.settings.values.pz_settings.settings_cred, "688edc94904c5286ac5cc0ada61b9c847a8d23018829832e0e95b111");
-  assert.equal(state.settings.values.pz_settings.pz_providers["4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1"], "195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66");
-  assert.equal(state.settings.values.pz_settings.valid_contracts.at(-1), "8585b4892cec81880ed30d7e80fb0ffbe15c5224b76d2cc4e3dd040d");
+  assert.equal(state.settings.values["pers@handle_settings"].treasury_fee, 1500000);
+  assert.equal(state.settings.values["pers@handle_settings"].settings_cred, "688edc94904c5286ac5cc0ada61b9c847a8d23018829832e0e95b111");
+  assert.equal(state.settings.values["pers@handle_settings"].pz_providers["4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1"], "195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66");
+  assert.equal(state.settings.values["pers@handle_settings"].valid_contracts.at(-1), "8585b4892cec81880ed30d7e80fb0ffbe15c5224b76d2cc4e3dd040d");
 });
 
 test("loads the preprod and mainnet desired deployment YAML fixtures", async () => {
@@ -54,8 +54,8 @@ test("loads the preprod and mainnet desired deployment YAML fixtures", async () 
   assert.equal(mainnet.contracts.length, 2);
   assert.equal(preprod.assignedHandles.scripts[0], "pz_contract_06");
   assert.equal(mainnet.assignedHandles.scripts[0], "pz_contract_04");
-  assert.equal(preprod.settings.values.pz_settings.settings_cred, "e0a2120c0968393f54e9fda8e277ed61e322ff0581713f62335b2b4c");
-  assert.equal(mainnet.settings.values.pz_settings.settings_cred, "7e3a48aff0ddfadec229d13fe4ec544ff3cc4f044629d4e31e8359f0");
+  assert.equal(preprod.settings.values["pers@handle_settings"].settings_cred, "e0a2120c0968393f54e9fda8e277ed61e322ff0581713f62335b2b4c");
+  assert.equal(mainnet.settings.values["pers@handle_settings"].settings_cred, "7e3a48aff0ddfadec229d13fe4ec544ff3cc4f044629d4e31e8359f0");
 });
 
 test("rejects observed-only live fields inside desired deployment YAML", () => {
@@ -81,13 +81,13 @@ contracts:
       kind: validator
       parameters: {}
 assigned_handles:
-  settings: [pz_settings, bg_policy_ids, pfp_policy_ids]
+  settings: [pers@handle_settings, pers_bg@handle_settings, pers_pfp@handle_settings]
   scripts: [pz_contract_06]
 ignored_settings: []
 settings:
   type: personalization_settings
   values:
-    pz_settings:
+    pers@handle_settings:
       treasury_fee: 1
       treasury_cred: aa
       pz_min_fee: 2
@@ -126,13 +126,13 @@ contracts:
       kind: validator
       parameters: {}
 assigned_handles:
-  settings: [pz_settings, bg_policy_ids, pfp_policy_ids]
+  settings: [pers@handle_settings, pers_bg@handle_settings, pers_pfp@handle_settings]
   scripts: [pz_contract_06]
 ignored_settings: []
 settings:
   type: personalization_settings
   values:
-    pz_settings:
+    pers@handle_settings:
       treasury_fee: 1
       treasury_cred: aa
       pz_min_fee: 2
@@ -177,13 +177,13 @@ contracts:
       kind: validator
       parameters: {}
 assigned_handles:
-  settings: [pz_settings]
+  settings: [pers@handle_settings]
   scripts: []
 ignored_settings: []
 settings:
   type: personalization_settings
   values:
-    pz_settings:
+    pers@handle_settings:
       treasury_fee: 1
       treasury_cred: aa
       pz_min_fee: 2

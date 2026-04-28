@@ -13,10 +13,18 @@ const OBSERVED_ONLY_FIELDS = new Set([
   "last_deployed_tx_hash",
 ]);
 
+// Settings handle names (Phase C migration target). The on-chain handles are
+// being renamed atomically at cutover; the local repo flips to the new names
+// in advance of that. Until live cutover (Phase E) the planner will 404 on
+// these against api.handle.me.
+export const SETTINGS_HANDLE_NAME = "pers@handle_settings";
+export const BG_POLICY_INDEX_HANDLE_NAME = "pers_bg@handle_settings";
+export const PFP_POLICY_INDEX_HANDLE_NAME = "pers_pfp@handle_settings";
+
 export const PERSONALIZATION_SETTINGS_HANDLES = [
-  "pz_settings",
-  "bg_policy_ids",
-  "pfp_policy_ids",
+  SETTINGS_HANDLE_NAME,
+  BG_POLICY_INDEX_HANDLE_NAME,
+  PFP_POLICY_INDEX_HANDLE_NAME,
 ];
 
 export const loadDesiredDeploymentState = async (path) => {
@@ -169,9 +177,9 @@ const parseContract = (value, sourceLabel) => {
 };
 
 const parseSettingsValues = (value, sourceLabel) => ({
-  pz_settings: parsePzSettings(
-    requireObject(value, "pz_settings", sourceLabel),
-    `${sourceLabel}.pz_settings`
+  [SETTINGS_HANDLE_NAME]: parsePzSettings(
+    requireObject(value, SETTINGS_HANDLE_NAME, sourceLabel),
+    `${sourceLabel}.${SETTINGS_HANDLE_NAME}`
   ),
 });
 

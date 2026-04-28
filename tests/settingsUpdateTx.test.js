@@ -214,7 +214,7 @@ const withMockedFetch = async (mockFetch, fn) => {
 test("builds an unsigned settings-update tx with native script witness", async () => {
   const liveDatumHex = buildLiveDatumHex();
   const patchedDatumHex = buildPatchedDatumHex();
-  const settingsHandleName = "pz_settings";
+  const settingsHandleName = "pers@handle_settings";
 
   const mockFetch = buildMockFetch({ liveDatumHex, settingsHandleName });
 
@@ -286,7 +286,7 @@ test("builds an unsigned settings-update tx with native script witness", async (
 
 test("rejects when no clean funding UTxOs exist at the script address", async () => {
   const liveDatumHex = buildLiveDatumHex();
-  const settingsHandleName = "pz_settings";
+  const settingsHandleName = "pers@handle_settings";
 
   const mockFetch = async (url) => {
     const u = String(url);
@@ -377,7 +377,7 @@ test("rejects when required arguments are missing", async () => {
   await assert.rejects(
     buildSettingsUpdateTx({
       network: "preview",
-      settingsHandleName: "pz_settings",
+      settingsHandleName: "pers@handle_settings",
       patchedDatumHex: "deadbeef",
       blockfrostApiKey: "preview-test-key",
       userAgent: "kora-test/1.0",

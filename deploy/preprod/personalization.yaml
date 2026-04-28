@@ -22,16 +22,16 @@ contracts:
       parameters: {}
 assigned_handles:
   settings:
-    - pz_settings
-    - bg_policy_ids
-    - pfp_policy_ids
+    - pers@handle_settings
+    - pers_bg@handle_settings
+    - pers_pfp@handle_settings
   scripts:
     - pz_contract_06
 ignored_settings: []
 settings:
   type: personalization_settings
   values:
-    pz_settings:
+    pers@handle_settings:
       treasury_fee: 1500000
       treasury_cred: 5f60cdb2017e4c10c7d792df1cc9fba73421eb1e54479bf5d98fad88
       pz_min_fee: 1500000
