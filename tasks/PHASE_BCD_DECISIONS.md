@@ -6,29 +6,27 @@ Decisions made while you were AFK. Each entry: what I chose, why, and what to pu
 
 Per network (preview → preprod → mainnet, staggered):
 
-1. **Mint the three new handles to the deployer wallet** (via the legacy handle policy):
-   - `pers@handle_settings`
-   - `pers_bg@handle_settings`
-   - `pers_pfp@handle_settings`
+1. **Reserve the three new handles in the minting engine.** Run `node scripts/reserveSettingsHandles.js --network <net>`. The script inserts `cost: 0` / `paymentAddress: 'already_paid'` rows into `minting_engine_sessions[_<network>]` with `returnAddress = derivation 12` (the kora-team admin wallet, same address as `handlecontract` and `kora@handle_prices`). The engine cron picks up `Status.PAID` rows and mints the handles to derivation 12. Pre-flight check: skips any handle that already exists on-chain. Idempotent via `ConditionExpression: 'attribute_not_exists(pk)'`.
 
-   Each is a CIP-25/Kora-format LBL_222 handle under the legacy policy `f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a`. They have **no datum** at this stage; the minting engine doesn't attach datums. Holder = deployer wallet.
+   Pattern verbatim from the deleted `adahandle-internal/minthandles-cli/minthandles.mjs` (commit `b02150e^`); the modern DynamoDB-driven engine still picks up these rows because `getPaidPendingSessions` filters by `status` only — no `paymentAddress` content check anywhere in the cron.
 
-2. **Run the datum-attach tx for each handle** (one tx per handle), using `settingsAttachTx.js`. Each tx:
-   - Consumes the just-minted handle UTxO (deployer wallet input).
+2. **Wait for the mints to land.** Poll `api.handle.me/handles/<name>` until 200 for each. Allow 60s of additional Blockfrost indexing time. The DeMi deployment-plan workflow pattern (60-second sleep after confirmation) is a good template.
+
+3. **Run the datum-attach tx for each handle** (one tx per handle), using `settingsAttachTx.js`. Each tx:
+   - Consumes the just-minted handle UTxO at derivation 12 (deployer wallet input).
    - Outputs the handle UTxO at the multisig native-script address (the existing `pz_settings` script address per network — addresses are in `docs/spec/assets/<network>-wallet-payment-native-script.json`) with the inline datum attached.
-   - Signed by deployer vkey only.
+   - Signed by derivation 12's vkey only — derived from `POLICY_KEY` via `getPolicyWallet(12)` in `minting.handle.me/src/helpers/cardano/wallet.ts`.
 
    Datums per handle:
-   - `pers@handle_settings`: copy of the live `pz_settings` 9-field datum (use `cbor.decodeFirstSync` of the live `/handles/pz_settings/datum` response, optionally apply any patches from the desired YAML, and re-encode — same logic as `buildPatchedSettingsDatum.js`).
-   - `pers_bg@handle_settings`: bare 32-byte ByteArray = the partners trie root for bg category. Currently this lives on `bg_policy_ids` so we copy that datum verbatim.
+   - `pers@handle_settings`: copy of the live `pz_settings` 9-field datum (`cbor.decodeFirstSync` of `/handles/pz_settings/datum`, optionally apply any patches from the desired YAML, re-encode — same logic as `buildPatchedSettingsDatum.js`).
+   - `pers_bg@handle_settings`: bare 32-byte ByteArray = the partners trie root for bg category. Copy verbatim from the existing `bg_policy_ids` UTxO datum.
    - `pers_pfp@handle_settings`: same as bg, but for pfp category. Copy from `pfp_policy_ids`.
 
-3. **Verify on-chain.** Run `scripts/generateDeploymentPlan.js --desired deploy/<network>/personalization.yaml --artifacts-dir /tmp/...` — should now resolve the new handles, decode the migrated datum, and report `drift_type: no_change` (or just script_hash drift, since pers_proxy/pers_logic still need deploying).
+4. **Verify on-chain.** Run `scripts/generateDeploymentPlan.js --desired deploy/<network>/personalization.yaml --artifacts-dir /tmp/...` — should now resolve the new handles, decode the migrated datum, and report `drift_type: no_change` for settings (script_hash drift remains until pers_proxy/pers_logic are deployed).
 
-4. **Decommission the old handles** (separate, post-verification step). Once cutover is verified working at all three networks, the old `pz_settings` / `bg_policy_ids` / `pfp_policy_ids` UTxOs can be spent (via the multisig) to consolidate ADA back to the deployer or wherever. No on-chain functional dependency on them after cutover; they're just cosmetic until burned.
+5. **Decommission the old handles** (separate, post-verification step, all-networks-confirmed). Once cutover is verified at all three networks, the old `pz_settings` / `bg_policy_ids` / `pfp_policy_ids` UTxOs can be spent (via the multisig) to consolidate ADA. No on-chain functional dependency on them after cutover.
 
-**Next-step blockers I hit while planning the live submit:**
-- The legacy handle policy `f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a` minting requires the kora policy key. The `minting.handle.me` repo has a `manualMint.ts` skeleton but its imports are stale (`../helpers/wallet/minting` doesn't exist anymore); the modern minting flow is wired through Firebase + state machines that aren't easily invoked one-off. Easiest path forward is probably either (a) ask the kora-bot maintainer to mint the three handles per network, or (b) build a fresh minimal minter using `@cardano-sdk` + the policy key from KMS. Option (b) is what I'd default to — a one-off `scripts/mintSettingsHandle.js` that takes `--handle <name> --network <net> --to <address>`, signs with the policy key, and submits. **I haven't done this yet — sanity-check ask before I touch live policy keys.**
+**Permission boundary (NEVER cross):** the reservation script in step 1 is the *only* path for getting handles minted. It does not sign mint txs itself; it inserts a session row and lets the production minting engine do the actual mint. Per the never-mint rule (see `AGENTS.md` and `feedback_never_mint.md`), no agent may bypass `minting.handle.me` to mint a Kora handle — even for cutovers, even "just for preview".
 
 ## TL;DR — current state
 
