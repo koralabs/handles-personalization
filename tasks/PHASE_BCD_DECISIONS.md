@@ -2,6 +2,20 @@
 
 Decisions made while you were AFK. Each entry: what I chose, why, and what to push back on if it's wrong.
 
+## TL;DR — final state
+
+Five commits on `feature/policy-override-mpt`, **not yet pushed** (push needs your nod):
+
+1. `feat(deploy): emit signed tx-NN.cbor for settings updates` (Phase A.5)
+2. `feat(pers): proxy + logic validator split with multi-contract deploy plan` (Phase B)
+3. `feat(pers): atomic flip to pers@handle_settings namespace` (Phase C)
+4. `feat(pers): cbor-splice multisig merger + drop helios from datum decoder` (Phase D narrow)
+5. `chore(pers): remove helios + CSL from handles-personalization` (Phase D cleanup)
+
+**Tests:** 51 pass, 0 fail. The aiken.cost.test.js stale-name issue is fixed in commit 5.
+
+**Live planner is intentionally broken against preview/preprod/mainnet** — see decision C3 + the Phase C section in "Pre-existing issues observed during Phase B." It becomes runnable again at Phase E (live cutover).
+
 ---
 
 ## Phase B — proxy + logic split
