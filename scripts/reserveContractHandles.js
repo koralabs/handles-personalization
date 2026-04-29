@@ -125,7 +125,8 @@ const main = async () => {
     }
 
     console.log(`  ${handle}: submitting anchor self-payment...`);
-    const txHash = await submitAnchorSelfTx({ network, wallet, blockfrostApiKey });
+    const anchor = await submitAnchorSelfTx({ network, wallet, blockfrostApiKey });
+    const txHash = typeof anchor === "string" ? anchor : anchor.txHash;
     console.log(`    anchor txHash: ${txHash}`);
 
     const item = buildSessionItem({ handle, network, txHash });
