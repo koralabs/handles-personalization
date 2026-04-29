@@ -93,6 +93,36 @@ const key_bg_proof: ByteArray = "__bg_proof"
 
 const key_pfp_proof: ByteArray = "__pfp_proof"
 
+const key_last_update_address: ByteArray = "last_update_address"
+
+const key_pz_enabled: ByteArray = "pz_enabled"
+
+const key_image: ByteArray = "image"
+
+const key_image_hash: ByteArray = "image_hash"
+
+const key_standard_image: ByteArray = "standard_image"
+
+const key_standard_image_hash: ByteArray = "standard_image_hash"
+
+const key_original_address: ByteArray = "original_address"
+
+const key_agreed_terms: ByteArray = "agreed_terms"
+
+const key_trial: ByteArray = "trial"
+
+const key_nsfw: ByteArray = "nsfw"
+
+const key_socials: ByteArray = "socials"
+
+const key_last_edited_time: ByteArray = "last_edited_time"
+
+const key_pfp_image: ByteArray = "pfp_image"
+
+const key_bg_image: ByteArray = "bg_image"
+
+const key_force_creator_settings: ByteArray = "force_creator_settings"
+
 fn output_data(
   output: transaction.Output,
   tx: transaction.Transaction,
@@ -608,6 +638,90 @@ fn personalize_inputs_from_context(
       None -> False
     }
 
+  // owner_handle_present: pz_asset_output must hold the LBL_222 owner token.
+  // Helios: `pz_asset_output.value.contains(Value::new(LBL_222 + name, 1))`
+  let owner_handle_present =
+    assets.quantity_of(
+      context.pz_asset_output.value,
+      constants.handle_policy_id,
+      constants.prefixed_asset_name(constants.lbl_222, handle.name),
+    ) == 1
+
+  // resolved_ada_is_empty: new_extra.resolved_addresses must NOT contain
+  // an "ada" key (asserted for non-virtual).
+  // Helios: `resolved_ada_opt = new_resolved.get_safe("ada"); resolved_ada = resolved_ada_opt == None`
+  let resolved_ada_is_empty =
+    when datum.map_get(new_extra, key_resolved_addresses) is {
+      Some(resolved_data) -> {
+        let resolved_map = datum.get_extra(resolved_data)
+        datum.map_get(resolved_map, key_ada) == None
+      }
+      None -> True
+    }
+
+  // last_update_address: new_extra.last_update_address parsed as Shelley
+  // address. For HANDLE/NFT_SUBHANDLE compare to pz_asset_output.address;
+  // for VIRTUAL_SUBHANDLE compare to the new resolved-ada address.
+  let parsed_last_update_address =
+    when datum.map_get(new_extra, key_last_update_address) is {
+      Some(addr_data) -> {
+        expect addr_bytes: ByteArray = addr_data
+        utils.address_from_shelley_bytes(addr_bytes)
+      }
+      None -> None
+    }
+  // Helios:
+  //   HANDLE / NFT_SUBHANDLE -> address = pz_asset_output.address
+  //   VIRTUAL_SUBHANDLE      -> address = new_ada_address
+  let expected_owner_address =
+    when handle.handle_type is {
+      types.HandleTypeVirtualSubhandle -> parse_resolved_address(new_extra)
+      _ -> Some(context.pz_asset_output.address)
+    }
+  let last_update_address_matches_owner =
+    when (parsed_last_update_address, expected_owner_address) is {
+      (Some(last_addr), Some(expected_addr)) -> last_addr == expected_addr
+      _ -> False
+    }
+
+  // immutables_unchanged: per Helios immutables_are_unchanged.
+  //   - extra.standard_image, extra.standard_image_hash, extra.original_address
+  //     must equal between old and new
+  //   - every old_nft.* (except 'image' and 'mediaType') must equal new_nft.*
+  //   - new_extra.agreed_terms must equal "https://handle.me/$/tou"
+  let types.Cip68 { nft: new_nft, version: _, extra: _ } = context.new_datum
+  let standard_image_unchanged =
+    datum.map_get(old_extra, key_standard_image) == datum.map_get(new_extra, key_standard_image)
+  let standard_image_hash_unchanged =
+    datum.map_get(old_extra, key_standard_image_hash) == datum.map_get(new_extra, key_standard_image_hash)
+  let original_address_unchanged =
+    datum.map_get(old_extra, key_original_address) == datum.map_get(new_extra, key_original_address)
+  let immutable_nft_fields_unchanged =
+    list.all(old_nft, fn(pair) {
+      let key = pair.1st
+      if key == key_image || key == "mediaType" {
+        True
+      } else {
+        datum.map_get(new_nft, key) == Some(pair.2nd)
+      }
+    })
+  let agreed_terms_is_set =
+    when datum.map_get(new_extra, key_agreed_terms) is {
+      Some(terms_data) -> {
+        expect terms: ByteArray = terms_data
+        terms == "https://handle.me/$/tou"
+      }
+      None -> False
+    }
+  let immutables_unchanged =
+    personalize_base.immutables_are_unchanged(
+      standard_image_unchanged,
+      standard_image_hash_unchanged,
+      original_address_unchanged,
+      immutable_nft_fields_unchanged,
+      agreed_terms_is_set,
+    )
+
   PersonalizeValidationInputs {
     handle_type: handle.handle_type,
     reset,
@@ -617,9 +731,9 @@ fn personalize_inputs_from_context(
       handle.handle_type,
       handle.name,
     ),
-    last_update_address_matches_owner: False,
-    owner_handle_present: False,
-    resolved_ada_is_empty: True,
+    last_update_address_matches_owner,
+    owner_handle_present,
+    resolved_ada_is_empty,
     sub_pz_enabled: False,
     root_pz_enabled: False,
     new_pz_enabled: False,
@@ -627,7 +741,7 @@ fn personalize_inputs_from_context(
     virtual_resolved_ada_unchanged: False,
     virtual_payload_unchanged: False,
     contract_output_is_valid,
-    immutables_unchanged: False,
+    immutables_unchanged,
     bg_status,
     pfp_status,
     check_bg_status,
