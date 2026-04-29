@@ -273,14 +273,23 @@ pub fn dispatch_from_observer(
   observer_redeemer: types.ObserverRedeemer,
   tx: transaction.Transaction,
 ) -> Bool {
+  trace @"dispatch_from_observer:enter"
   when observer_redeemer is {
     types.Observe { own_ref, redeemer } ->
       if !spend_redeemer_matches(tx.redeemers, own_ref, redeemer) {
+        trace @"dispatch_from_observer:spend_redeemer_mismatch"
         False
       } else {
+        trace @"dispatch_from_observer:spend_redeemer_match"
         when transaction.find_input(tx.inputs, own_ref) is {
-          Some(input) -> dispatch_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
-          None -> False
+          Some(input) -> {
+            trace @"dispatch_from_observer:input_found"
+            dispatch_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
+          }
+          None -> {
+            trace @"dispatch_from_observer:input_not_found"
+            False
+          }
         }
       }
   }
@@ -693,10 +702,13 @@ pub type PersonalizeValidationInputs {
 
 pub fn personalize_is_valid(inputs: PersonalizeValidationInputs) -> Bool {
   if !inputs.datum_name_matches_redeemer {
+    trace @"personalize_is_valid:fail:datum_name_matches_redeemer"
     False
   } else if !inputs.output_has_expected_handle_token {
+    trace @"personalize_is_valid:fail:output_has_expected_handle_token"
     False
   } else if !inputs.last_update_address_matches_owner {
+    trace @"personalize_is_valid:fail:last_update_address_matches_owner"
     False
   } else if !personalize_base.subhandle_personalization_is_allowed(
     inputs.handle_type,
@@ -705,23 +717,32 @@ pub fn personalize_is_valid(inputs: PersonalizeValidationInputs) -> Bool {
     inputs.root_pz_enabled,
     inputs.new_pz_enabled,
   ) {
+    trace @"personalize_is_valid:fail:subhandle_personalization_is_allowed"
     False
   } else if inputs.handle_type != types.HandleTypeVirtualSubhandle && !(inputs.reset || inputs.owner_handle_present) {
+    trace @"personalize_is_valid:fail:owner_handle_present"
     False
   } else if !personalize_base.resolved_ada_is_allowed(inputs.handle_type) && !inputs.resolved_ada_is_empty {
+    trace @"personalize_is_valid:fail:resolved_ada_is_allowed"
     False
   } else if !virtual_personalization_rules_are_valid(inputs) {
+    trace @"personalize_is_valid:fail:virtual_personalization_rules"
     False
-  } else if !inputs.contract_output_is_valid || !inputs.immutables_unchanged {
+  } else if !inputs.contract_output_is_valid {
+    trace @"personalize_is_valid:fail:contract_output_is_valid"
+    False
+  } else if !inputs.immutables_unchanged {
+    trace @"personalize_is_valid:fail:immutables_unchanged"
     False
   } else if !personalize_policy_approval.policy_datum_is_valid(
     inputs.bg_status,
     inputs.pfp_status,
     inputs.policy_datum_inputs,
   ) {
+    trace @"personalize_is_valid:fail:policy_datum_is_valid"
     False
   } else if !inputs.reset {
-    personalize_base.non_reset_authorization_is_valid(
+    let ok = personalize_base.non_reset_authorization_is_valid(
       inputs.designed,
       inputs.designer_changed,
       inputs.required_asset_valid,
@@ -729,8 +750,14 @@ pub fn personalize_is_valid(inputs: PersonalizeValidationInputs) -> Bool {
       inputs.designer_settings_valid,
       inputs.is_reset_shape,
     )
+    if !ok {
+      trace @"personalize_is_valid:fail:non_reset_authorization"
+      False
+    } else {
+      True
+    }
   } else {
-    personalize_base.reset_privacy_is_valid(inputs.reset_privacy_inputs) && personalize_base.reset_authorization_is_valid(
+    let ok = personalize_base.reset_privacy_is_valid(inputs.reset_privacy_inputs) && personalize_base.reset_authorization_is_valid(
       personalize_policy_approval.approvals_are_valid(
         inputs.check_bg_status,
         inputs.check_pfp_status,
@@ -741,6 +768,12 @@ pub fn personalize_is_valid(inputs: PersonalizeValidationInputs) -> Bool {
       inputs.is_reset_shape,
       inputs.unchanged_when_reset_denied,
     )
+    if !ok {
+      trace @"personalize_is_valid:fail:reset_authorization"
+      False
+    } else {
+      True
+    }
   }
 }
 
@@ -1182,7 +1215,8 @@ pub fn dispatch_from_tx(
               }
             }
 
-            types.Personalize { handle, root_handle, indexes, designer, reset } ->
+            types.Personalize { handle, root_handle, indexes, designer, reset } -> {
+              trace @"dispatch_from_tx:personalize:enter"
               when
                 personalize_context_from_tx(
                   old_datum_data,
@@ -1191,8 +1225,9 @@ pub fn dispatch_from_tx(
                   tx,
                 )
               is {
-                Some(context) ->
-                  personalize_is_valid(
+                Some(context) -> {
+                  trace @"dispatch_from_tx:personalize:context_ok"
+                  let validation_result = personalize_is_valid(
                     personalize_inputs_from_context(
                       handle,
                       root_handle,
@@ -1205,13 +1240,31 @@ pub fn dispatch_from_tx(
                       tx,
                     ),
                   )
-                None -> False
+                  if !validation_result {
+                    trace @"dispatch_from_tx:personalize:validation_failed"
+                    False
+                  } else {
+                    trace @"dispatch_from_tx:personalize:validation_ok"
+                    True
+                  }
+                }
+                None -> {
+                  trace @"dispatch_from_tx:personalize:context_none"
+                  False
+                }
               }
+            }
           }
         }
-        None -> False
+        None -> {
+          trace @"dispatch_from_tx:no_settings"
+          False
+        }
       }
-    None -> False
+    None -> {
+      trace @"dispatch_from_tx:no_datum"
+      False
+    }
   }
 }
 
