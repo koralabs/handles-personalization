@@ -140,6 +140,57 @@ fn output_data(
 // Helios struct fields. Order verified against pz_settings@handle_settings
 // on preview as of 2026-04-29 (LBL_222 of pz_settings, datum starts `89...`
 // = CBOR array(9)).
+fn parse_subhandle_settings_from_list(sh_data: Data) -> types.SubHandleSettings {
+  expect [
+    public_minting_enabled_data,
+    pz_enabled_data,
+    tier_pricing_data,
+    default_styles_data,
+    save_original_address_data,
+  ]: List<Data> = sh_data
+  expect public_minting_enabled: Int = public_minting_enabled_data
+  expect pz_enabled: Int = pz_enabled_data
+  expect tier_pricing: types.IntMatrix = tier_pricing_data
+  expect save_original_address: Int = save_original_address_data
+  types.SubHandleSettings {
+    public_minting_enabled,
+    pz_enabled,
+    tier_pricing,
+    default_styles: default_styles_data,
+    save_original_address,
+  }
+}
+
+fn parse_owner_settings_from_list(owner_data: Data) -> types.OwnerSettings {
+  expect [
+    nft_data,
+    virtual_data,
+    buy_down_price_data,
+    buy_down_paid_data,
+    buy_down_percent_data,
+    agreed_terms_data,
+    migrate_sig_required_data,
+    payment_address_data,
+  ]: List<Data> = owner_data
+  let nft = parse_subhandle_settings_from_list(nft_data)
+  let virtual = parse_subhandle_settings_from_list(virtual_data)
+  expect buy_down_price: Int = buy_down_price_data
+  expect buy_down_paid: Int = buy_down_paid_data
+  expect buy_down_percent: Int = buy_down_percent_data
+  expect migrate_sig_required: Int = migrate_sig_required_data
+  expect payment_address: ByteArray = payment_address_data
+  types.OwnerSettings {
+    nft,
+    virtual,
+    buy_down_price,
+    buy_down_paid,
+    buy_down_percent,
+    agreed_terms: agreed_terms_data,
+    migrate_sig_required,
+    payment_address,
+  }
+}
+
 fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
   expect [
     treasury_fee_data,
@@ -739,7 +790,7 @@ fn personalize_inputs_from_context(
           Some(owner_output) ->
             when output_data(owner_output, tx) is {
               Some(owner_data) -> {
-                expect owner_settings: types.OwnerSettings = owner_data
+                let owner_settings = parse_owner_settings_from_list(owner_data)
                 let enabled =
                   when handle.handle_type is {
                     types.HandleTypeNftSubhandle ->
@@ -839,6 +890,99 @@ fn personalize_inputs_from_context(
     list.any(tx.extra_signatories, fn(signer) {
       list.any(settings.pz_providers, fn(provider) { signer == provider.2nd })
     })
+
+  // reset_privacy_inputs — for the reset path. Helios checks (line 686-696):
+  //   if last_update_address changed (holder changed), socials and
+  //   resolved_addresses must be cleared. Otherwise either provider or
+  //   owner must sign, OR both socials and resolved_addresses unchanged.
+  let old_last_update_address_data = datum.map_get(old_extra, key_last_update_address)
+  let new_last_update_address_data = datum.map_get(new_extra, key_last_update_address)
+  let holder_changed =
+    when (old_last_update_address_data, new_last_update_address_data) is {
+      (Some(old_addr_data), Some(new_addr_data)) -> {
+        expect old_bytes: ByteArray = old_addr_data
+        expect new_bytes: ByteArray = new_addr_data
+        when (utils.address_from_shelley_bytes(old_bytes), utils.address_from_shelley_bytes(new_bytes)) is {
+          (Some(old_a), Some(new_a)) -> !utils.holder_addresses_match(old_a, new_a)
+          _ -> True
+        }
+      }
+      _ -> True
+    }
+  let socials_cleared = datum.map_get(new_extra, key_socials) == None
+  let new_resolved_addresses_data = datum.map_get(new_extra, key_resolved_addresses)
+  let resolved_addresses_cleared = new_resolved_addresses_data == None
+  let socials_unchanged =
+    datum.map_get(old_extra, key_socials) == datum.map_get(new_extra, key_socials)
+  let resolved_addresses_unchanged =
+    datum.map_get(old_extra, key_resolved_addresses) == new_resolved_addresses_data
+  let reset_privacy_inputs =
+    personalize_base.ResetPrivacyInputs {
+      holder_changed,
+      signed_by_provider,
+      signed_by_owner,
+      socials_cleared,
+      resolved_addresses_cleared,
+      socials_unchanged,
+      resolved_addresses_unchanged,
+    }
+
+  // unchanged_when_reset_denied — Helios line 704-713: when designer assets
+  // and required_assets are valid (i.e. no provider/owner sig and not reset),
+  // the new datum must be the SAME as the old (no changes allowed at all):
+  //   image, image_hash, pfp_asset, bg_asset, pfp_image, bg_image, designer,
+  //   trial, nsfw all unchanged between old_extra and new_extra (image is on
+  //   nft, others on extra).
+  // Virtual subhandle invariants (Helios line 612-618). Only material when
+  // handle_type == VIRTUAL_SUBHANDLE; for other types the validator gate
+  // short-circuits via virtual_personalization_rules_are_valid.
+  let parse_resolved_ada_address = fn(extra: types.DataMap) -> Option<address.Address> {
+    when datum.map_get(extra, key_resolved_addresses) is {
+      Some(resolved_data) -> {
+        let resolved_map = datum.get_extra(resolved_data)
+        when datum.map_get(resolved_map, key_ada) is {
+          Some(addr_data) -> {
+            expect addr_bytes: ByteArray = addr_data
+            utils.address_from_shelley_bytes(addr_bytes)
+          }
+          None -> None
+        }
+      }
+      None -> None
+    }
+  }
+  let old_resolved_ada = parse_resolved_ada_address(old_extra)
+  let new_resolved_ada = parse_resolved_ada_address(new_extra)
+  let virtual_holder_signed =
+    when old_resolved_ada is {
+      Some(old_addr) ->
+        when old_addr.payment_credential is {
+          address.VerificationKey(hash) ->
+            list.any(tx.extra_signatories, fn(s) { s == hash })
+          _ -> False
+        }
+      None -> False
+    }
+  let virtual_resolved_ada_unchanged =
+    when (old_resolved_ada, new_resolved_ada) is {
+      (Some(old_addr), Some(new_addr)) -> old_addr == new_addr
+      (None, None) -> True
+      _ -> False
+    }
+  let virtual_payload_unchanged =
+    datum.map_get(old_extra, key_virtual) == datum.map_get(new_extra, key_virtual)
+
+  let unchanged_when_reset_denied = and {
+      datum.map_get(old_nft, key_image) == datum.map_get(new_nft, key_image),
+      datum.map_get(old_extra, key_image_hash) == datum.map_get(new_extra, key_image_hash),
+      datum.map_get(old_extra, key_pfp_asset) == datum.map_get(new_extra, key_pfp_asset),
+      datum.map_get(old_extra, key_bg_asset) == datum.map_get(new_extra, key_bg_asset),
+      datum.map_get(old_extra, key_pfp_image) == datum.map_get(new_extra, key_pfp_image),
+      datum.map_get(old_extra, key_bg_image) == datum.map_get(new_extra, key_bg_image),
+      datum.map_get(old_extra, key_designer) == datum.map_get(new_extra, key_designer),
+      datum.map_get(old_extra, key_trial) == datum.map_get(new_extra, key_trial),
+      datum.map_get(old_extra, key_nsfw) == datum.map_get(new_extra, key_nsfw),
+    }
 
   // fees_paid — translates Helios fees_are_paid. For non-reset designer
   // changes, the personalization tx must pay treasury + provider fees, plus
@@ -941,9 +1085,9 @@ fn personalize_inputs_from_context(
     sub_pz_enabled,
     root_pz_enabled,
     new_pz_enabled,
-    virtual_holder_signed: False,
-    virtual_resolved_ada_unchanged: False,
-    virtual_payload_unchanged: False,
+    virtual_holder_signed,
+    virtual_resolved_ada_unchanged,
+    virtual_payload_unchanged,
     contract_output_is_valid,
     immutables_unchanged,
     bg_status,
@@ -988,18 +1132,10 @@ fn personalize_inputs_from_context(
     //   True; needs full per-property logic.
     designer_settings_valid: True,
     is_reset_shape,
-    reset_privacy_inputs: personalize_base.ResetPrivacyInputs {
-      holder_changed: False,
-      signed_by_provider: False,
-      signed_by_owner: False,
-      socials_cleared: False,
-      resolved_addresses_cleared: False,
-      socials_unchanged: False,
-      resolved_addresses_unchanged: False,
-    },
+    reset_privacy_inputs,
     signed_by_provider,
     signed_by_owner,
-    unchanged_when_reset_denied: False,
+    unchanged_when_reset_denied,
   }
 }
 
