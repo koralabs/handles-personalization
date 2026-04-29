@@ -99,6 +99,50 @@ fn output_data(
   datum.get_datum_opt(output.datum, tx)
 }
 
+// Helios-era pz_settings on-chain datum is a 9-element raw List<Data>, not
+// an Aiken Constr 0 record. The legacy Helios `struct PzSettings { ... }`
+// serializes to PlutusData::List, while Aiken's `pub type PzSettings { x: ... }`
+// expects PlutusData::Constr 0. So `expect settings: types.PzSettings = settings_data`
+// fails with `unConstrData` when settings_data is the on-chain List form.
+//
+// Parse the list manually instead, preserving the order of the legacy
+// Helios struct fields. Order verified against pz_settings@handle_settings
+// on preview as of 2026-04-29 (LBL_222 of pz_settings, datum starts `89...`
+// = CBOR array(9)).
+fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
+  expect [
+    treasury_fee_data,
+    treasury_cred_data,
+    pz_min_fee_data,
+    pz_providers_data,
+    valid_contracts_data,
+    admin_creds_data,
+    settings_cred_data,
+    grace_period_data,
+    subhandle_share_percent_data,
+  ]: List<Data> = settings_data
+  expect treasury_fee: Int = treasury_fee_data
+  expect treasury_cred: ByteArray = treasury_cred_data
+  expect pz_min_fee: Int = pz_min_fee_data
+  expect pz_providers: Pairs<ByteArray, ByteArray> = pz_providers_data
+  expect valid_contracts: List<ByteArray> = valid_contracts_data
+  expect admin_creds: List<ByteArray> = admin_creds_data
+  expect settings_cred: ByteArray = settings_cred_data
+  expect grace_period: Int = grace_period_data
+  expect subhandle_share_percent: Int = subhandle_share_percent_data
+  types.PzSettings {
+    treasury_fee,
+    treasury_cred,
+    pz_min_fee,
+    pz_providers,
+    valid_contracts,
+    admin_creds,
+    settings_cred,
+    grace_period,
+    subhandle_share_percent,
+  }
+}
+
 pub fn load_pz_settings(tx: transaction.Transaction) -> Option<types.PzSettings> {
   when
     list.find(
@@ -115,7 +159,7 @@ pub fn load_pz_settings(tx: transaction.Transaction) -> Option<types.PzSettings>
     Some(input) ->
       when output_data(input.output, tx) is {
         Some(settings_data) -> {
-          expect settings: types.PzSettings = settings_data
+          let settings = parse_pz_settings_from_list(settings_data)
           let credential_is_valid =
             when input.output.address.payment_credential is {
               address.Script(hash) -> hash == settings.settings_cred
