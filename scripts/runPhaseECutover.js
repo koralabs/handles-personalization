@@ -47,6 +47,7 @@ import {
 } from "./reserveSettingsHandles.js";
 import { buildSettingsAttachTx } from "../settingsAttachTx.js";
 import { fetchPartnersTrieRoots } from "../helpers/dynamoPartnersRoots.js";
+import { submitAnchorSelfTx } from "../helpers/cardano-sdk/anchorTx.js";
 import { fetchBlockfrostUtxos } from "../helpers/cardano-sdk/blockfrostUtxo.js";
 import { Serialization } from "../helpers/cardano-sdk/index.js";
 import { getPolicyWallet } from "../helpers/cardano-sdk/policyKeyWallet.js";
@@ -198,11 +199,58 @@ const main = async () => {
   if (skipReserve) console.log("--skip-reserve set: assuming reservations already inserted.");
   if (skipAttach) console.log("--skip-attach set: stopping after the wait phase.");
 
-  // ---- Step 1: reservations ----
+  // ---- Step 1: anchor txs + reservations ----
+  //
+  // The minting engine requires a real on-chain `txHash` on every PAID
+  // session row (commit f22ef67f in minting.handle.me, "fixing free
+  // mints"). For these admin-minted handles we have no payment to anchor
+  // against, so we submit one self-payment anchor tx per handle at
+  // derivation 12 (kora pays kora, ~0.17 ADA fee per tx, no value lost),
+  // and use the resulting txHash on the session row. The session is then
+  // a legitimate PAID row, not a band-aid.
   if (!skipReserve) {
-    console.log("\n[1/4] Reserving mints in the minting engine...");
+    console.log("\n[1/4] Submitting anchor txs + reserving mints...");
+
+    if (!dryRun && !blockfrostApiKey) {
+      throw new Error(
+        "BLOCKFROST_API_KEY (env or --blockfrost-api-key) is required for the reserve step"
+      );
+    }
+    if (!dryRun && !policyKeyBech32) {
+      throw new Error(
+        "POLICY_KEY (env or --policy-key) is required for the reserve step (signs the anchor txs at derivation 12)"
+      );
+    }
+
+    const txHashByHandle = {};
+    if (dryRun) {
+      // Use predictable dry-run placeholders so the rest of the orchestrator
+      // can validate shape without any chain mutation. Distinct per-handle
+      // so the GSI's uniqueness invariant is exercised in the dry-run too.
+      let i = 0;
+      for (const handle of SETTINGS_HANDLES) {
+        i += 1;
+        txHashByHandle[handle] = String(i).padStart(64, "0");
+      }
+      console.log("  (dry-run) skipping anchor txs");
+    } else {
+      const reserveWallet = getPolicyWallet({ policyKeyBech32, derivation: 12, network });
+      if (reserveWallet.address !== RETURN_ADDRESS[network]) {
+        throw new Error(
+          `derived derivation-12 address ${reserveWallet.address} does not match RETURN_ADDRESS[${network}] ${RETURN_ADDRESS[network]} — POLICY_KEY mismatch?`
+        );
+      }
+      for (const handle of SETTINGS_HANDLES) {
+        process.stdout.write(`  anchor tx for ${handle}... `);
+        const anchor = await submitAnchorSelfTx({ network, wallet: reserveWallet, blockfrostApiKey });
+        txHashByHandle[handle] = anchor.txHash;
+        console.log(`${anchor.txHash} (fee=${anchor.fee} lovelace, ${anchor.estimatedSignedTxSize} bytes)`);
+      }
+    }
+
     const reservations = await reserveAllSettingsHandles({
       network,
+      txHashByHandle,
       userAgent,
       dryRun,
     });

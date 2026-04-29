@@ -94,29 +94,52 @@ export const checkHandleAlreadyMinted = async (handle, network, userAgent, fetch
   return true;
 };
 
-export const buildSessionItem = (handle, network) => ({
-  pk: handle,
-  sk: ACTIVE_SESSION_SK,
-  handle,
-  assetName: Buffer.from(handle, "utf8").toString("hex"),
-  attempts: 0,
-  cost: 0,
-  dateAdded: Date.now(),
-  start: Date.now(),
-  status: "paid",
-  paymentAddress: "already_paid",
-  returnAddress: RETURN_ADDRESS[network],
-  createdBySystem: "CLI",
-});
+// The minting engine requires a real `txHash` on every PAID row (commit
+// f22ef67f in minting.handle.me — "fixing free mints" — added a
+// malformed-removal filter that deletes any PAID row where
+// `!session.txHash`). For free-mint sessions the engine doesn't validate
+// the txHash against on-chain payment data, but it does require the field
+// to be set, and the tx_hash_gsi means it has to be unique across active
+// sessions.
+//
+// The Phase E orchestrator satisfies this by submitting one real on-chain
+// anchor tx per handle (a self-payment at derivation 12) and passing the
+// resulting txHash here. Each session row therefore points at a real,
+// auditable on-chain transaction — no placeholders.
+export const buildSessionItem = ({ handle, network, txHash }) => {
+  if (!txHash || !/^[0-9a-f]{64}$/i.test(txHash)) {
+    throw new Error(`buildSessionItem: txHash must be a 64-char hex tx hash, got: ${txHash}`);
+  }
+  return {
+    pk: handle,
+    sk: ACTIVE_SESSION_SK,
+    handle,
+    assetName: Buffer.from(handle, "utf8").toString("hex"),
+    attempts: 0,
+    cost: 0,
+    dateAdded: Date.now(),
+    start: Date.now(),
+    status: "paid",
+    paymentAddress: "already_paid",
+    returnAddress: RETURN_ADDRESS[network],
+    txHash: txHash.toLowerCase(),
+    createdBySystem: "CLI",
+  };
+};
 
-// Reserve a single handle. Returns one of:
+// Reserve a single handle. Caller must supply a real on-chain `txHash`
+// (typically the hash of a self-payment anchor tx at derivation 12 — see
+// helpers/cardano-sdk/anchorTx.js).
+//
+// Returns one of:
 //   { status: 'existing_on_chain' }
-//   { status: 'session_created', returnAddress }
+//   { status: 'session_created', returnAddress, txHash }
 //   { status: 'existing_session' }
 //   { status: 'dry_run', item }
 export const reserveSettingsHandle = async ({
   handle,
   network,
+  txHash,
   userAgent = "kora-cutover/1.0",
   dryRun = false,
   dynamoClient,
@@ -125,6 +148,9 @@ export const reserveSettingsHandle = async ({
   if (!ALLOWED_NETWORKS.includes(network)) {
     throw new Error(`unknown network: ${network}`);
   }
+  if (!txHash) {
+    throw new Error("reserveSettingsHandle: txHash is required (anchor-tx hash)");
+  }
 
   const tableName = sessionsTableForNetwork(network);
   const exists = await checkHandleAlreadyMinted(handle, network, userAgent, fetchFn);
@@ -132,7 +158,7 @@ export const reserveSettingsHandle = async ({
     return { handle, network, table: tableName, status: "existing_on_chain" };
   }
 
-  const item = buildSessionItem(handle, network);
+  const item = buildSessionItem({ handle, network, txHash });
   if (dryRun) {
     return { handle, network, table: tableName, status: "dry_run", item };
   }
@@ -152,6 +178,7 @@ export const reserveSettingsHandle = async ({
       table: tableName,
       status: "session_created",
       returnAddress: RETURN_ADDRESS[network],
+      txHash: item.txHash,
     };
   } catch (err) {
     if (err && err.name === "ConditionalCheckFailedException") {
@@ -161,10 +188,12 @@ export const reserveSettingsHandle = async ({
   }
 };
 
-// Reserve all three settings handles in sequence. Returns an array of per-
-// handle result objects matching `reserveSettingsHandle`.
+// Reserve all three settings handles in sequence.
+// `txHashByHandle` must be a map from handle name → 64-char hex tx hash,
+// produced by the anchor-tx step of the orchestrator.
 export const reserveAllSettingsHandles = async ({
   network,
+  txHashByHandle = {},
   userAgent = "kora-cutover/1.0",
   dryRun = false,
   dynamoClient,
@@ -172,11 +201,23 @@ export const reserveAllSettingsHandles = async ({
 } = {}) => {
   const results = [];
   for (const handle of SETTINGS_HANDLES) {
+    const txHash = txHashByHandle[handle];
+    if (!txHash) {
+      results.push({
+        handle,
+        network,
+        table: sessionsTableForNetwork(network),
+        status: "error",
+        error: `txHashByHandle[${handle}] missing — caller must produce an anchor-tx hash`,
+      });
+      continue;
+    }
     try {
       results.push(
         await reserveSettingsHandle({
           handle,
           network,
+          txHash,
           userAgent,
           dryRun,
           dynamoClient,
