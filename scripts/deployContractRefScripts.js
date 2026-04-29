@@ -87,10 +87,20 @@ const loadEnvFromFile = (path) => {
   }
 };
 
-const verifyHandleOnChain = async (handle, network) => {
-  const url = `${handlesApiBaseUrlForNetwork(network)}/handles/${encodeURIComponent(handle)}`;
-  const r = await fetch(url, { headers: { "User-Agent": "kora-cutover/1.0" } });
-  return r.ok;
+const HANDLE_POLICY_ID = "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a";
+const PREFIX_222 = "000de140";
+
+// Check Blockfrost directly for the LBL_222 token. api.handle.me's indexer
+// can lag the chain by several minutes after a fresh mint; the chain itself
+// is the source of truth.
+const verifyHandleOnChain = async (handle, network, blockfrostApiKey) => {
+  const handleHex = Buffer.from(handle, "utf8").toString("hex");
+  const assetUnit = `${HANDLE_POLICY_ID}${PREFIX_222}${handleHex}`;
+  const url = `https://cardano-${network}.blockfrost.io/api/v0/assets/${assetUnit}`;
+  const r = await fetch(url, { headers: { project_id: blockfrostApiKey } });
+  if (!r.ok) return false;
+  const j = await r.json();
+  return Number(j.quantity ?? 0) > 0;
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -122,14 +132,15 @@ const main = async () => {
   if (!policyKeyBech32) throw new Error("POLICY_KEY is required");
   if (!blockfrostApiKey) throw new Error("BLOCKFROST_API_KEY is required");
 
-  // 1. Verify both deployment SubHandles are minted
-  console.log("Pre-flight: verifying deployment SubHandles are on chain...");
+  // 1. Verify both deployment SubHandles are minted (Blockfrost — chain truth,
+  // not api.handle.me indexer which can lag)
+  console.log("Pre-flight: verifying deployment SubHandles are on chain (via Blockfrost)...");
   for (const c of CONTRACTS) {
-    const ok = await verifyHandleOnChain(c.handle, network);
+    const ok = await verifyHandleOnChain(c.handle, network, blockfrostApiKey);
     if (!ok) {
       throw new Error(
         `${c.handle} is NOT on chain yet. Run scripts/reserveContractHandles.js first ` +
-          `and wait for the engine cron (typically <2 min).`
+          `and wait for the engine to submit + confirm the mint tx.`
       );
     }
     console.log(`  ✓ ${c.handle}`);
