@@ -803,6 +803,43 @@ fn personalize_inputs_from_context(
   let pfp_image_matches_datum =
     image_matches_datum(new_pfp_asset != datum.empty_asset, new_pfp_asset, indexes.pfp_datum, key_pfp_image)
 
+  // is_reset_shape: new datum looks like a reset state (no images, no assets,
+  // no designer, trial/nsfw cleared). Helios:
+  //   new_image == new_standard
+  //   && new_img_hash == new_stand_hash
+  //   && new_pfp_asset_opt == EMPTY_DATA
+  //   && new_bg_asset_opt == EMPTY_DATA
+  //   && new_pfp == None && new_bg == None
+  //   && !designed
+  //   && new_trial == 0 && new_nsfw == 0
+  let designed = datum.map_get(new_extra, key_designer) != None
+  let is_reset_shape = and {
+      datum.map_get(new_nft, key_image) == datum.map_get(new_extra, key_standard_image),
+      datum.map_get(new_extra, key_image_hash) == datum.map_get(new_extra, key_standard_image_hash),
+      new_bg_asset == datum.empty_asset,
+      new_pfp_asset == datum.empty_asset,
+      datum.map_get(new_extra, key_bg_image) == None,
+      datum.map_get(new_extra, key_pfp_image) == None,
+      !designed,
+      datum.int_or(datum.map_get(new_extra, key_trial), 0) == 0,
+      datum.int_or(datum.map_get(new_extra, key_nsfw), 0) == 0,
+    }
+
+  // signed_by_owner / signed_by_provider — used by reset auth + reset privacy.
+  // signed_by_owner: tx signed by the owner of the LBL_222 owner token's
+  // payment address. We don't have the address directly here; we use the
+  // pz_asset_output.address payment cred (Helios uses `address.credential`).
+  let signed_by_owner =
+    when context.pz_asset_output.address.payment_credential is {
+      address.VerificationKey(hash) ->
+        list.any(tx.extra_signatories, fn(s) { s == hash })
+      _ -> False
+    }
+  let signed_by_provider =
+    list.any(tx.extra_signatories, fn(signer) {
+      list.any(settings.pz_providers, fn(provider) { signer == provider.2nd })
+    })
+
   PersonalizeValidationInputs {
     handle_type: handle.handle_type,
     reset,
@@ -838,7 +875,7 @@ fn personalize_inputs_from_context(
       bg_image_matches_datum: bg_image_matches_datum,
       pfp_image_matches_datum: pfp_image_matches_datum,
     },
-    designed: datum.map_get(new_extra, key_designer) != None,
+    designed,
     designer_changed: datum.map_get(new_extra, key_designer) != datum.map_get(
       old_extra,
       key_designer,
@@ -846,7 +883,7 @@ fn personalize_inputs_from_context(
     required_asset_valid: False,
     fees_paid: False,
     designer_settings_valid: False,
-    is_reset_shape: False,
+    is_reset_shape,
     reset_privacy_inputs: personalize_base.ResetPrivacyInputs {
       holder_changed: False,
       signed_by_provider: False,
@@ -856,8 +893,8 @@ fn personalize_inputs_from_context(
       socials_unchanged: False,
       resolved_addresses_unchanged: False,
     },
-    signed_by_provider: False,
-    signed_by_owner: False,
+    signed_by_provider,
+    signed_by_owner,
     unchanged_when_reset_denied: False,
   }
 }
