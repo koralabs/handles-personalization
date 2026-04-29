@@ -140,6 +140,37 @@ fn output_data(
 // Helios struct fields. Order verified against pz_settings@handle_settings
 // on preview as of 2026-04-29 (LBL_222 of pz_settings, datum starts `89...`
 // = CBOR array(9)).
+fn parse_main_subhandle_settings_from_list(main_data: Data) -> types.MainSubHandleSettings {
+  expect [
+    valid_contracts_data,
+    admin_creds_data,
+    virtual_price_data,
+    base_price_data,
+    buy_down_prices_data,
+    payment_address_data,
+    expiry_duration_data,
+    renewal_window_data,
+  ]: List<Data> = main_data
+  expect valid_contracts: List<ByteArray> = valid_contracts_data
+  expect admin_creds: List<ByteArray> = admin_creds_data
+  expect virtual_price: Int = virtual_price_data
+  expect base_price: Int = base_price_data
+  expect buy_down_prices: types.IntMatrix = buy_down_prices_data
+  expect payment_address: ByteArray = payment_address_data
+  expect expiry_duration: Int = expiry_duration_data
+  expect renewal_window: Int = renewal_window_data
+  types.MainSubHandleSettings {
+    valid_contracts,
+    admin_creds,
+    virtual_price,
+    base_price,
+    buy_down_prices,
+    payment_address,
+    expiry_duration,
+    renewal_window,
+  }
+}
+
 fn parse_subhandle_settings_from_list(sh_data: Data) -> types.SubHandleSettings {
   expect [
     public_minting_enabled_data,
@@ -354,25 +385,38 @@ pub fn dispatch_from_observer(
   observer_redeemer: types.ObserverRedeemer,
   tx: transaction.Transaction,
 ) -> Bool {
-  trace @"dispatch_from_observer:enter"
-  when observer_redeemer is {
-    types.Observe { own_ref, redeemer } ->
-      if !spend_redeemer_matches(tx.redeemers, own_ref, redeemer) {
-        trace @"dispatch_from_observer:spend_redeemer_mismatch"
-        False
-      } else {
-        trace @"dispatch_from_observer:spend_redeemer_match"
-        when transaction.find_input(tx.inputs, own_ref) is {
-          Some(input) -> {
-            trace @"dispatch_from_observer:input_found"
-            dispatch_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
-          }
-          None -> {
-            trace @"dispatch_from_observer:input_not_found"
-            False
-          }
+  let types.Observe { own_ref, redeemer } = observer_redeemer
+  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
+    transaction.find_input(tx.inputs, own_ref)
+  is {
+    Some(input) -> dispatch_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
+    None -> False
+  }
+}
+
+// Returns True if the asset's bg/pfp image referenced in new_extra matches
+// the image field of the asset's on-chain CIP-68 reference datum. Vacuously
+// True when the asset is empty.
+fn image_matches_datum_check(
+  asset: datum.AssetClass,
+  ref_datum_index: Int,
+  image_key: ByteArray,
+  new_extra: types.DataMap,
+  tx: transaction.Transaction,
+) -> Bool {
+  asset == datum.empty_asset || when
+    reference_output_at(tx.reference_inputs, ref_datum_index)
+  is {
+    Some(asset_output) ->
+      when output_data(asset_output, tx) is {
+        Some(asset_datum_data) -> {
+          expect asset_datum: types.PersonalizationDatum = asset_datum_data
+          let types.Cip68 { nft: asset_nft, .. } = asset_datum
+          datum.map_get(asset_nft, key_image) == datum.map_get(new_extra, image_key) && datum.map_get(asset_nft, key_image) != None
         }
+        None -> False
       }
+    None -> False
   }
 }
 
@@ -456,26 +500,6 @@ fn parse_virtual_data(extra: types.DataMap) -> Option<types.DataMap> {
     Some(virtual_data) -> Some(datum.get_extra(virtual_data))
     None -> None
   }
-}
-
-fn virtual_public_mint(extra: types.DataMap) -> Int {
-  datum.int_or(
-    parse_virtual_data(extra)
-      |> option.and_then(
-          fn(virtual) { datum.map_get(virtual, key_public_mint) },
-        ),
-    0,
-  )
-}
-
-fn virtual_expiry(extra: types.DataMap) -> Int {
-  datum.int_or(
-    parse_virtual_data(extra)
-      |> option.and_then(
-          fn(virtual) { datum.map_get(virtual, key_expires_time) },
-        ),
-    0,
-  )
 }
 
 fn pz_payload_without_virtual_and_resolved(
@@ -824,35 +848,13 @@ fn personalize_inputs_from_context(
   let bg_image_set = datum.map_get(new_extra, key_bg_image) != None
   let pfp_image_set = datum.map_get(new_extra, key_pfp_image) != None
 
-  // bg/pfp_image_matches_datum: when bg_asset_set, look up bg_datum CIP-68 at
-  // indexes.bg_datum ref input, compare its nft.image field to new_extra.bg_image.
-  // For empty asset, vacuously True.
-  let image_matches_datum = fn(asset_present: Bool, asset_class: datum.AssetClass, datum_index: Int, image_key: ByteArray) -> Bool {
-    if !asset_present {
-      True
-    } else {
-      let _ = asset_class
-      when reference_output_at(tx.reference_inputs, datum_index) is {
-        Some(asset_output) ->
-          when output_data(asset_output, tx) is {
-            Some(asset_datum_data) -> {
-              expect asset_datum: types.PersonalizationDatum = asset_datum_data
-              let types.Cip68 { nft: asset_nft, version: _, extra: _ } = asset_datum
-              when (datum.map_get(asset_nft, key_image), datum.map_get(new_extra, image_key)) is {
-                (Some(datum_image), Some(extra_image)) -> datum_image == extra_image
-                _ -> False
-              }
-            }
-            None -> False
-          }
-        None -> False
-      }
-    }
-  }
+  // bg/pfp_image_matches_datum: when asset is set, the asset's CIP-68 reference
+  // datum (loaded from indexes.{bg,pfp}_datum) must have nft.image == new_extra.{bg,pfp}_image.
+  // Empty asset → vacuously True.
   let bg_image_matches_datum =
-    image_matches_datum(new_bg_asset != datum.empty_asset, new_bg_asset, indexes.bg_datum, key_bg_image)
+    image_matches_datum_check(new_bg_asset, indexes.bg_datum, key_bg_image, new_extra, tx)
   let pfp_image_matches_datum =
-    image_matches_datum(new_pfp_asset != datum.empty_asset, new_pfp_asset, indexes.pfp_datum, key_pfp_image)
+    image_matches_datum_check(new_pfp_asset, indexes.pfp_datum, key_pfp_image, new_extra, tx)
 
   // is_reset_shape: new datum looks like a reset state (no images, no assets,
   // no designer, trial/nsfw cleared). Helios:
@@ -1173,79 +1175,45 @@ pub type PersonalizeValidationInputs {
 }
 
 pub fn personalize_is_valid(inputs: PersonalizeValidationInputs) -> Bool {
-  if !inputs.datum_name_matches_redeemer {
-    trace @"personalize_is_valid:fail:datum_name_matches_redeemer"
-    False
-  } else if !inputs.output_has_expected_handle_token {
-    trace @"personalize_is_valid:fail:output_has_expected_handle_token"
-    False
-  } else if !inputs.last_update_address_matches_owner {
-    trace @"personalize_is_valid:fail:last_update_address_matches_owner"
-    False
-  } else if !personalize_base.subhandle_personalization_is_allowed(
-    inputs.handle_type,
-    inputs.reset,
-    inputs.sub_pz_enabled,
-    inputs.root_pz_enabled,
-    inputs.new_pz_enabled,
-  ) {
-    trace @"personalize_is_valid:fail:subhandle_personalization_is_allowed"
-    False
-  } else if inputs.handle_type != types.HandleTypeVirtualSubhandle && !(inputs.reset || inputs.owner_handle_present) {
-    trace @"personalize_is_valid:fail:owner_handle_present"
-    False
-  } else if !personalize_base.resolved_ada_is_allowed(inputs.handle_type) && !inputs.resolved_ada_is_empty {
-    trace @"personalize_is_valid:fail:resolved_ada_is_allowed"
-    False
-  } else if !virtual_personalization_rules_are_valid(inputs) {
-    trace @"personalize_is_valid:fail:virtual_personalization_rules"
-    False
-  } else if !inputs.contract_output_is_valid {
-    trace @"personalize_is_valid:fail:contract_output_is_valid"
-    False
-  } else if !inputs.immutables_unchanged {
-    trace @"personalize_is_valid:fail:immutables_unchanged"
-    False
-  } else if !personalize_policy_approval.policy_datum_is_valid(
-    inputs.bg_status,
-    inputs.pfp_status,
-    inputs.policy_datum_inputs,
-  ) {
-    trace @"personalize_is_valid:fail:policy_datum_is_valid"
-    False
-  } else if !inputs.reset {
-    let ok = personalize_base.non_reset_authorization_is_valid(
-      inputs.designed,
-      inputs.designer_changed,
-      inputs.required_asset_valid,
-      inputs.fees_paid,
-      inputs.designer_settings_valid,
-      inputs.is_reset_shape,
+  let common_gates_pass =
+    inputs.datum_name_matches_redeemer && inputs.output_has_expected_handle_token && inputs.last_update_address_matches_owner && personalize_base.subhandle_personalization_is_allowed(
+      inputs.handle_type,
+      inputs.reset,
+      inputs.sub_pz_enabled,
+      inputs.root_pz_enabled,
+      inputs.new_pz_enabled,
+    ) && (
+      inputs.handle_type == types.HandleTypeVirtualSubhandle || inputs.reset || inputs.owner_handle_present
+    ) && (
+      personalize_base.resolved_ada_is_allowed(inputs.handle_type) || inputs.resolved_ada_is_empty
+    ) && virtual_personalization_rules_are_valid(inputs) && inputs.contract_output_is_valid && inputs.immutables_unchanged && personalize_policy_approval.policy_datum_is_valid(
+      inputs.bg_status,
+      inputs.pfp_status,
+      inputs.policy_datum_inputs,
     )
-    if !ok {
-      trace @"personalize_is_valid:fail:non_reset_authorization"
-      False
-    } else {
-      True
-    }
-  } else {
-    let ok = personalize_base.reset_privacy_is_valid(inputs.reset_privacy_inputs) && personalize_base.reset_authorization_is_valid(
-      personalize_policy_approval.approvals_are_valid(
-        inputs.check_bg_status,
-        inputs.check_pfp_status,
-      ),
-      inputs.required_asset_valid,
-      inputs.signed_by_provider,
-      inputs.signed_by_owner,
-      inputs.is_reset_shape,
-      inputs.unchanged_when_reset_denied,
-    )
-    if !ok {
-      trace @"personalize_is_valid:fail:reset_authorization"
-      False
-    } else {
-      True
-    }
+
+  common_gates_pass && when inputs.reset is {
+    False ->
+      personalize_base.non_reset_authorization_is_valid(
+        inputs.designed,
+        inputs.designer_changed,
+        inputs.required_asset_valid,
+        inputs.fees_paid,
+        inputs.designer_settings_valid,
+        inputs.is_reset_shape,
+      )
+    True ->
+      personalize_base.reset_privacy_is_valid(inputs.reset_privacy_inputs) && personalize_base.reset_authorization_is_valid(
+        personalize_policy_approval.approvals_are_valid(
+          inputs.check_bg_status,
+          inputs.check_pfp_status,
+        ),
+        inputs.required_asset_valid,
+        inputs.signed_by_provider,
+        inputs.signed_by_owner,
+        inputs.is_reset_shape,
+        inputs.unchanged_when_reset_denied,
+      )
   }
 }
 
@@ -1294,6 +1262,11 @@ fn default_update_inputs(
   }
 }
 
+// Flattened: each previously-nested `when ... is { Some(x) -> ... None -> None }`
+// becomes `expect Some(x) = ...`, which panics on None — equivalent to the
+// caller's `None -> False` branch but compiles to far less UPLC. Also uses the
+// manual list-shape parsers for OwnerSettings / MainSubHandleSettings since
+// Helios still emits these as Lists, not Constr 0 records.
 fn update_inputs_from_tx(
   old_nft: types.DataMap,
   old_extra: types.DataMap,
@@ -1303,242 +1276,143 @@ fn update_inputs_from_tx(
   admin_signed: Bool,
   tx: transaction.Transaction,
 ) -> Option<UpdateValidationInputs> {
-  let contract_output_opt = output_at(tx.outputs, indexes.contract_output)
+  expect Some(contract_output) = output_at(tx.outputs, indexes.contract_output)
   let root_output_opt = output_at(tx.outputs, indexes.root_handle)
   let admin_settings_output_opt =
     reference_output_at(tx.reference_inputs, indexes.admin_settings)
   let root_settings_output_opt =
     reference_output_at(tx.reference_inputs, indexes.root_settings)
+  expect Some(new_datum_data) = output_data(contract_output, tx)
+  expect new_datum: types.PersonalizationDatum = new_datum_data
+  let types.Cip68 { nft: new_nft, version: _, extra: new_extra_data } = new_datum
+  let new_extra = datum.get_extra(new_extra_data)
 
-  when contract_output_opt is {
-    Some(contract_output) ->
-      when output_data(contract_output, tx) is {
-        Some(new_datum_data) -> {
-          expect new_datum: types.PersonalizationDatum = new_datum_data
-          let types.Cip68 { nft: new_nft, version: _, extra: new_extra_data } =
-            new_datum
-          let new_extra = datum.get_extra(new_extra_data)
-          let protocol_settings_present =
-            when admin_settings_output_opt is {
-              Some(admin_settings_output) ->
-                output_has_handle_asset(
-                  admin_settings_output,
-                  constants.prefixed_asset_name(
-                    constants.lbl_222,
-                    "sh_settings",
-                  ),
-                )
-              None -> False
-            }
-          let root_settings_present =
-            when root_settings_output_opt is {
-              Some(root_settings_output) ->
-                output_has_handle_asset(
-                  root_settings_output,
-                  constants.prefixed_asset_name(constants.lbl_001, root_handle),
-                )
-              None -> False
-            }
-          let pz_payload_unchanged =
-            pz_payload_without_virtual_and_resolved(old_extra) == pz_payload_without_virtual_and_resolved(
-              new_extra,
-            )
-          let nft_unchanged = old_nft == new_nft
+  let protocol_settings_present =
+    when admin_settings_output_opt is {
+      Some(out) ->
+        output_has_handle_asset(
+          out,
+          constants.prefixed_asset_name(constants.lbl_222, "sh_settings"),
+        )
+      None -> False
+    }
+  let root_settings_present =
+    when root_settings_output_opt is {
+      Some(out) ->
+        output_has_handle_asset(
+          out,
+          constants.prefixed_asset_name(constants.lbl_001, root_handle),
+        )
+      None -> False
+    }
+  let pz_payload_unchanged =
+    pz_payload_without_virtual_and_resolved(old_extra) == pz_payload_without_virtual_and_resolved(new_extra)
+  let nft_unchanged = old_nft == new_nft
 
-          if !protocol_settings_present || !root_settings_present || !pz_payload_unchanged || !nft_unchanged {
-            Some(
-              default_update_inputs(
-                handle.handle_type,
-                protocol_settings_present,
-                root_settings_present,
-                pz_payload_unchanged,
-                nft_unchanged,
-                admin_signed,
-              ),
-            )
-          } else {
-            when parse_virtual_data(old_extra) is {
-              Some(old_virtual) ->
-                when parse_virtual_data(new_extra) is {
-                  Some(new_virtual) ->
-                    when parse_resolved_address(old_extra) is {
-                      Some(old_address) ->
-                        when parse_resolved_address(new_extra) is {
-                          Some(new_address) ->
-                            when admin_settings_output_opt is {
-                              Some(admin_settings_output) ->
-                                when root_settings_output_opt is {
-                                  Some(root_settings_output) ->
-                                    when
-                                      output_data(admin_settings_output, tx)
-                                    is {
-                                      Some(admin_settings_data) -> {
-                                        expect main_settings: types.MainSubHandleSettings =
-                                          admin_settings_data
+  if !protocol_settings_present || !root_settings_present || !pz_payload_unchanged || !nft_unchanged {
+    Some(
+      default_update_inputs(
+        handle.handle_type,
+        protocol_settings_present,
+        root_settings_present,
+        pz_payload_unchanged,
+        nft_unchanged,
+        admin_signed,
+      ),
+    )
+  } else {
+    expect Some(old_virtual) = parse_virtual_data(old_extra)
+    expect Some(new_virtual) = parse_virtual_data(new_extra)
+    expect Some(old_address) = parse_resolved_address(old_extra)
+    expect Some(new_address) = parse_resolved_address(new_extra)
+    expect Some(admin_settings_output) = admin_settings_output_opt
+    expect Some(root_settings_output) = root_settings_output_opt
+    expect Some(admin_settings_data) = output_data(admin_settings_output, tx)
+    let main_settings = parse_main_subhandle_settings_from_list(admin_settings_data)
+    expect Some(root_settings_data) = output_data(root_settings_output, tx)
+    let root_settings = parse_owner_settings_from_list(root_settings_data)
 
-                                        when
-                                          output_data(root_settings_output, tx)
-                                        is {
-                                          Some(root_settings_data) -> {
-                                            expect root_settings: types.OwnerSettings =
-                                              root_settings_data
-
-                                            let old_expiry =
-                                              datum.int_or(
-                                                datum.map_get(
-                                                  old_virtual,
-                                                  key_expires_time,
-                                                ),
-                                                0,
-                                              )
-                                            let new_expiry =
-                                              datum.int_or(
-                                                datum.map_get(
-                                                  new_virtual,
-                                                  key_expires_time,
-                                                ),
-                                                0,
-                                              )
-                                            let valid_from = validity_start(tx)
-                                            let expired =
-                                              when valid_from is {
-                                                Some(start) ->
-                                                  start > old_expiry
-                                                None -> False
-                                              }
-                                            let extended =
-                                              when valid_from is {
-                                                Some(start) ->
-                                                  old_expiry + main_settings.expiry_duration == new_expiry && start > old_expiry - main_settings.renewal_window
-                                                None -> False
-                                              }
-                                            let root_signed =
-                                              when root_output_opt is {
-                                                Some(root_output) ->
-                                                  output_has_handle_asset(
-                                                    root_output,
-                                                    constants.prefixed_asset_name(
-                                                      constants.lbl_222,
-                                                      root_handle,
-                                                    ),
-                                                  )
-                                                None -> False
-                                              }
-                                            let assignee_signed_pay =
-                                              signer_matches_payment_credential(
-                                                tx.extra_signatories,
-                                                old_address.payment_credential,
-                                              )
-                                            let assignee_signed_stake =
-                                              signer_matches_stake_credential(
-                                                tx.extra_signatories,
-                                                old_address.stake_credential,
-                                              )
-                                            let good_main_payment =
-                                              if extended {
-                                                when
-                                                  utils.address_from_shelley_bytes(
-                                                    main_settings.payment_address,
-                                                  )
-                                                is {
-                                                  Some(main_payment_address) ->
-                                                    value_paid_to_with_handle_datum(
-                                                      tx,
-                                                      main_payment_address,
-                                                      handle.name,
-                                                      main_settings.virtual_price,
-                                                    )
-                                                  None -> False
-                                                }
-                                              } else {
-                                                False
-                                              }
-                                            let good_root_payment =
-                                              if extended {
-                                                let root_price =
-                                                  utils.get_virtual_price(
-                                                    bytearray.length(
-                                                      handle.name,
-                                                    ),
-                                                    root_settings.virtual.tier_pricing,
-                                                  ) - main_settings.virtual_price
-
-                                                when
-                                                  utils.address_from_shelley_bytes(
-                                                    root_settings.payment_address,
-                                                  )
-                                                is {
-                                                  Some(root_payment_address) ->
-                                                    value_paid_to_with_handle_datum(
-                                                      tx,
-                                                      root_payment_address,
-                                                      handle.name,
-                                                      root_price,
-                                                    )
-                                                  None -> False
-                                                }
-                                              } else {
-                                                False
-                                              }
-
-                                            Some(
-                                              UpdateValidationInputs {
-                                                handle_type: handle.handle_type,
-                                                protocol_settings_present,
-                                                root_settings_present,
-                                                pz_payload_unchanged,
-                                                nft_unchanged,
-                                                public_mint: datum.int_or(
-                                                  datum.map_get(
-                                                    old_virtual,
-                                                    key_public_mint,
-                                                  ),
-                                                  0,
-                                                ) != 0,
-                                                root_signed,
-                                                expired,
-                                                address_changed: old_address != new_address,
-                                                address_change_stake_approved: old_address.stake_credential == new_address.stake_credential,
-                                                assignee_signed_pay,
-                                                assignee_signed_stake,
-                                                extended,
-                                                expiry_unchanged: old_expiry == new_expiry,
-                                                good_main_payment,
-                                                good_root_payment,
-                                                admin_signed,
-                                                new_public_mint_is_private: datum.int_or(
-                                                  datum.map_get(
-                                                    new_virtual,
-                                                    key_public_mint,
-                                                  ),
-                                                  0,
-                                                ) == 0,
-                                                root_virtual_mint_enabled: root_settings.virtual.public_minting_enabled != 0,
-                                              },
-                                            )
-                                          }
-                                          None -> None
-                                        }
-                                      }
-                                      None -> None
-                                    }
-                                  None -> None
-                                }
-                              None -> None
-                            }
-                          None -> None
-                        }
-                      None -> None
-                    }
-                  None -> None
-                }
-              None -> None
-            }
-          }
-        }
-        None -> None
+    let old_expiry = datum.int_or(datum.map_get(old_virtual, key_expires_time), 0)
+    let new_expiry = datum.int_or(datum.map_get(new_virtual, key_expires_time), 0)
+    let valid_from = validity_start(tx)
+    let expired =
+      when valid_from is {
+        Some(start) -> start > old_expiry
+        None -> False
       }
-    None -> None
+    let extended =
+      when valid_from is {
+        Some(start) ->
+          old_expiry + main_settings.expiry_duration == new_expiry && start > old_expiry - main_settings.renewal_window
+        None -> False
+      }
+    let root_signed =
+      when root_output_opt is {
+        Some(root_output) ->
+          output_has_handle_asset(
+            root_output,
+            constants.prefixed_asset_name(constants.lbl_222, root_handle),
+          )
+        None -> False
+      }
+    let assignee_signed_pay =
+      signer_matches_payment_credential(tx.extra_signatories, old_address.payment_credential)
+    let assignee_signed_stake =
+      signer_matches_stake_credential(tx.extra_signatories, old_address.stake_credential)
+
+    let good_main_payment =
+      if extended {
+        when utils.address_from_shelley_bytes(main_settings.payment_address) is {
+          Some(main_payment_address) ->
+            value_paid_to_with_handle_datum(
+              tx, main_payment_address, handle.name, main_settings.virtual_price,
+            )
+          None -> False
+        }
+      } else {
+        False
+      }
+    let good_root_payment =
+      if extended {
+        let root_price =
+          utils.get_virtual_price(
+            bytearray.length(handle.name),
+            root_settings.virtual.tier_pricing,
+          ) - main_settings.virtual_price
+        when utils.address_from_shelley_bytes(root_settings.payment_address) is {
+          Some(root_payment_address) ->
+            value_paid_to_with_handle_datum(
+              tx, root_payment_address, handle.name, root_price,
+            )
+          None -> False
+        }
+      } else {
+        False
+      }
+
+    Some(
+      UpdateValidationInputs {
+        handle_type: handle.handle_type,
+        protocol_settings_present,
+        root_settings_present,
+        pz_payload_unchanged,
+        nft_unchanged,
+        public_mint: datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0,
+        root_signed,
+        expired,
+        address_changed: old_address != new_address,
+        address_change_stake_approved: old_address.stake_credential == new_address.stake_credential,
+        assignee_signed_pay,
+        assignee_signed_stake,
+        extended,
+        expiry_unchanged: old_expiry == new_expiry,
+        good_main_payment,
+        good_root_payment,
+        admin_signed,
+        new_public_mint_is_private: datum.int_or(datum.map_get(new_virtual, key_public_mint), 0) == 0,
+        root_virtual_mint_enabled: root_settings.virtual.public_minting_enabled != 0,
+      },
+    )
   }
 }
 
@@ -1687,8 +1561,7 @@ pub fn dispatch_from_tx(
               }
             }
 
-            types.Personalize { handle, root_handle, indexes, designer, reset } -> {
-              trace @"dispatch_from_tx:personalize:enter"
+            types.Personalize { handle, root_handle, indexes, designer, reset } ->
               when
                 personalize_context_from_tx(
                   old_datum_data,
@@ -1697,9 +1570,8 @@ pub fn dispatch_from_tx(
                   tx,
                 )
               is {
-                Some(context) -> {
-                  trace @"dispatch_from_tx:personalize:context_ok"
-                  let validation_result = personalize_is_valid(
+                Some(context) ->
+                  personalize_is_valid(
                     personalize_inputs_from_context(
                       handle,
                       root_handle,
@@ -1712,93 +1584,16 @@ pub fn dispatch_from_tx(
                       tx,
                     ),
                   )
-                  if !validation_result {
-                    trace @"dispatch_from_tx:personalize:validation_failed"
-                    False
-                  } else {
-                    trace @"dispatch_from_tx:personalize:validation_ok"
-                    True
-                  }
-                }
-                None -> {
-                  trace @"dispatch_from_tx:personalize:context_none"
-                  False
-                }
+                None -> False
               }
-            }
           }
         }
-        None -> {
-          trace @"dispatch_from_tx:no_settings"
-          False
-        }
+        None -> False
       }
-    None -> {
-      trace @"dispatch_from_tx:no_datum"
-      False
-    }
+    None -> False
   }
 }
 
-pub type DispatchInputs {
-  redeemer: types.Redeemer,
-  admin_signed: Bool,
-  output_values: List<assets.Value>,
-  migrate_datums_unchanged: Bool,
-  migrate_output_has_expected_handle_token: Bool,
-  migrate_output_contract_is_valid: Bool,
-  migrate_owner_sig_required: Bool,
-  migrate_owner_token_present: Bool,
-  revoke_public_mint: Bool,
-  revoke_root_signed: Bool,
-  revoke_expired: Bool,
-  revoke_minted_quantity: Int,
-  personalize_inputs: Option<PersonalizeValidationInputs>,
-  update_inputs: Option<UpdateValidationInputs>,
-}
-
-pub fn dispatch_redeemer(inputs: DispatchInputs) -> Bool {
-  when inputs.redeemer is {
-    types.ReturnToSender ->
-      return_to_sender.return_to_sender_is_valid(
-        inputs.output_values,
-        inputs.admin_signed,
-      )
-
-    types.Migrate { .. } ->
-      migrate.migrate_is_valid(
-        inputs.migrate_datums_unchanged,
-        inputs.migrate_output_has_expected_handle_token,
-        inputs.migrate_output_contract_is_valid,
-        migrate.migration_signers_are_valid(
-          inputs.admin_signed,
-          inputs.migrate_owner_sig_required,
-          inputs.migrate_owner_token_present,
-        ),
-      )
-
-    types.Revoke { handle, .. } ->
-      revoke.revoke_is_valid(
-        handle.handle_type,
-        inputs.revoke_public_mint,
-        inputs.revoke_root_signed,
-        inputs.revoke_expired,
-        inputs.revoke_minted_quantity,
-      )
-
-    types.Update { .. } ->
-      when inputs.update_inputs is {
-        Some(update_inputs) -> update_is_valid(update_inputs)
-        None -> False
-      }
-
-    types.Personalize { .. } ->
-      when inputs.personalize_inputs is {
-        Some(personalize_inputs) -> personalize_is_valid(personalize_inputs)
-        None -> False
-      }
-  }
-}
 
 test update_is_valid_rejects_non_virtual_handles() {
   and {
@@ -2510,300 +2305,6 @@ fn fixture_update_inputs() -> UpdateValidationInputs {
   }
 }
 
-fn fixture_dispatch_inputs(redeemer: types.Redeemer) -> DispatchInputs {
-  DispatchInputs {
-    redeemer,
-    admin_signed: True,
-    output_values: [assets.zero],
-    migrate_datums_unchanged: True,
-    migrate_output_has_expected_handle_token: True,
-    migrate_output_contract_is_valid: True,
-    migrate_owner_sig_required: False,
-    migrate_owner_token_present: False,
-    revoke_public_mint: False,
-    revoke_root_signed: True,
-    revoke_expired: False,
-    revoke_minted_quantity: -1,
-    personalize_inputs: None,
-    update_inputs: None,
-  }
-}
-
-test dispatch_redeemer_return_to_sender_branch() {
-  let forbidden =
-    assets.from_asset(
-      #"f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a",
-      #"000643b0616c696365",
-      1,
-    )
-
-  and {
-    dispatch_redeemer(fixture_dispatch_inputs(types.ReturnToSender)),
-    !dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(types.ReturnToSender),
-        output_values: [forbidden],
-      },
-    ),
-    !dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(types.ReturnToSender),
-        admin_signed: False,
-      },
-    ),
-  }
-}
-
-test dispatch_redeemer_migrate_branch_enforces_owner_requirement() {
-  let handle =
-    types.Handle { handle_type: types.HandleTypeHandle, name: "alice" }
-
-  and {
-    dispatch_redeemer(
-      fixture_dispatch_inputs(types.Migrate { handle, output_index: 0 }),
-    ),
-    !dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(types.Migrate { handle, output_index: 0 }),
-        admin_signed: False,
-      },
-    ),
-    !dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(types.Migrate { handle, output_index: 0 }),
-        migrate_owner_sig_required: True,
-        migrate_owner_token_present: False,
-      },
-    ),
-  }
-}
-
-test dispatch_redeemer_revoke_branch_uses_revoke_rules() {
-  let handle =
-    types.Handle {
-      handle_type: types.HandleTypeVirtualSubhandle,
-      name: "alice",
-    }
-
-  and {
-    dispatch_redeemer(
-      fixture_dispatch_inputs(
-        types.Revoke { handle, root_handle: "root", owner_index: 0 },
-      ),
-    ),
-    !dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(
-          types.Revoke { handle, root_handle: "root", owner_index: 0 },
-        ),
-        revoke_root_signed: False,
-      },
-    ),
-  }
-}
-
-test dispatch_redeemer_update_branch_uses_update_rules() {
-  let handle =
-    types.Handle {
-      handle_type: types.HandleTypeVirtualSubhandle,
-      name: "alice",
-    }
-  let indexes =
-    types.VirtIndexes {
-      admin_settings: 0,
-      root_settings: 0,
-      contract_output: 0,
-      root_handle: 0,
-    }
-
-  and {
-    dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(
-          types.Update { handle, root_handle: "root", indexes },
-        ),
-        update_inputs: Some(fixture_update_inputs()),
-      },
-    ),
-    !dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(
-          types.Update { handle, root_handle: "root", indexes },
-        ),
-        update_inputs: Some(
-          UpdateValidationInputs {
-            handle_type: types.HandleTypeVirtualSubhandle,
-            protocol_settings_present: True,
-            root_settings_present: True,
-            pz_payload_unchanged: True,
-            nft_unchanged: True,
-            public_mint: False,
-            root_signed: True,
-            expired: False,
-            address_changed: False,
-            address_change_stake_approved: False,
-            assignee_signed_pay: False,
-            assignee_signed_stake: False,
-            extended: True,
-            expiry_unchanged: False,
-            good_main_payment: False,
-            good_root_payment: False,
-            admin_signed: False,
-            new_public_mint_is_private: False,
-            root_virtual_mint_enabled: True,
-          },
-        ),
-      },
-    ),
-    !dispatch_redeemer(
-      fixture_dispatch_inputs(
-        types.Update { handle, root_handle: "root", indexes },
-      ),
-    ),
-  }
-}
-
-test dispatch_redeemer_personalize_branch_uses_personalize_rules() {
-  let handle =
-    types.Handle { handle_type: types.HandleTypeHandle, name: "alice" }
-  let indexes =
-    types.PzIndexes {
-      pfp_approver: 0,
-      bg_approver: 0,
-      pfp_datum: 0,
-      bg_datum: 0,
-      required_asset: 0,
-      owner_settings: 0,
-      contract_output: 0,
-      pz_assets: 0,
-      provider_fee: 0,
-    }
-
-  and {
-    dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(
-          types.Personalize {
-            handle,
-            root_handle: "root",
-            indexes,
-            designer: [],
-            reset: 0,
-          },
-        ),
-        personalize_inputs: Some(
-          fixture_personalize_inputs(types.HandleTypeHandle, False),
-        ),
-      },
-    ),
-    !dispatch_redeemer(
-      DispatchInputs {
-        ..fixture_dispatch_inputs(
-          types.Personalize {
-            handle,
-            root_handle: "root",
-            indexes,
-            designer: [],
-            reset: 0,
-          },
-        ),
-        personalize_inputs: Some(
-          PersonalizeValidationInputs {
-            ..fixture_personalize_inputs(types.HandleTypeHandle, False),
-            required_asset_valid: False,
-          },
-        ),
-      },
-    ),
-    !dispatch_redeemer(
-      fixture_dispatch_inputs(
-        types.Personalize {
-          handle,
-          root_handle: "root",
-          indexes,
-          designer: [],
-          reset: 0,
-        },
-      ),
-    ),
-  }
-}
-
-test personalize_is_valid_non_reset_cost_probe() {
-  personalize_is_valid(
-    fixture_personalize_inputs(types.HandleTypeHandle, False),
-  )
-}
-
-test personalize_is_valid_reset_cost_probe() {
-  personalize_is_valid(
-    PersonalizeValidationInputs {
-      ..fixture_personalize_inputs(types.HandleTypeHandle, True),
-      designed: False,
-      designer_changed: False,
-      is_reset_shape: True,
-      signed_by_provider: True,
-    },
-  )
-}
-
-test dispatch_redeemer_update_branch_cost_probe() {
-  let handle =
-    types.Handle {
-      handle_type: types.HandleTypeVirtualSubhandle,
-      name: "alice",
-    }
-  let indexes =
-    types.VirtIndexes {
-      admin_settings: 0,
-      root_settings: 0,
-      contract_output: 0,
-      root_handle: 0,
-    }
-
-  dispatch_redeemer(
-    DispatchInputs {
-      ..fixture_dispatch_inputs(
-        types.Update { handle, root_handle: "root", indexes },
-      ),
-      update_inputs: Some(fixture_update_inputs()),
-    },
-  )
-}
-
-test dispatch_redeemer_personalize_branch_cost_probe() {
-  let handle =
-    types.Handle { handle_type: types.HandleTypeHandle, name: "alice" }
-  let indexes =
-    types.PzIndexes {
-      pfp_approver: 0,
-      bg_approver: 0,
-      pfp_datum: 0,
-      bg_datum: 0,
-      required_asset: 0,
-      owner_settings: 0,
-      contract_output: 0,
-      pz_assets: 0,
-      provider_fee: 0,
-    }
-
-  dispatch_redeemer(
-    DispatchInputs {
-      ..fixture_dispatch_inputs(
-        types.Personalize {
-          handle,
-          root_handle: "root",
-          indexes,
-          designer: [],
-          reset: 0,
-        },
-      ),
-      personalize_inputs: Some(
-        fixture_personalize_inputs(types.HandleTypeHandle, False),
-      ),
-    },
-  )
-}
 
 fn fixture_settings() -> types.PzSettings {
   types.PzSettings {
