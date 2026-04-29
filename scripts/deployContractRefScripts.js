@@ -161,7 +161,31 @@ const main = async () => {
     // new ref-script UTxO from the previous tx as the next deployer state).
     const utxos = await fetchBlockfrostUtxos(wallet.address, blockfrostApiKey, network, fetch);
     console.log(`  deployer UTxOs: ${utxos.length}`);
-    const cborUtxos = utxos.map((u) =>
+
+    // Curate the UTxO set we hand the selector. cardano-sdk's
+    // RoundRobinRandomImprove caps inputs at ~3 and the deployer wallet has
+    // many tiny anchor-payment UTxOs + several non-deployment-handle tokens
+    // (@handlecontract, kora@handle_prices, etc.); passing the full set
+    // triggers "Maximum Input Count Exceeded". Keep only the SubHandle being
+    // deployed plus the single largest clean UTxO. buildReferenceScriptDeploymentTx
+    // preSelects the SubHandle UTxO and uses the remaining for fee/min-coin.
+    const handleHex = Buffer.from(c.handle, "utf8").toString("hex");
+    const subhandleAssetUnit = `${HANDLE_POLICY_ID}${PREFIX_222}${handleHex}`;
+    const subHandleUtxo = utxos.find((u) =>
+      [...(u[1].value.assets?.entries() ?? [])].some(([assetId]) => assetId === subhandleAssetUnit)
+    );
+    if (!subHandleUtxo) {
+      throw new Error(`deployer wallet does not hold ${c.handle} UTxO (asset ${subhandleAssetUnit})`);
+    }
+    const cleanUtxosSorted = utxos
+      .filter((u) => (u[1].value.assets?.size ?? 0) === 0)
+      .sort((a, b) => Number((b[1].value.coins ?? 0n) - (a[1].value.coins ?? 0n)));
+    if (cleanUtxosSorted.length === 0) {
+      throw new Error(`deployer wallet has no clean (no-token) UTxOs to fund the deploy`);
+    }
+    const curated = [subHandleUtxo, cleanUtxosSorted[0]];
+    console.log(`  curated UTxOs: SubHandle + ${cleanUtxosSorted[0][1].value.coins} lovelace clean`);
+    const cborUtxos = curated.map((u) =>
       // Each utxo from fetchBlockfrostUtxos is [TxIn, TxOut] core; re-encode as
       // a single CBOR TransactionUnspentOutput hex string for buildRef…Tx.
       Serialization.TransactionUnspentOutput.fromCore(u).toCbor()
