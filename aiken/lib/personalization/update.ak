@@ -679,20 +679,30 @@ fn personalize_inputs_from_context(
       context.pz_asset_output.value,
       pfp_proof,
     )
+  // When !reset, check_*_asset == new_*_asset, so check_*_status == *_status.
+  // Only recompute on reset. Saves 2 MPF calls' worth of bytes in the common path.
   let check_bg_status =
-    personalize_mpf_context.approval_status_for_asset(
-      bg_root,
-      check_bg_asset,
-      context.pz_asset_output.value,
-      bg_proof,
-    )
+    if reset {
+      personalize_mpf_context.approval_status_for_asset(
+        bg_root,
+        old_bg_asset,
+        context.pz_asset_output.value,
+        bg_proof,
+      )
+    } else {
+      bg_status
+    }
   let check_pfp_status =
-    personalize_mpf_context.approval_status_for_asset(
-      pfp_root,
-      check_pfp_asset,
-      context.pz_asset_output.value,
-      pfp_proof,
-    )
+    if reset {
+      personalize_mpf_context.approval_status_for_asset(
+        pfp_root,
+        old_pfp_asset,
+        context.pz_asset_output.value,
+        pfp_proof,
+      )
+    } else {
+      pfp_status
+    }
   let types.Cip68 { nft: old_nft, version: _, extra: _ } = context.old_datum
   let datum_name_matches_redeemer =
     when datum.map_get(old_nft, key_name) is {
