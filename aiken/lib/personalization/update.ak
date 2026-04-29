@@ -722,6 +722,87 @@ fn personalize_inputs_from_context(
       agreed_terms_is_set,
     )
 
+  // sub_pz_enabled / new_pz_enabled — read from old/new extra.
+  let sub_pz_enabled =
+    datum.int_or(datum.map_get(old_extra, key_pz_enabled), 0) != 0
+  let new_pz_enabled =
+    datum.int_or(datum.map_get(new_extra, key_pz_enabled), 0) != 0
+
+  // root_pz_enabled + payment_address from owner_settings ref input.
+  // For HANDLE type, Helios returns (True, ""). For NFT/VIRTUAL subhandle,
+  // looks up OwnerSettings.{nft|virtual}.pz_enabled from indexes.owner_settings.
+  let (root_pz_enabled, root_payment_address) =
+    when handle.handle_type is {
+      types.HandleTypeHandle -> (True, #"")
+      _ ->
+        when reference_output_at(tx.reference_inputs, indexes.owner_settings) is {
+          Some(owner_output) ->
+            when output_data(owner_output, tx) is {
+              Some(owner_data) -> {
+                expect owner_settings: types.OwnerSettings = owner_data
+                let enabled =
+                  when handle.handle_type is {
+                    types.HandleTypeNftSubhandle ->
+                      owner_settings.nft.pz_enabled == 1
+                    types.HandleTypeVirtualSubhandle ->
+                      owner_settings.virtual.pz_enabled == 1
+                    _ -> True
+                  }
+                (enabled, owner_settings.payment_address)
+              }
+              None -> (False, #"")
+            }
+          None -> (False, #"")
+        }
+    }
+  // root_payment_address is used by fees_paid (root-fee output destination).
+  let _ = root_payment_address
+
+  // validated_by_* / expected_nsfw / bg/pfp image fields for policy_datum_is_valid.
+  let validated_by_data_opt = datum.map_get(new_extra, "validated_by")
+  let validated_by_present = validated_by_data_opt != None
+  let validated_by_signed =
+    when validated_by_data_opt is {
+      Some(vb_data) -> {
+        expect vb_hash: ByteArray = vb_data
+        list.any(tx.extra_signatories, fn(s) { s == vb_hash })
+      }
+      None -> False
+    }
+  let expected_nsfw = datum.int_or(datum.map_get(new_extra, key_nsfw), 0)
+  let bg_image_set = datum.map_get(new_extra, key_bg_image) != None
+  let pfp_image_set = datum.map_get(new_extra, key_pfp_image) != None
+
+  // bg/pfp_image_matches_datum: when bg_asset_set, look up bg_datum CIP-68 at
+  // indexes.bg_datum ref input, compare its nft.image field to new_extra.bg_image.
+  // For empty asset, vacuously True.
+  let image_matches_datum = fn(asset_present: Bool, asset_class: datum.AssetClass, datum_index: Int, image_key: ByteArray) -> Bool {
+    if !asset_present {
+      True
+    } else {
+      let _ = asset_class
+      when reference_output_at(tx.reference_inputs, datum_index) is {
+        Some(asset_output) ->
+          when output_data(asset_output, tx) is {
+            Some(asset_datum_data) -> {
+              expect asset_datum: types.PersonalizationDatum = asset_datum_data
+              let types.Cip68 { nft: asset_nft, version: _, extra: _ } = asset_datum
+              when (datum.map_get(asset_nft, key_image), datum.map_get(new_extra, image_key)) is {
+                (Some(datum_image), Some(extra_image)) -> datum_image == extra_image
+                _ -> False
+              }
+            }
+            None -> False
+          }
+        None -> False
+      }
+    }
+  }
+  let bg_image_matches_datum =
+    image_matches_datum(new_bg_asset != datum.empty_asset, new_bg_asset, indexes.bg_datum, key_bg_image)
+  let pfp_image_matches_datum =
+    image_matches_datum(new_pfp_asset != datum.empty_asset, new_pfp_asset, indexes.pfp_datum, key_pfp_image)
+
   PersonalizeValidationInputs {
     handle_type: handle.handle_type,
     reset,
@@ -734,9 +815,9 @@ fn personalize_inputs_from_context(
     last_update_address_matches_owner,
     owner_handle_present,
     resolved_ada_is_empty,
-    sub_pz_enabled: False,
-    root_pz_enabled: False,
-    new_pz_enabled: False,
+    sub_pz_enabled,
+    root_pz_enabled,
+    new_pz_enabled,
     virtual_holder_signed: False,
     virtual_resolved_ada_unchanged: False,
     virtual_payload_unchanged: False,
@@ -747,15 +828,15 @@ fn personalize_inputs_from_context(
     check_bg_status,
     check_pfp_status,
     policy_datum_inputs: personalize_policy_approval.PolicyDatumValidationInputs {
-      validated_by_present: False,
-      validated_by_signed: False,
-      expected_nsfw: 0,
+      validated_by_present: validated_by_present,
+      validated_by_signed: validated_by_signed,
+      expected_nsfw: expected_nsfw,
       bg_asset_set: new_bg_asset != datum.empty_asset,
       pfp_asset_set: new_pfp_asset != datum.empty_asset,
-      bg_image_set: False,
-      pfp_image_set: False,
-      bg_image_matches_datum: True,
-      pfp_image_matches_datum: True,
+      bg_image_set: bg_image_set,
+      pfp_image_set: pfp_image_set,
+      bg_image_matches_datum: bg_image_matches_datum,
+      pfp_image_matches_datum: pfp_image_matches_datum,
     },
     designed: datum.map_get(new_extra, key_designer) != None,
     designer_changed: datum.map_get(new_extra, key_designer) != datum.map_get(
