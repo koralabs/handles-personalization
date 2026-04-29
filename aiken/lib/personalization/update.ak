@@ -1,3 +1,4 @@
+use aiken/builtin
 use aiken/collection/list
 use aiken/interval
 use aiken/option
@@ -221,6 +222,37 @@ pub fn observer_withdrawal_is_valid(
   valid_contracts: List<ByteArray>,
 ) -> Bool {
   let observer_redeemer_data: Data = types.Observe { own_ref, redeemer }
+
+  list.any(
+    tx.redeemers,
+    fn(entry) {
+      entry.2nd == observer_redeemer_data && when entry.1st is {
+        transaction.Withdraw(credential) ->
+          credential_is_allowed_observer(credential, valid_contracts) && withdrawal_is_zero_for_credential(
+            tx.withdrawals,
+            credential,
+          )
+        _ -> False
+      }
+    },
+  )
+}
+
+// Same logic as observer_withdrawal_is_valid, but takes the redeemer as raw
+// PlutusData. The pers_proxy spend handler keeps its redeemer as `Data` to
+// avoid Aiken's auto-cast on the Helios-shaped Personalize Constr (where
+// inner fields like Handle / PzIndexes are List-encoded, not Constr-encoded).
+// We construct the observer-redeemer Constr manually so byte-for-byte
+// equality with the chain's withdrawal redeemer still holds.
+pub fn observer_withdrawal_is_valid_data(
+  tx: transaction.Transaction,
+  own_ref: transaction.OutputReference,
+  redeemer_data: Data,
+  valid_contracts: List<ByteArray>,
+) -> Bool {
+  let own_ref_data: Data = own_ref
+  let observer_redeemer_data: Data =
+    builtin.constr_data(0, [own_ref_data, redeemer_data])
 
   list.any(
     tx.redeemers,
