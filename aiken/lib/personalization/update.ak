@@ -395,6 +395,29 @@ pub fn dispatch_from_observer(
   }
 }
 
+// Single CIP-68 reference-input loader. Returns the typed
+// `PersonalizationDatum` so callers can destructure for the field they need.
+// Centralising the `expect ... = ...` cast here lets Aiken share most of
+// the type-check routine across image_matches_datum_check,
+// designer_settings_valid_for_personalize, check_required_assets, and
+// attribute_match_for_token.
+fn cip68_ref_at(
+  ref_index: Int,
+  tx: transaction.Transaction,
+) -> Option<types.PersonalizationDatum> {
+  when reference_output_at(tx.reference_inputs, ref_index) is {
+    None -> None
+    Some(out) ->
+      when output_data(out, tx) is {
+        None -> None
+        Some(d) -> {
+          expect cip68: types.PersonalizationDatum = d
+          Some(cip68)
+        }
+      }
+  }
+}
+
 // Returns True if the asset's bg/pfp image referenced in new_extra matches
 // the image field of the asset's on-chain CIP-68 reference datum. Vacuously
 // True when the asset is empty.
@@ -405,19 +428,12 @@ fn image_matches_datum_check(
   new_extra: types.DataMap,
   tx: transaction.Transaction,
 ) -> Bool {
-  asset == datum.empty_asset || when
-    reference_output_at(tx.reference_inputs, ref_datum_index)
-  is {
-    Some(asset_output) ->
-      when output_data(asset_output, tx) is {
-        Some(asset_datum_data) -> {
-          expect asset_datum: types.PersonalizationDatum = asset_datum_data
-          let types.Cip68 { nft: asset_nft, .. } = asset_datum
-          datum.map_get(asset_nft, key_image) == datum.map_get(new_extra, image_key) && datum.map_get(asset_nft, key_image) != None
-        }
-        None -> False
-      }
+  asset == datum.empty_asset || when cip68_ref_at(ref_datum_index, tx) is {
     None -> False
+    Some(asset_datum) -> {
+      let types.Cip68 { nft: asset_nft, .. } = asset_datum
+      datum.map_get(asset_nft, key_image) == datum.map_get(new_extra, image_key) && datum.map_get(asset_nft, key_image) != None
+    }
   }
 }
 
@@ -474,23 +490,15 @@ fn designer_settings_valid_for_personalize(
   new_extra: types.DataMap,
   tx: transaction.Transaction,
 ) -> Bool {
-  let designer_hash_opt = datum.map_get(new_extra, "designer")
   let defaults =
-    when reference_output_at(tx.reference_inputs, bg_datum_index) is {
+    when cip68_ref_at(bg_datum_index, tx) is {
       None -> []
-      Some(bg_output) ->
-        when output_data(bg_output, tx) is {
-          None -> []
-          Some(bg_datum_data) -> {
-            expect bg_datum: types.PersonalizationDatum = bg_datum_data
-            datum.get_extra(bg_datum.extra)
-          }
-        }
+      Some(bg_datum) -> datum.get_extra(bg_datum.extra)
     }
   designer_settings.designer_settings_are_valid(
     designer,
     defaults,
-    designer_hash_opt,
+    datum.map_get(new_extra, "designer"),
   )
 }
 
@@ -516,28 +524,23 @@ fn check_required_assets(
   pfp_asset: datum.AssetClass,
   tx: transaction.Transaction,
 ) -> Bool {
-  when reference_output_at(tx.reference_inputs, bg_datum_index) is {
+  when cip68_ref_at(bg_datum_index, tx) is {
     None -> False
-    Some(bg_output) ->
-      when output_data(bg_output, tx) is {
-        None -> False
-        Some(bg_datum_data) -> {
-          expect bg_datum: types.PersonalizationDatum = bg_datum_data
-          let defaults = datum.get_extra(bg_datum.extra)
-          when defaults is {
-            [] -> True
-            _ ->
-              required_assets_inner(
-                defaults,
-                pz_asset_output,
-                required_asset_index,
-                handle_name,
-                pfp_asset,
-                tx,
-              )
-          }
-        }
+    Some(bg_datum) -> {
+      let defaults = datum.get_extra(bg_datum.extra)
+      when defaults is {
+        [] -> True
+        _ ->
+          required_assets_inner(
+            defaults,
+            pz_asset_output,
+            required_asset_index,
+            handle_name,
+            pfp_asset,
+            tx,
+          )
       }
+    }
   }
 }
 
@@ -626,11 +629,10 @@ fn attribute_match_for_token(
           None -> False
           Some(out) ->
             assets.quantity_of(out.value, policy_id, ref_token_name) == 1 && when
-              output_data(out, tx)
+              cip68_ref_at(required_asset_index, tx)
             is {
               None -> False
-              Some(data) -> {
-                expect cip68: types.PersonalizationDatum = data
+              Some(cip68) -> {
                 let attributes =
                   when datum.map_get(cip68.nft, "attributes") is {
                     Some(att_data) -> {

@@ -50,6 +50,10 @@ const qr_props: List<ByteArray> = ["qr_inner_eye", "qr_outer_eye", "qr_dot"]
 
 const square_prefix: ByteArray = "square,"
 
+fn list_contains(haystack: List<ByteArray>, needle: ByteArray) -> Bool {
+  list.any(haystack, fn(x) { x == needle })
+}
+
 // Faithful port of helios `prop_in_designer_array`:
 //   default == None || forced == false || (forced && has_val && default_arr.any(== prop))
 fn prop_in_designer_array(
@@ -167,13 +171,7 @@ fn forced_from_defaults(defaults: types.DataMap) -> Bool {
   }
 }
 
-fn list_contains(haystack: List<ByteArray>, needle: ByteArray) -> Bool {
-  list.any(haystack, fn(x) { x == needle })
-}
-
-// One iteration of the `defaults.for_each` loop in Helios:342-404. Each
-// default key drives a per-category check against the matching designer
-// entry. Returns True when the entry conforms.
+// One iteration of the `defaults.for_each` loop in Helios:342-404.
 fn defaults_entry_valid(
   pair: Pair<ByteArray, Data>,
   designer: types.DataMap,
@@ -182,7 +180,6 @@ fn defaults_entry_valid(
   let key = pair.1st
   let value = pair.2nd
   if list_contains(simple_props_plural, key) {
-    // simple_props plural form → check designer at the singular form.
     let key_singular = bytearray.take(key, bytearray.length(key) - 1)
     prop_in_designer_array(
       Some(value),
@@ -234,8 +231,7 @@ fn defaults_entry_valid(
   }
 }
 
-// One iteration of the `designer.for_each` loop in Helios:406-442. Each
-// designer key validates against the matching default (when one exists).
+// One iteration of the `designer.for_each` loop in Helios:406-442.
 fn designer_entry_valid(
   pair: Pair<ByteArray, Data>,
   defaults: types.DataMap,
