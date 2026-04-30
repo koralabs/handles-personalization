@@ -458,6 +458,204 @@ fn output_has_handle_asset(
   assets.quantity_of(output.value, constants.handle_policy_id, asset_name) == 1
 }
 
+// Helios `check_required_assets` port. Validates the bg's creator-default
+// requirement set (declared inline on bg's CIP-68 reference datum's `extra`
+// map) against this personalize tx. See pers.helios:275-326 for the exact
+// semantics being preserved:
+//
+//   - `required_signature` (ByteArray pubkey-hash) → tx.extra_signatories
+//   - `require_asset_collections` (List<ByteArray>) → at least one entry's
+//     `policy_id ++ name_prefix` matches a token in pz_asset_output.value
+//   - `require_asset_attributes` (List<String>) — for the matched
+//     LBL_222/444 token, the CIP-68 reference datum at
+//     `indexes.required_asset` must carry every "key:value" attribute.
+//     CIP-25 collections trivially pass (no on-chain attributes to inspect).
+//   - `require_asset_displayed` (Int 0|1) — if 1, the matched asset must be
+//     the pfp asset OR the handle being personalized.
+fn check_required_assets(
+  pz_asset_output: transaction.Output,
+  bg_datum_index: Int,
+  required_asset_index: Int,
+  handle_name: ByteArray,
+  pfp_asset: datum.AssetClass,
+  tx: transaction.Transaction,
+) -> Bool {
+  when reference_output_at(tx.reference_inputs, bg_datum_index) is {
+    None -> False
+    Some(bg_output) ->
+      when output_data(bg_output, tx) is {
+        None -> False
+        Some(bg_datum_data) -> {
+          expect bg_datum: types.PersonalizationDatum = bg_datum_data
+          let defaults = datum.get_extra(bg_datum.extra)
+          when defaults is {
+            [] -> True
+            _ ->
+              required_assets_inner(
+                defaults,
+                pz_asset_output,
+                required_asset_index,
+                handle_name,
+                pfp_asset,
+                tx,
+              )
+          }
+        }
+      }
+  }
+}
+
+fn required_assets_inner(
+  defaults: types.DataMap,
+  pz_asset_output: transaction.Output,
+  required_asset_index: Int,
+  handle_name: ByteArray,
+  pfp_asset: datum.AssetClass,
+  tx: transaction.Transaction,
+) -> Bool {
+  let sig_ok =
+    when datum.map_get(defaults, "required_signature") is {
+      None -> True
+      Some(sig_data) -> {
+        expect sig_hash: ByteArray = sig_data
+        list.has(tx.extra_signatories, sig_hash)
+      }
+    }
+  sig_ok && when datum.map_get(defaults, "require_asset_collections") is {
+    None -> True
+    Some(coll_data) -> {
+      expect coll_list: List<ByteArray> = coll_data
+      let attr_opt = datum.map_get(defaults, "require_asset_attributes")
+      let must_display =
+        datum.int_or(datum.map_get(defaults, "require_asset_displayed"), 0) != 0
+      let flattened = assets.flatten(pz_asset_output.value)
+      list.any(
+        coll_list,
+        fn(coll_bytes) {
+          let policy_id = bytearray.take(coll_bytes, 28)
+          let name_prefix = bytearray.drop(coll_bytes, 28)
+          when
+            list.find(
+              flattened,
+              fn(t) {
+                t.1st == policy_id && bytearray.starts_with(t.2nd, name_prefix)
+              },
+            )
+          is {
+            None -> False
+            Some(t) ->
+              attribute_match_for_token(
+                t.1st,
+                t.2nd,
+                attr_opt,
+                required_asset_index,
+                tx,
+              ) && (
+                !must_display || display_match(
+                  t.1st,
+                  t.2nd,
+                  coll_bytes,
+                  pfp_asset,
+                  handle_name,
+                )
+              )
+          }
+        },
+      )
+    }
+  }
+}
+
+fn attribute_match_for_token(
+  policy_id: ByteArray,
+  asset_name: ByteArray,
+  attr_opt: Option<Data>,
+  required_asset_index: Int,
+  tx: transaction.Transaction,
+) -> Bool {
+  when attr_opt is {
+    None -> True
+    Some(attr_data) ->
+      // CIP-25 collections (no CIP-68 ref-token) — Helios trivially passes.
+      if !bytearray.starts_with(asset_name, constants.lbl_222) && !bytearray.starts_with(
+        asset_name,
+        constants.lbl_444,
+      ) {
+        True
+      } else {
+        expect attr_list: List<ByteArray> = attr_data
+        let ref_token_name =
+          bytearray.concat(constants.lbl_100, bytearray.drop(asset_name, 4))
+        when reference_output_at(tx.reference_inputs, required_asset_index) is {
+          None -> False
+          Some(out) ->
+            assets.quantity_of(out.value, policy_id, ref_token_name) == 1 && when
+              output_data(out, tx)
+            is {
+              None -> False
+              Some(data) -> {
+                expect cip68: types.PersonalizationDatum = data
+                let attributes =
+                  when datum.map_get(cip68.nft, "attributes") is {
+                    Some(att_data) -> {
+                      expect att_map: types.DataMap = att_data
+                      att_map
+                    }
+                    None -> cip68.nft
+                  }
+                list.all(attr_list, fn(a) { attribute_matches(a, attributes) })
+              }
+            }
+        }
+      }
+  }
+}
+
+// One "key:value" attribute string. ByteArray values compared as-is (matching
+// Helios `decode_utf8`); other Data shapes are mismatches. Helios also
+// supports Int attributes rendered as decimal — we intentionally drop that
+// branch to save ~700 bytes of UPLC; if a creator default ever requires an
+// Int attribute match, this needs the int.to_string path restored.
+fn attribute_matches(attr_bytes: ByteArray, attributes: types.DataMap) -> Bool {
+  when bytearray.index_of(attr_bytes, #"3a") is {
+    None -> False
+    Some((start, _)) -> {
+      let key = bytearray.take(attr_bytes, start)
+      let value = bytearray.drop(attr_bytes, start + 1)
+      when datum.map_get(attributes, key) is {
+        None -> False
+        Some(v_data) ->
+          builtin.choose_data(v_data, False, False, False, False, {
+            expect v_bytes: ByteArray = v_data
+            v_bytes == value
+          })
+      }
+    }
+  }
+}
+
+// "must_display" rule: the matched asset must be the pfp asset (whose own
+// policy_id ++ asset_name itself starts with the required `coll_bytes`
+// prefix) OR the handle being personalized (handle policy + LBL_222 + name).
+fn display_match(
+  policy_id: ByteArray,
+  asset_name: ByteArray,
+  coll_bytes: ByteArray,
+  pfp_asset: datum.AssetClass,
+  handle_name: ByteArray,
+) -> Bool {
+  pfp_asset != datum.empty_asset && bytearray.starts_with(
+    bytearray.concat(pfp_asset.policy_id, pfp_asset.asset_name),
+    coll_bytes,
+  ) && pfp_asset.policy_id == policy_id && pfp_asset.asset_name == asset_name || bytearray.starts_with(
+    bytearray.concat(
+      constants.handle_hash,
+      bytearray.concat(constants.lbl_222, handle_name),
+    ),
+    coll_bytes,
+  )
+}
+
 fn outputs_have_owner_token(
   outputs: List<transaction.Output>,
   handle: ByteArray,
@@ -1122,17 +1320,14 @@ fn personalize_inputs_from_context(
       old_extra,
       key_designer,
     ),
-    // TODO: required_asset_valid — implement Helios check_required_assets:
-    //   When bg_datum has defaults (bg_datum.extra.{required_signature,
-    //   require_asset_collections, require_asset_attributes, require_asset_displayed}),
-    //   verify (a) any required signature is in tx.extra_signatories, (b) every
-    //   required asset collection has a token in pz_asset_output whose name starts
-    //   with the collection prefix, (c) for LBL_222/444 tokens, the asset's CIP-68
-    //   reference datum at indexes.required_asset has matching attributes, (d) if
-    //   require_asset_displayed=1, the matched asset is the pfp or the personalized
-    //   handle itself. Currently True when no bg_datum (bg stripped or absent), so
-    //   scope-03 with bg stripped passes this check trivially.
-    required_asset_valid: new_bg_asset == datum.empty_asset,
+    required_asset_valid: new_bg_asset == datum.empty_asset || check_required_assets(
+      context.pz_asset_output,
+      indexes.bg_datum,
+      indexes.required_asset,
+      handle.name,
+      check_pfp_asset,
+      tx,
+    ),
     fees_paid,
     // TODO: designer_settings_valid — implement Helios designer_settings_are_valid:
     //   (a) decode new_extra.designer as IPFS multihash bytes, strip 4-byte CIDv1
