@@ -1604,6 +1604,181 @@ pub fn dispatch_from_tx(
   }
 }
 
+// Per-variant dispatch helpers — used by the split-by-redeemer validators
+// (pers_logic_personalize.ak, pers_logic_other.ak). Each handles only its
+// declared variants; the catchall `_ -> False` lets Aiken DCE branches the
+// validator never serves, so each split script stays well under max_tx_size.
+
+pub fn dispatch_personalize_from_tx(
+  datum_opt: Option<Data>,
+  redeemer: types.Redeemer,
+  own_ref: transaction.OutputReference,
+  tx: transaction.Transaction,
+) -> Bool {
+  expect Some(old_datum_data) = datum_opt
+  expect Some(settings) = load_pz_settings(tx)
+  when redeemer is {
+    types.Personalize { handle, root_handle, indexes, designer, reset } ->
+      when
+        personalize_context_from_tx(old_datum_data, indexes, reset != 0, tx)
+      is {
+        Some(context) ->
+          personalize_is_valid(
+            personalize_inputs_from_context(
+              handle,
+              root_handle,
+              indexes,
+              designer,
+              settings,
+              own_ref,
+              reset != 0,
+              context,
+              tx,
+            ),
+          )
+        None -> False
+      }
+    _ -> False
+  }
+}
+
+pub fn dispatch_other_from_tx(
+  datum_opt: Option<Data>,
+  redeemer: types.Redeemer,
+  own_ref: transaction.OutputReference,
+  tx: transaction.Transaction,
+) -> Bool {
+  expect Some(old_datum_data) = datum_opt
+  expect Some(settings) = load_pz_settings(tx)
+  let admin_signed =
+    utils.admin_has_signed_tx(settings.admin_creds, tx.extra_signatories)
+  when redeemer is {
+    types.ReturnToSender ->
+      return_to_sender.return_to_sender_is_valid(
+        list.map(tx.outputs, fn(output) { output.value }),
+        admin_signed,
+      )
+
+    types.Migrate { handle, output_index } -> {
+      expect old_datum: types.PersonalizationDatum = old_datum_data
+      let types.Cip68 { nft: _, version: _, extra: old_extra_data } = old_datum
+      let old_extra = datum.get_extra(old_extra_data)
+      let owner_sig_required =
+        datum.int_or(datum.map_get(old_extra, key_migrate_sig_required), 0) != 0
+      expect Some(output) = output_at(tx.outputs, output_index)
+      expect Some(new_datum_data) = output_data(output, tx)
+      expect Some(current_hash) = current_validator_hash(own_ref, tx)
+      migrate.migrate_is_valid(
+        old_datum_data == new_datum_data,
+        output_has_handle_asset(
+          output,
+          constants.prefixed_asset_name(
+            personalize_base.handle_label_for_type(handle.handle_type),
+            handle.name,
+          ),
+        ),
+        utils.is_valid_contract(output, settings.valid_contracts, current_hash),
+        migrate.migration_signers_are_valid(
+          admin_signed,
+          owner_sig_required,
+          outputs_have_owner_token(tx.outputs, handle.name),
+        ),
+      )
+    }
+
+    types.Revoke { handle, root_handle, owner_index } -> {
+      expect old_datum: types.PersonalizationDatum = old_datum_data
+      let types.Cip68 { nft: _, version: _, extra: old_extra_data } = old_datum
+      let old_extra = datum.get_extra(old_extra_data)
+      expect Some(old_virtual) = parse_virtual_data(old_extra)
+      let old_expiry =
+        datum.int_or(datum.map_get(old_virtual, key_expires_time), 0)
+      let expired =
+        when validity_start(tx) is {
+          Some(start) -> start > old_expiry
+          None -> False
+        }
+      let root_signed =
+        when output_at(tx.outputs, owner_index) is {
+          Some(root_output) ->
+            output_has_handle_asset(
+              root_output,
+              constants.prefixed_asset_name(constants.lbl_222, root_handle),
+            )
+          None -> False
+        }
+      revoke.revoke_is_valid(
+        handle.handle_type,
+        datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0,
+        root_signed,
+        expired,
+        assets.quantity_of(
+          tx.mint,
+          constants.handle_policy_id,
+          constants.prefixed_asset_name(constants.lbl_000, handle.name),
+        ),
+      )
+    }
+
+    types.Update { handle, root_handle, indexes } -> {
+      expect old_datum: types.PersonalizationDatum = old_datum_data
+      let types.Cip68 {
+        nft: old_nft,
+        version: _,
+        extra: old_extra_data,
+      } = old_datum
+      let old_extra = datum.get_extra(old_extra_data)
+      when
+        update_inputs_from_tx(
+          old_nft,
+          old_extra,
+          handle,
+          root_handle,
+          indexes,
+          admin_signed,
+          tx,
+        )
+      is {
+        Some(update_inputs) -> update_is_valid(update_inputs)
+        None -> False
+      }
+    }
+
+    _ -> False
+  }
+}
+
+// Observer-level entry points for each split. Each verifies the spend-redeemer
+// matches the observer-carried redeemer, finds the spend input, and dispatches
+// to its variant-specific helper.
+pub fn validate_observer_personalize(
+  observer_redeemer: types.ObserverRedeemer,
+  tx: transaction.Transaction,
+) -> Bool {
+  let types.Observe { own_ref, redeemer } = observer_redeemer
+  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
+    transaction.find_input(tx.inputs, own_ref)
+  is {
+    Some(input) ->
+      dispatch_personalize_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
+    None -> False
+  }
+}
+
+pub fn validate_observer_other(
+  observer_redeemer: types.ObserverRedeemer,
+  tx: transaction.Transaction,
+) -> Bool {
+  let types.Observe { own_ref, redeemer } = observer_redeemer
+  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
+    transaction.find_input(tx.inputs, own_ref)
+  is {
+    Some(input) ->
+      dispatch_other_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
+    None -> False
+  }
+}
+
 
 test update_is_valid_rejects_non_virtual_handles() {
   and {
