@@ -143,7 +143,19 @@ export const buildReferenceScriptDeploymentTx = async ({
   const remainingUtxos = utxos.filter((_, i) => i !== handleUtxoIndex);
 
   const compiledCbor = loadProgramCborFn({ contractSlug });
-  const scriptReference = Serialization.PlutusV3Script.fromCbor(stripHex(compiledCbor)).toCore();
+  // PlutusV3 ref-scripts are double-CBOR-encoded on chain: the script-ref bytes
+  // inside `[3, X]` must themselves CBOR-decode as a `bytes` value whose
+  // contents are the flat-encoded UPLC. Aiken's `compiledCode` is already that
+  // outer `bytes(flat_uplc)` form, so we pass it through verbatim. cardano-sdk
+  // 0.46.12's `PlutusV3Script.fromCbor(...).toCore()` strips the outer wrapper
+  // and emits `[3, raw_flat]`, which Conway then rejects as
+  // MalformedReferenceScripts (decodeBytes fails on flat UPLC). Construct the
+  // Core script directly with the outer-form bytes.
+  const scriptReference = {
+    __type: "plutus",
+    bytes: stripHex(compiledCbor),
+    version: 2, // cardano-sdk PlutusLanguageVersion: 0=V1, 1=V2, 2=V3
+  };
 
   const handleValue = { coins: 0n, assets: new Map([[handleAssetId, 1n]]) };
   const handleOutput = {

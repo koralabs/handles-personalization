@@ -181,6 +181,16 @@ const main = async () => {
     if (!subHandleUtxo) {
       throw new Error(`deployer wallet does not hold ${c.handle} UTxO (asset ${subhandleAssetUnit})`);
     }
+    // Skip if this SubHandle UTxO already carries a reference script — that
+    // means a prior deploy already produced the V3 ref-script UTxO and there's
+    // nothing new to deploy. Re-spending it would produce a fresh duplicate
+    // ref-script UTxO and waste min-coin / fee.
+    if (subHandleUtxo[1].referenceScriptHash) {
+      const utxoId = `${subHandleUtxo[0].txId}#${subHandleUtxo[0].index}`;
+      console.log(`  ✓ already deployed (${utxoId} carries ref script ${subHandleUtxo[1].referenceScriptHash}). Skipping.`);
+      deployed.push({ ...c, txId: subHandleUtxo[0].txId, refScriptUtxo: utxoId, status: "already_deployed" });
+      continue;
+    }
     const cleanUtxosSorted = utxos
       .filter((u) => (u[1].value.assets?.size ?? 0) === 0)
       .sort((a, b) => Number((b[1].value.coins ?? 0n) - (a[1].value.coins ?? 0n)));

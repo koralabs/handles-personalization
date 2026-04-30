@@ -31,6 +31,14 @@ const blockfrostUtxoToCore = (item, address) => {
     ...(item.inline_datum
       ? { datum: Serialization.PlutusData.fromCbor(item.inline_datum).toCore() }
       : {}),
+    // Surface the reference script hash so callers can detect "this UTxO
+    // already has a ref script attached" without needing to fetch the bytes.
+    // We don't fetch the bytes because (a) it's a separate Blockfrost endpoint
+    // call per UTxO, and (b) Conway requires re-attached scripts to round-trip
+    // exactly, so the cleanest path is to skip already-deployed UTxOs entirely.
+    ...(item.reference_script_hash
+      ? { referenceScriptHash: item.reference_script_hash }
+      : {}),
   };
   return [txIn, txOut];
 };
