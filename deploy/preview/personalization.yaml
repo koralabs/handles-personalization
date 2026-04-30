@@ -4,20 +4,31 @@ subhandle_strategy:
   namespace: handlecontract
   format: contract_slug_ordinal
 contracts:
-  - contract_slug: pers_logic
-    script_type: pers_logic
-    old_script_type: null
-    deployment_handle_slug: pers_logic
-    build:
-      target: aiken/validators/pers_logic.ak
-      kind: validator
-      parameters: {}
-  - contract_slug: pers_proxy
-    script_type: pers_proxy
+  # Canonical slugs per adahandle-deployments/docs/contract-deployment-pipeline.md:
+  # `<app><role>[<extra>]`, ≤10 chars, no separators. The `pers` app split
+  # into proxy + per-variant logic to fit Conway's 16384 max_tx_size.
+  - contract_slug: persprx
+    script_type: persprx
     old_script_type: pz
-    deployment_handle_slug: pers_proxy
+    deployment_handle_slug: persprx
     build:
       target: aiken/validators/pers_proxy.ak
+      kind: validator
+      parameters: {}
+  - contract_slug: perspz
+    script_type: perspz
+    old_script_type: null
+    deployment_handle_slug: perspz
+    build:
+      target: aiken/validators/pers_logic_personalize.ak
+      kind: validator
+      parameters: {}
+  - contract_slug: perslfc
+    script_type: perslfc
+    old_script_type: null
+    deployment_handle_slug: perslfc
+    build:
+      target: aiken/validators/pers_logic_other.ak
       kind: validator
       parameters: {}
 assigned_handles:

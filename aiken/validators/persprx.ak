@@ -10,7 +10,7 @@ use personalization/update
 // reaching our logic. By taking `Data`, we forward the raw bytes to the
 // observer-redeemer comparison without re-encoding, and the equality check
 // happens at the Plutus-Data layer where shape doesn't matter.
-validator personalization_proxy {
+validator persprx {
   spend(
     _datum_opt: Option<Data>,
     redeemer: Data,

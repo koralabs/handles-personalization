@@ -116,17 +116,21 @@ const main = async () => {
   if (!blockfrostApiKey) throw new Error("BLOCKFROST_API_KEY is required");
   const userAgent = "kora-cutover/1.0";
 
-  // 1. Compute V3 hashes from plutus.json
+  // 1. Compute V3 hashes from plutus.json (canonical-slug per-variant split:
+  //    persprx + perspz + perslfc).
   const blueprint = JSON.parse(readFileSync(PLUTUS_JSON, "utf8"));
-  const persProxy = blueprint.validators.find((v) => v.title === "pers_proxy.personalization_proxy.spend");
-  const persLogic = blueprint.validators.find((v) => v.title === "pers_logic.personalization_logic.withdraw");
-  if (!persProxy || !persLogic) {
-    throw new Error("pers_proxy / pers_logic missing from plutus.json — run aiken build first");
+  const persProxy = blueprint.validators.find((v) => v.title === "persprx.persprx.spend");
+  const persPz = blueprint.validators.find((v) => v.title === "perspz.perspz.withdraw");
+  const persLfc = blueprint.validators.find((v) => v.title === "perslfc.perslfc.withdraw");
+  if (!persProxy || !persPz || !persLfc) {
+    throw new Error("persprx / perspz / perslfc missing from plutus.json — run aiken build first");
   }
   const persProxyHash = await computeV3Hash(persProxy.compiledCode);
-  const persLogicHash = await computeV3Hash(persLogic.compiledCode);
-  console.log(`pers_proxy V3 hash : ${persProxyHash.toString("hex")}`);
-  console.log(`pers_logic V3 hash : ${persLogicHash.toString("hex")}`);
+  const persPzHash = await computeV3Hash(persPz.compiledCode);
+  const persLfcHash = await computeV3Hash(persLfc.compiledCode);
+  console.log(`persprx V3 hash : ${persProxyHash.toString("hex")}`);
+  console.log(`perspz  V3 hash : ${persPzHash.toString("hex")}`);
+  console.log(`perslfc V3 hash : ${persLfcHash.toString("hex")}`);
 
   // 2. Fetch current pz_settings datum
   console.log(`Fetching ${SETTINGS_HANDLE} datum...`);
@@ -143,13 +147,16 @@ const main = async () => {
     throw new Error("valid_contracts (idx 4) is not a list");
   }
   const existingHashes = validContracts.map((b) => Buffer.from(b).toString("hex"));
-  const persProxyHashHex = persProxyHash.toString("hex");
-  const persLogicHashHex = persLogicHash.toString("hex");
-  const toAdd = [];
-  if (!existingHashes.includes(persProxyHashHex)) toAdd.push(persProxyHash);
-  if (!existingHashes.includes(persLogicHashHex)) toAdd.push(persLogicHash);
+  const wantedHashes = [
+    { name: "persprx", buf: persProxyHash },
+    { name: "perspz", buf: persPzHash },
+    { name: "perslfc", buf: persLfcHash },
+  ];
+  const toAdd = wantedHashes
+    .filter(({ buf }) => !existingHashes.includes(buf.toString("hex")))
+    .map(({ buf }) => buf);
   if (toAdd.length === 0) {
-    console.log("✓ both hashes already in valid_contracts; nothing to do");
+    console.log("✓ all three V3 hashes already in valid_contracts; nothing to do");
     return;
   }
   decoded[4] = [...validContracts, ...toAdd];

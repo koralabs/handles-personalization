@@ -41,11 +41,15 @@ import { Serialization } from "../helpers/cardano-sdk/index.js";
 
 const ALLOWED_NETWORKS = ["preview", "preprod", "mainnet"];
 
-// Pairs of (contract_slug -> deployment_handle), matching deploy/<network>/personalization.yaml
-// + the discoverNextContractSubhandle ordinal-1 convention.
+// Canonical slugs per adahandle-deployments/docs/contract-deployment-pipeline.md
+// — shape `<app><role>[<extra>]`, ≤10 chars, no separators:
+//   persprx -> proxy
+//   perspz  -> Personalize-variant logic
+//   perslfc -> lifecycle-variant logic (Migrate/Revoke/Update/ReturnToSender)
 const CONTRACTS = [
-  { slug: "pers_logic", handle: "pers_logic1@handlecontract" },
-  { slug: "pers_proxy", handle: "pers_proxy1@handlecontract" },
+  { slug: "perspz", handle: "perspz1@handlecontract" },
+  { slug: "perslfc", handle: "perslfc1@handlecontract" },
+  { slug: "persprx", handle: "persprx1@handlecontract" },
 ];
 
 const handlesApiBaseUrlForNetwork = (network) => {

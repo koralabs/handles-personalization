@@ -42,9 +42,20 @@ import { getPolicyWallet } from "../helpers/cardano-sdk/policyKeyWallet.js";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 
+// Per adahandle-deployments/docs/contract-deployment-pipeline.md the
+// canonical slug shape is `<app><role>[<extra>]` with no separators and
+// ≤10 chars. The `pers` app expands to:
+//   persprx — proxy (the spend script being delegated to)
+//   perspz  — Personalize-variant logic
+//   perslfc — lifecycle-variant logic (Migrate/Revoke/Update/ReturnToSender)
+// All three need to land in pz_settings.valid_contracts.
+//
+// Pre-split mints (pers_logic1, pers_proxy1) are stranded but benign — they
+// don't correspond to any deployed validator.
 const CONTRACT_HANDLES = [
-  "pers_logic1@handlecontract",
-  "pers_proxy1@handlecontract",
+  "persprx1@handlecontract",
+  "perspz1@handlecontract",
+  "perslfc1@handlecontract",
 ];
 
 const parseArgs = (argv) => {

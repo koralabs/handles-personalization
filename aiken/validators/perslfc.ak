@@ -5,9 +5,8 @@ use personalization/update
 
 // Per-variant split: this withdraw observer handles every Redeemer EXCEPT
 // Personalize — i.e. Migrate, Revoke, Update, ReturnToSender. Personalize
-// is served by `pers_logic_personalize`. See pers_logic_personalize.ak for
-// the rationale.
-validator personalization_logic_other {
+// is served by `perspz`. See perspz.ak for the rationale.
+validator perslfc {
   withdraw(
     observer_redeemer: types.ObserverRedeemer,
     _account: Credential,
