@@ -8,6 +8,7 @@ use cardano/assets
 use cardano/transaction
 use personalization/constants
 use personalization/datum
+use personalization/designer_settings
 use personalization/migrate
 use personalization/personalize_base
 use personalization/personalize_mpf_context
@@ -456,6 +457,41 @@ fn output_has_handle_asset(
   asset_name: ByteArray,
 ) -> Bool {
   assets.quantity_of(output.value, constants.handle_policy_id, asset_name) == 1
+}
+
+// Wire-up: load bg_datum.extra (the creator's defaults) and the on-chain
+// designer-hash from new_extra, then delegate to designer_settings.
+// Mirrors how Helios calls `designer_settings_are_valid(designer, defaults,
+// new_extra.get_safe("designer"))` from inside the personalize branch.
+//
+// When new_extra has no "designer" key, Helios's call to .unwrap() crashes —
+// here we fail validation explicitly. When the bg ref-input or its datum is
+// missing, defaults default to empty (no constraints), preserving Helios's
+// `if (bg_datum == EMPTY_CIP_68) Map[String]Data{}` fallback.
+fn designer_settings_valid_for_personalize(
+  designer: types.DataMap,
+  bg_datum_index: Int,
+  new_extra: types.DataMap,
+  tx: transaction.Transaction,
+) -> Bool {
+  let designer_hash_opt = datum.map_get(new_extra, "designer")
+  let defaults =
+    when reference_output_at(tx.reference_inputs, bg_datum_index) is {
+      None -> []
+      Some(bg_output) ->
+        when output_data(bg_output, tx) is {
+          None -> []
+          Some(bg_datum_data) -> {
+            expect bg_datum: types.PersonalizationDatum = bg_datum_data
+            datum.get_extra(bg_datum.extra)
+          }
+        }
+    }
+  designer_settings.designer_settings_are_valid(
+    designer,
+    defaults,
+    designer_hash_opt,
+  )
 }
 
 // Helios `check_required_assets` port. Validates the bg's creator-default
@@ -1329,15 +1365,12 @@ fn personalize_inputs_from_context(
       tx,
     ),
     fees_paid,
-    // TODO: designer_settings_valid — implement Helios designer_settings_are_valid:
-    //   (a) decode new_extra.designer as IPFS multihash bytes, strip 4-byte CIDv1
-    //   prefix, compare to sha256(serialize(redeemer.designer)); (b) for each
-    //   key in bg_datum.extra defaults, validate the matching designer property:
-    //   simple_props (bg_border_colors, bg_colors, etc.) must be a value in the
-    //   defaults array (when force_creator_settings=1); simp_excl_props must
-    //   equal the default exactly; qr_props are handled separately. Currently
-    //   True; needs full per-property logic.
-    designer_settings_valid: True,
+    designer_settings_valid: designer_settings_valid_for_personalize(
+      designer,
+      indexes.bg_datum,
+      new_extra,
+      tx,
+    ),
     is_reset_shape,
     reset_privacy_inputs,
     signed_by_provider,
