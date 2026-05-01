@@ -49,7 +49,14 @@ assigned_handles:
     - pers_bg@handle_settings
     - pers_pfp@handle_settings
   scripts:
-    - pz_contract_06
+    # PZ V3 split: four active validators (proxy + per-redeemer-variant
+    # observers + designer-settings observer). All four are marked active so
+    # api.handle.me/scripts reports `latest: true` for each, and the BFF
+    # discovers them per-validator-role via /scripts.
+    - persdsg1@handlecontract
+    - perslfc1@handlecontract
+    - persprx1@handlecontract
+    - perspz1@handlecontract
 ignored_settings: []
 settings:
   type: personalization_settings
