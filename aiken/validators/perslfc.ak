@@ -15,6 +15,13 @@ validator perslfc {
     update.validate_observer_other(observer_redeemer, tx)
   }
 
+  // See perspz.ak for the rationale — observer credentials must be
+  // registered as stake credentials, and Conway requires script approval
+  // for the cert purposes (registration / deregistration / delegation).
+  publish(_redeemer: Data, _certificate: Data, _tx: Transaction) {
+    True
+  }
+
   else(_) {
     fail
   }
