@@ -59,18 +59,23 @@ const handlesApiBaseUrlForNetwork = (network) => {
 };
 
 const fetchHandleDatumHex = async (handle, network, userAgent) => {
+  // api.handle.me's /datum endpoint defaults to JSON-decoded output now;
+  // raw CBOR-hex requires `Accept: text/plain` (or application/cbor-hex).
+  // We need raw hex here so the on-chain bytes round-trip exactly through
+  // cbor.decodeFirstSync → patch valid_contracts → cbor.encode.
   const url = `${handlesApiBaseUrlForNetwork(network)}/handles/${encodeURIComponent(handle)}/datum`;
-  const r = await fetch(url, { headers: { "User-Agent": userAgent } });
+  const r = await fetch(url, {
+    headers: { "User-Agent": userAgent, Accept: "text/plain" },
+  });
   if (!r.ok) throw new Error(`fetch datum ${handle}: HTTP ${r.status}`);
-  // The endpoint returns either raw hex (text/plain) or a JSON envelope with
-  // a `cbor` / `datum` field. Try JSON first, fall back to raw text.
-  const text = await r.text();
-  if (/^[0-9a-f]+$/i.test(text.trim())) return text.trim();
+  const text = (await r.text()).trim();
+  if (/^[0-9a-f]+$/i.test(text)) return text;
+  // Fallback: legacy JSON envelope.
   try {
     const j = JSON.parse(text);
-    return j.cbor ?? j.datum ?? text.trim();
+    return j.cbor ?? j.datum ?? text;
   } catch {
-    return text.trim();
+    return text;
   }
 };
 

@@ -101,6 +101,12 @@ export const buildReferenceScriptDeploymentTx = async ({
   cborUtxos,
   blockfrostApiKey,
   loadProgramCborFn = loadPersonalizationProgramCbor,
+  // When redeploying a contract that has an existing ref-script attached to
+  // its SubHandle UTxO, pass the byte count of that consumed ref-script so
+  // we can pad the fee for Conway's minFeeRefScriptCoinsPerByte (cardano-sdk
+  // 0.46.12 doesn't include input ref-script bytes in its fee estimate).
+  // 0 (no input ref script) is the default; supply only when redeploying.
+  inputRefScriptBytes = 0,
 }) => {
   if (!network) throw new Error("buildReferenceScriptDeploymentTx: network is required");
   if (!contractSlug) throw new Error("buildReferenceScriptDeploymentTx: contractSlug is required");
@@ -209,9 +215,50 @@ export const buildReferenceScriptDeploymentTx = async ({
     outputs: requestedOutputs,
   });
 
+  // Conway charges minFeeRefScriptCoinsPerByte for every byte of reference
+  // script consumed by an input OR included in an output. cardano-sdk's
+  // GreedyTxEvaluator covers the OUTPUT side via the requestedOutputs ref
+  // script, but on a REDEPLOY (where the consumed SubHandle UTxO already
+  // carries a stale ref-script that we're replacing) it doesn't account
+  // for the input ref-script's bytes — so the tx fee comes back ~17 lovelace
+  // per byte short of what the ledger requires. Pad the fee for any input
+  // we're consuming that already has a ref-script attached. Param value at
+  // time of writing is 11 lovelace/byte (we use 17 to leave headroom against
+  // future PP changes); excess is pulled out of the largest ada-only change
+  // output back to the deployer so the body still balances.
+  const REF_SCRIPT_COINS_PER_BYTE = 17n;
+  const padding = BigInt(inputRefScriptBytes) * REF_SCRIPT_COINS_PER_BYTE;
+  const adjustedFee = BigInt(selection.selection.fee) + padding;
+
+  let adjustedBody = finalTxBodyWithHash.body;
+  if (padding > 0n) {
+    const outs = [...finalTxBodyWithHash.body.outputs];
+    let bestIdx = -1;
+    let bestCoin = 0n;
+    for (let i = 0; i < outs.length; i++) {
+      const o = outs[i];
+      const hasAssets = !!o.value?.assets && o.value.assets.size > 0;
+      if (hasAssets) continue;
+      const c = BigInt(o.value?.coins ?? 0n);
+      if (c > bestCoin) { bestCoin = c; bestIdx = i; }
+    }
+    if (bestIdx < 0 || bestCoin <= padding) {
+      throw new Error(`deploymentTx: no clean change output big enough to absorb +${padding} lovelace ref-script fee`);
+    }
+    const target = outs[bestIdx];
+    outs[bestIdx] = {
+      ...target,
+      value: { ...target.value, coins: BigInt(target.value.coins) - padding },
+    };
+    adjustedBody = { ...finalTxBodyWithHash.body, outputs: outs, fee: adjustedFee };
+  } else {
+    adjustedBody = { ...finalTxBodyWithHash.body, fee: adjustedFee };
+  }
+  const adjustedHash = transactionHashFromCore({ body: adjustedBody });
+
   const unsignedTx = {
-    id: finalTxBodyWithHash.hash,
-    body: { ...finalTxBodyWithHash.body, fee: selection.selection.fee },
+    id: adjustedHash,
+    body: adjustedBody,
     witness: { signatures: new Map() },
   };
 

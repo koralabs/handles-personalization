@@ -45,6 +45,8 @@ import { signTxWithWallet } from "../helpers/cardano-sdk/signTx.js";
 import { submitTx } from "../helpers/cardano-sdk/submitTx.js";
 import { fetchBlockfrostUtxos } from "../helpers/cardano-sdk/blockfrostUtxo.js";
 import { Serialization } from "../helpers/cardano-sdk/index.js";
+import { getAikenArtifactPaths } from "../compileHelpers.js";
+import sodium from "libsodium-wrappers-sumo";
 
 const ALLOWED_NETWORKS = ["preview", "preprod", "mainnet"];
 
@@ -122,6 +124,19 @@ const verifyHandleOnChain = async (handle, network, blockfrostApiKey) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Read the freshly-compiled CBOR for `contractSlug` from
+// ./contract/aiken.<slug>.compiled.cbor (alongside the rest of the
+// compileAiken artifacts). PlutusV3 ref-script hash is
+// blake2b-224(0x03 || compiledCode_outer); this matches what
+// addV3HashesToValidContracts.js publishes to pz_settings.valid_contracts.
+const computeExpectedRefScriptHash = async (contractSlug) => {
+  await sodium.ready;
+  const artifactPath = getAikenArtifactPaths().perValidator(contractSlug).compiledCbor;
+  const compiledCborHex = readFileSync(artifactPath, "utf8").trim();
+  const tagged = Buffer.concat([Buffer.from([0x03]), Buffer.from(compiledCborHex, "hex")]);
+  return Buffer.from(sodium.crypto_generichash(28, tagged)).toString("hex");
+};
+
 const waitForTxConfirmation = async (network, blockfrostApiKey, txId, timeoutMs = 180_000) => {
   const url = `https://cardano-${network}.blockfrost.io/api/v0/txs/${txId}`;
   const start = Date.now();
@@ -194,15 +209,35 @@ const main = async () => {
     if (!subHandleUtxo) {
       throw new Error(`deployer wallet does not hold ${c.handle} UTxO (asset ${subhandleAssetUnit})`);
     }
-    // Skip if this SubHandle UTxO already carries a reference script — that
-    // means a prior deploy already produced the V3 ref-script UTxO and there's
-    // nothing new to deploy. Re-spending it would produce a fresh duplicate
-    // ref-script UTxO and waste min-coin / fee.
+    // If this SubHandle UTxO already carries a reference script, decide
+    // whether to skip (already-current) or redeploy (stale, hash mismatch).
+    // The latter happens when the contract's compiled CBOR changed since the
+    // last deploy — e85a5fe was such a moment (perspz lost ~6.8 KB when
+    // designer_settings was extracted; perslfc + persprx changed too from
+    // shared-code DCE).
+    let inputRefScriptBytes = 0;
     if (subHandleUtxo[1].referenceScriptHash) {
+      const expectedHash = await computeExpectedRefScriptHash(c.slug);
+      const onChainHash = subHandleUtxo[1].referenceScriptHash;
       const utxoId = `${subHandleUtxo[0].txId}#${subHandleUtxo[0].index}`;
-      console.log(`  ✓ already deployed (${utxoId} carries ref script ${subHandleUtxo[1].referenceScriptHash}). Skipping.`);
-      deployed.push({ ...c, txId: subHandleUtxo[0].txId, refScriptUtxo: utxoId, status: "already_deployed" });
-      continue;
+      if (onChainHash === expectedHash) {
+        console.log(`  ✓ already deployed (${utxoId} carries current ref script ${onChainHash}). Skipping.`);
+        deployed.push({ ...c, txId: subHandleUtxo[0].txId, refScriptUtxo: utxoId, status: "already_deployed" });
+        continue;
+      }
+      // Fetch the on-chain ref script's bytes from Blockfrost so we can size
+      // Conway's input-ref-script fee correctly. cardano-sdk 0.46.12 doesn't
+      // include input ref-scripts in its fee estimate; we pad explicitly via
+      // buildReferenceScriptDeploymentTx({ inputRefScriptBytes }).
+      const sizeUrl = `https://cardano-${network}.blockfrost.io/api/v0/scripts/${onChainHash}/cbor`;
+      const sizeResp = await fetch(sizeUrl, { headers: { project_id: blockfrostApiKey } });
+      if (sizeResp.ok) {
+        const { cbor: scriptCborHex } = await sizeResp.json();
+        if (typeof scriptCborHex === "string") {
+          inputRefScriptBytes = scriptCborHex.length / 2;
+        }
+      }
+      console.log(`  ↻ redeploying — on-chain ref-script ${onChainHash} (${inputRefScriptBytes} bytes) != expected ${expectedHash} (will consume ${utxoId} and re-output with the new ref-script)`);
     }
     const cleanUtxosSorted = utxos
       .filter((u) => (u[1].value.assets?.size ?? 0) === 0)
@@ -225,6 +260,7 @@ const main = async () => {
       changeAddress: wallet.address,
       cborUtxos,
       blockfrostApiKey,
+      inputRefScriptBytes,
     });
     console.log(`  unsigned txId: ${built.txId}`);
     console.log(`  estimated signed size: ${built.estimatedSignedTxSize}/${built.maxTxSize}`);
