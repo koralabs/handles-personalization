@@ -1,6 +1,8 @@
 use aiken/collection/list
 use aiken/primitive/bytearray
+use cardano/address
 use cardano/assets
+use cardano/transaction
 use personalization/constants
 
 pub fn value_has_forbidden_handle_assets(value: assets.Value) -> Bool {
@@ -19,14 +21,26 @@ pub fn value_has_forbidden_handle_assets(value: assets.Value) -> Bool {
 }
 
 pub fn return_to_sender_is_valid(
-  output_values: List<assets.Value>,
+  outputs: List<transaction.Output>,
   admin_signed: Bool,
 ) -> Bool {
-  admin_signed && !list.any(output_values, value_has_forbidden_handle_assets)
+  admin_signed && !list.any(
+    outputs,
+    fn(output) { value_has_forbidden_handle_assets(output.value) },
+  )
 }
 
 fn value_with_asset(policy_id: ByteArray, asset_name: ByteArray) -> assets.Value {
   assets.from_asset(policy_id, asset_name, 1)
+}
+
+fn output_with_value(value: assets.Value) -> transaction.Output {
+  transaction.Output {
+    address: address.from_script(#""),
+    value,
+    datum: transaction.NoDatum,
+    reference_script: None,
+  }
 }
 
 test value_has_forbidden_handle_assets_detects_lbl_100() {
@@ -65,7 +79,7 @@ test value_has_forbidden_handle_assets_ignores_other_assets() {
 }
 
 test return_to_sender_is_valid_requires_admin_signature() {
-  !return_to_sender_is_valid([assets.zero], False)
+  !return_to_sender_is_valid([output_with_value(assets.zero)], False)
 }
 
 test return_to_sender_is_valid_rejects_forbidden_assets_in_any_output() {
@@ -80,7 +94,10 @@ test return_to_sender_is_valid_rejects_forbidden_assets_in_any_output() {
       bytearray.concat(constants.lbl_100, "alice"),
     )
 
-  !return_to_sender_is_valid([safe, forbidden], True)
+  !return_to_sender_is_valid(
+    [output_with_value(safe), output_with_value(forbidden)],
+    True,
+  )
 }
 
 test return_to_sender_is_valid_accepts_safe_outputs() {
@@ -95,5 +112,8 @@ test return_to_sender_is_valid_accepts_safe_outputs() {
       bytearray.concat(constants.lbl_100, "alice"),
     )
 
-  return_to_sender_is_valid([safe_1, safe_2], True)
+  return_to_sender_is_valid(
+    [output_with_value(safe_1), output_with_value(safe_2)],
+    True,
+  )
 }

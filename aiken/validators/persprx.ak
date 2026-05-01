@@ -1,5 +1,4 @@
 use cardano/transaction.{OutputReference, Transaction}
-use personalization/types
 use personalization/update
 
 // Proxy-spend handler: we deliberately keep `redeemer` as raw `Data` instead
@@ -17,13 +16,13 @@ validator persprx {
     own_ref: OutputReference,
     tx: Transaction,
   ) {
-    when update.load_pz_settings(tx) is {
-      Some(settings) ->
+    when update.load_valid_contracts_for_persprx(tx) is {
+      Some(valid_contracts) ->
         update.observer_withdrawal_is_valid_data(
           tx,
           own_ref,
           redeemer,
-          settings.valid_contracts,
+          valid_contracts,
         )
       None -> False
     }

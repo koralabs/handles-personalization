@@ -21,15 +21,24 @@ test("loads the preview desired deployment YAML fixture into the normalized shap
   assert.equal(state.schemaVersion, 3);
   assert.equal(state.network, "preview");
   assert.equal(state.subhandleStrategy.namespace, "handlecontract");
-  assert.equal(state.contracts.length, 2);
+  // Current architecture: persdsg + perslfc + persprx + perspz (4 validators).
+  // persprx is the spend proxy (with old_script_type "pz"); perspz/perslfc/persdsg
+  // are withdraw observers. persdsg must deploy before perspz.
+  assert.equal(state.contracts.length, 4);
   const slugs = state.contracts.map((c) => c.contractSlug);
-  assert.deepEqual(slugs, ["pers_logic", "pers_proxy"]);
-  const proxyContract = state.contracts.find((c) => c.contractSlug === "pers_proxy");
-  const logicContract = state.contracts.find((c) => c.contractSlug === "pers_logic");
-  assert.equal(proxyContract.oldScriptType, "pz");
-  assert.equal(logicContract.oldScriptType, null);
-  assert.equal(proxyContract.build.target, "aiken/validators/pers_proxy.ak");
-  assert.equal(logicContract.build.target, "aiken/validators/pers_logic.ak");
+  assert.deepEqual(slugs, ["persdsg", "perslfc", "persprx", "perspz"]);
+  const persdsgContract = state.contracts.find((c) => c.contractSlug === "persdsg");
+  const perslfcContract = state.contracts.find((c) => c.contractSlug === "perslfc");
+  const persprxContract = state.contracts.find((c) => c.contractSlug === "persprx");
+  const perspzContract = state.contracts.find((c) => c.contractSlug === "perspz");
+  assert.equal(persprxContract.oldScriptType, "pz");
+  assert.equal(persdsgContract.oldScriptType, null);
+  assert.equal(perslfcContract.oldScriptType, null);
+  assert.equal(perspzContract.oldScriptType, null);
+  assert.equal(persdsgContract.build.target, "aiken/validators/persdsg.ak");
+  assert.equal(perslfcContract.build.target, "aiken/validators/perslfc.ak");
+  assert.equal(persprxContract.build.target, "aiken/validators/persprx.ak");
+  assert.equal(perspzContract.build.target, "aiken/validators/perspz.ak");
   assert.deepEqual(state.assignedHandles.settings, ["pers@handle_settings", "pers_bg@handle_settings", "pers_pfp@handle_settings"]);
   assert.deepEqual(state.assignedHandles.scripts, ["pz_contract_06"]);
   assert.equal(state.settings.values["pers@handle_settings"].treasury_fee, 1500000);
@@ -50,8 +59,8 @@ test("loads the preprod and mainnet desired deployment YAML fixtures", async () 
 
   assert.equal(preprod.network, "preprod");
   assert.equal(mainnet.network, "mainnet");
-  assert.equal(preprod.contracts.length, 2);
-  assert.equal(mainnet.contracts.length, 2);
+  assert.equal(preprod.contracts.length, 4);
+  assert.equal(mainnet.contracts.length, 4);
   assert.equal(preprod.assignedHandles.scripts[0], "pz_contract_06");
   assert.equal(mainnet.assignedHandles.scripts[0], "pz_contract_04");
   assert.equal(preprod.settings.values["pers@handle_settings"].settings_cred, "e0a2120c0968393f54e9fda8e277ed61e322ff0581713f62335b2b4c");

@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "compile": "node compileAiken.js",
-        "test": "node --test tests/aiken.cost.test.js tests/aiken.intentCoverage.test.js tests/buildPatchedSettingsDatum.test.js tests/cborSplice.test.js tests/compileAiken.test.js tests/deploymentPlan.test.js tests/deploymentState.test.js tests/mpfProofAdapter.test.js tests/settingsUpdateTx.test.js"
+        "test": "node --test tests/aiken.cost.test.js tests/aiken.intentCoverage.test.js tests/buildPatchedSettingsDatum.test.js tests/cborSplice.test.js tests/compileAiken.test.js tests/deploymentPlan.test.js tests/deploymentState.test.js tests/mpfProofAdapter.test.js tests/persdsgWithdrawal.test.js tests/settingsUpdateTx.test.js"
     },
     "author": "et",
     "license": "MIT",

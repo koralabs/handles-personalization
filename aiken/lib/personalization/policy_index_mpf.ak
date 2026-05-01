@@ -1,7 +1,7 @@
 use aiken/merkle_patricia_forestry as mpf
 use aiken/primitive/bytearray
 use personalization/policy_index_types.{
-  NoOverride, Override, PolicyApprovalProof, PolicyIndexRoot, WithOverride,
+  NoOverride, PolicyApprovalProof, PolicyIndexRoot, WithOverride,
 }
 
 fn encode_nsfw(nsfw: Int) -> ByteArray {

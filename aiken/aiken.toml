@@ -15,6 +15,14 @@ name = "aiken-lang/stdlib"
 version = "v2"
 source = "github"
 
+# NOTE on MPF versioning: the on-chain library here (`aiken-lang/merkle-patricia-forestry`
+# at github tag v2.1.0) and the off-chain NPM package (`@aiken-lang/merkle-patricia-forestry`
+# at ^1.3.1 in package.json) are on independent versioning tracks. The github
+# v2.x releases were on-chain only — the off-chain NPM package was not bumped
+# past 1.x. The wire encoding (proof structure, hash function, leaf/branch
+# tagging) has been stable since v1.0.1, so npm 1.3.1's prover produces proofs
+# the on-chain v2.1.0 verifier accepts. mpfProofAdapter.test.js exercises this
+# round-trip and is the regression test for the version-track invariant.
 [[dependencies]]
 name = "aiken-lang/merkle-patricia-forestry"
 version = "2.1.0"

@@ -6,21 +6,17 @@ subhandle_strategy:
 contracts:
   # Canonical slugs per adahandle-deployments/docs/contract-deployment-pipeline.md:
   # `<app><role>[<extra>]`, ≤10 chars, no separators. The `pers` app split
-  # into proxy + per-variant logic to fit Conway's 16384 max_tx_size.
-  - contract_slug: persprx
-    script_type: persprx
-    old_script_type: pz
-    deployment_handle_slug: persprx
-    build:
-      target: aiken/validators/pers_proxy.ak
-      kind: validator
-      parameters: {}
-  - contract_slug: perspz
-    script_type: perspz
+  # into proxy + per-redeemer-variant observers to fit Conway's 16384
+  # max_tx_size, plus a `persdsg` observer that handles designer-settings
+  # validation on perspz's behalf (further size reduction). persdsg MUST be
+  # deployed before perspz — perspz hardcodes persdsg's hash via persdsg_hash
+  # in update.ak.
+  - contract_slug: persdsg
+    script_type: persdsg
     old_script_type: null
-    deployment_handle_slug: perspz
+    deployment_handle_slug: persdsg
     build:
-      target: aiken/validators/pers_logic_personalize.ak
+      target: aiken/validators/persdsg.ak
       kind: validator
       parameters: {}
   - contract_slug: perslfc
@@ -28,7 +24,23 @@ contracts:
     old_script_type: null
     deployment_handle_slug: perslfc
     build:
-      target: aiken/validators/pers_logic_other.ak
+      target: aiken/validators/perslfc.ak
+      kind: validator
+      parameters: {}
+  - contract_slug: persprx
+    script_type: persprx
+    old_script_type: pz
+    deployment_handle_slug: persprx
+    build:
+      target: aiken/validators/persprx.ak
+      kind: validator
+      parameters: {}
+  - contract_slug: perspz
+    script_type: perspz
+    old_script_type: null
+    deployment_handle_slug: perspz
+    build:
+      target: aiken/validators/perspz.ak
       kind: validator
       parameters: {}
 assigned_handles:

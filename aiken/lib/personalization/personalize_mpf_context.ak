@@ -5,6 +5,7 @@ use cardano/transaction
 use personalization/constants
 use personalization/datum
 use personalization/personalize_policy_approval
+use personalization/policy_index_mpf
 use personalization/policy_index_types
 use personalization/types
 use personalization/utils
@@ -65,7 +66,8 @@ fn credential_matches_provider_or_settings(
 pub fn load_policy_index_root(
   index: Int,
   suffix: ByteArray,
-  settings: types.PzSettings,
+  pz_providers: Pairs<ByteArray, ByteArray>,
+  settings_cred: ByteArray,
   tx: transaction.Transaction,
 ) -> Option<policy_index_types.PolicyIndexRoot> {
   when list.at(tx.reference_inputs, index) is {
@@ -74,8 +76,8 @@ pub fn load_policy_index_root(
         None
       } else if !credential_matches_provider_or_settings(
         input.output.address.payment_credential,
-        settings.pz_providers,
-        settings.settings_cred,
+        pz_providers,
+        settings_cred,
       ) {
         None
       } else {
@@ -97,27 +99,32 @@ pub fn approval_status_for_asset(
   pz_asset_value: assets.Value,
   proof: Option<policy_index_types.PolicyApprovalProof>,
 ) -> personalize_policy_approval.AssetApprovalStatus {
-  let asset_present_in_output =
-    asset == datum.empty_asset || assets.quantity_of(
-      pz_asset_value,
-      asset.policy_id,
-      asset.asset_name,
-    ) == 1
-
-  when root is {
-    Some(root_value) ->
-      personalize_policy_approval.verify_selected_asset(
-        root_value,
-        asset,
-        asset_present_in_output,
-        proof,
-      )
-    None ->
-      if asset == datum.empty_asset {
-        personalize_policy_approval.ApprovalNotRequired
-      } else {
-        personalize_policy_approval.ApprovalRejected
-      }
+  if asset == datum.empty_asset {
+    personalize_policy_approval.ApprovalNotRequired
+  } else {
+    when root is {
+      Some(root_value) ->
+        if assets.quantity_of(pz_asset_value, asset.policy_id, asset.asset_name) != 1 {
+          personalize_policy_approval.ApprovalRejected
+        } else {
+          when proof is {
+            Some(p) ->
+              when
+                policy_index_mpf.verify_policy_approval(
+                  root_value,
+                  asset.policy_id,
+                  asset.asset_name,
+                  p,
+                )
+              is {
+                Some(nsfw) -> personalize_policy_approval.Approved { nsfw }
+                None -> personalize_policy_approval.ApprovalRejected
+              }
+            None -> personalize_policy_approval.ApprovalRejected
+          }
+        }
+      None -> personalize_policy_approval.ApprovalRejected
+    }
   }
 }
 
@@ -221,7 +228,7 @@ test load_policy_index_root_enforces_expected_token_suffix() {
       ],
     )
 
-  load_policy_index_root(0, key_policy_ids_bg, settings, tx) == None
+  load_policy_index_root(0, key_policy_ids_bg, settings.pz_providers, settings.settings_cred, tx) == None
 }
 
 test load_policy_index_root_accepts_bg_and_pfp_suffixes() {
@@ -246,8 +253,8 @@ test load_policy_index_root_accepts_bg_and_pfp_suffixes() {
     )
 
   and {
-    load_policy_index_root(0, key_policy_ids_bg, settings, tx) == Some(root),
-    load_policy_index_root(1, key_policy_ids_pfp, settings, tx) == Some(root),
+    load_policy_index_root(0, key_policy_ids_bg, settings.pz_providers, settings.settings_cred, tx) == Some(root),
+    load_policy_index_root(1, key_policy_ids_pfp, settings.pz_providers, settings.settings_cred, tx) == Some(root),
   }
 }
 

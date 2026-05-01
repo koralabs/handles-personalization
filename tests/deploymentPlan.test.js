@@ -29,23 +29,23 @@ const desiredState = {
   },
   contracts: [
     {
-      contractSlug: "pers_logic",
-      scriptType: "pers_logic",
+      contractSlug: "perspz",
+      scriptType: "perspz",
       oldScriptType: null,
-      deploymentHandleSlug: "pers_logic",
+      deploymentHandleSlug: "perspz",
       build: {
-        target: "aiken/validators/pers_logic.ak",
+        target: "aiken/validators/perspz.ak",
         kind: "validator",
         parameters: {},
       },
     },
     {
-      contractSlug: "pers_proxy",
-      scriptType: "pers_proxy",
+      contractSlug: "persprx",
+      scriptType: "persprx",
       oldScriptType: "pz",
-      deploymentHandleSlug: "pers_proxy",
+      deploymentHandleSlug: "persprx",
       build: {
-        target: "aiken/validators/pers_proxy.ak",
+        target: "aiken/validators/persprx.ak",
         kind: "validator",
         parameters: {},
       },
@@ -87,16 +87,16 @@ test("expected script hashes are read from per-validator compileAiken artifacts"
   const hashes = buildExpectedScriptHashes({
     compileFn: () => {
       compiled += 1;
-      fs.writeFileSync(path.join(tempDir, "aiken.pers_proxy.hash"), PROXY_HASH);
-      fs.writeFileSync(path.join(tempDir, "aiken.pers_logic.hash"), LOGIC_HASH);
+      fs.writeFileSync(path.join(tempDir, "aiken.persprx.hash"), PROXY_HASH);
+      fs.writeFileSync(path.join(tempDir, "aiken.perspz.hash"), LOGIC_HASH);
     },
     artifactPaths: {
       perValidator: (slug) => ({ hash: path.join(tempDir, `aiken.${slug}.hash`) }),
     },
-    slugs: ["pers_proxy", "pers_logic"],
+    slugs: ["persprx", "perspz"],
   });
 
-  assert.deepEqual(hashes, { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH });
+  assert.deepEqual(hashes, { persprx: PROXY_HASH, perspz: LOGIC_HASH });
   assert.equal(compiled, 1);
 });
 
@@ -134,12 +134,12 @@ test("fetches live state for every contract declared in the desired YAML", async
     },
   });
 
-  // pers_proxy has old_script_type=pz → live state populated.
-  assert.equal(live.contracts.pers_proxy.currentScriptHash, "ab".repeat(28));
-  assert.equal(live.contracts.pers_proxy.currentSubhandle, "pz_contract_06");
-  // pers_logic has old_script_type=null → no live state.
-  assert.equal(live.contracts.pers_logic.currentScriptHash, null);
-  assert.equal(live.contracts.pers_logic.currentSubhandle, null);
+  // persprx has old_script_type=pz → live state populated.
+  assert.equal(live.contracts.persprx.currentScriptHash, "ab".repeat(28));
+  assert.equal(live.contracts.persprx.currentSubhandle, "pz_contract_06");
+  // perspz has old_script_type=null → no live state.
+  assert.equal(live.contracts.perspz.currentScriptHash, null);
+  assert.equal(live.contracts.perspz.currentSubhandle, null);
 
   assert.deepEqual(live.currentSettingsUtxoRefs, {
     "pers_bg@handle_settings": "tx#0",
@@ -155,11 +155,11 @@ test("builds a no-change deployment plan when both contracts and settings match"
   // Failure mode: ops would get false-positive deployment plans for a clean network.
   const plan = buildPersonalizationDeploymentPlan({
     desired: desiredState,
-    expectedScriptHashes: { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH },
+    expectedScriptHashes: { persprx: PROXY_HASH, perspz: LOGIC_HASH },
     live: {
       contracts: {
-        pers_proxy: { currentScriptHash: PROXY_HASH, currentSubhandle: "pers_proxy01@handlecontract" },
-        pers_logic: { currentScriptHash: LOGIC_HASH, currentSubhandle: "pers_logic01@handlecontract" },
+        persprx: { currentScriptHash: PROXY_HASH, currentSubhandle: "persprx01@handlecontract" },
+        perspz: { currentScriptHash: LOGIC_HASH, currentSubhandle: "perspz01@handlecontract" },
       },
       settings: desiredState.settings.values,
     },
@@ -178,11 +178,11 @@ test("builds a script-and-settings deployment plan when both drift", () => {
   // Failure mode: operators would sign a plan without seeing the decoded settings change or the newly allocated handle.
   const plan = buildPersonalizationDeploymentPlan({
     desired: desiredState,
-    expectedScriptHashes: { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH },
+    expectedScriptHashes: { persprx: PROXY_HASH, perspz: LOGIC_HASH },
     live: {
       contracts: {
-        pers_proxy: { currentScriptHash: "ee".repeat(28), currentSubhandle: "pz_contract_06" },
-        pers_logic: { currentScriptHash: null, currentSubhandle: null },
+        persprx: { currentScriptHash: "ee".repeat(28), currentSubhandle: "pz_contract_06" },
+        perspz: { currentScriptHash: null, currentSubhandle: null },
       },
       settings: {
         "pers@handle_settings": {
@@ -192,20 +192,20 @@ test("builds a script-and-settings deployment plan when both drift", () => {
       },
     },
     nextSubhandles: {
-      pers_proxy: "pers_proxy7@handlecontract",
-      pers_logic: "pers_logic1@handlecontract",
+      persprx: "persprx7@handlecontract",
+      perspz: "perspz1@handlecontract",
     },
   });
 
   assert.equal(plan.driftType, "script_hash_and_settings");
   assert.equal(plan.summaryJson.settings.changed, true);
   assert.equal(plan.summaryJson.settings.diff_rows[0].handle_name, "pers@handle_settings");
-  const proxy = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_proxy");
-  const logic = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_logic");
+  const proxy = plan.summaryJson.contracts.find((c) => c.contract_slug === "persprx");
+  const logic = plan.summaryJson.contracts.find((c) => c.contract_slug === "perspz");
   assert.equal(proxy.drift_type, "script_hash_only");
-  assert.equal(proxy.subhandle.value, "pers_proxy7@handlecontract");
+  assert.equal(proxy.subhandle.value, "persprx7@handlecontract");
   assert.equal(logic.drift_type, "script_hash_only");
-  assert.equal(logic.subhandle.value, "pers_logic1@handlecontract");
+  assert.equal(logic.subhandle.value, "perspz1@handlecontract");
 });
 
 test("marks per-contract script drift for manual review when no replacement handle is resolved", () => {
@@ -213,18 +213,18 @@ test("marks per-contract script drift for manual review when no replacement hand
   // Failure mode: planning would fail outright on script drift instead of producing a review-required artifact bundle.
   const plan = buildPersonalizationDeploymentPlan({
     desired: desiredState,
-    expectedScriptHashes: { pers_proxy: PROXY_HASH, pers_logic: LOGIC_HASH },
+    expectedScriptHashes: { persprx: PROXY_HASH, perspz: LOGIC_HASH },
     live: {
       contracts: {
-        pers_proxy: { currentScriptHash: "ee".repeat(28), currentSubhandle: "pz_contract_06" },
-        pers_logic: { currentScriptHash: LOGIC_HASH, currentSubhandle: "pers_logic1@handlecontract" },
+        persprx: { currentScriptHash: "ee".repeat(28), currentSubhandle: "pz_contract_06" },
+        perspz: { currentScriptHash: LOGIC_HASH, currentSubhandle: "perspz1@handlecontract" },
       },
       settings: desiredState.settings.values,
     },
     nextSubhandles: {},
   });
 
-  const proxy = plan.summaryJson.contracts.find((c) => c.contract_slug === "pers_proxy");
+  const proxy = plan.summaryJson.contracts.find((c) => c.contract_slug === "persprx");
   assert.equal(proxy.subhandle.action, "manual_review");
   assert.equal(proxy.subhandle.value, "pz_contract_06");
   assert.match(plan.summaryMarkdown, /operator review/i);
@@ -236,20 +236,20 @@ test("discovers the next available SubHandle ordinal for a contract slug", async
   const requested = [];
   const subhandle = await discoverNextContractSubhandle({
     network: "preview",
-    deploymentHandleSlug: "pers_proxy",
+    deploymentHandleSlug: "persprx",
     namespace: "handlecontract",
-    currentSubhandle: "pers_proxy2@handlecontract",
+    currentSubhandle: "persprx2@handlecontract",
     userAgent: "codex-test",
     fetchFn: async (url) => {
       requested.push(String(url));
       return new Response("{}", {
-        status: String(url).includes("pers_proxy4") ? 404 : 200,
+        status: String(url).includes("persprx4") ? 404 : 200,
       });
     },
   });
 
-  assert.equal(subhandle, "pers_proxy3@handlecontract");
-  assert.ok(requested.some((u) => u.includes("pers_proxy1")));
+  assert.equal(subhandle, "persprx3@handlecontract");
+  assert.ok(requested.some((u) => u.includes("persprx1")));
 });
 
 test("reuses an already minted replacement handle", async () => {
@@ -257,16 +257,16 @@ test("reuses an already minted replacement handle", async () => {
   // Failure mode: repeated workflow runs would create extra `@handlecontract` sessions before any deployment is signed.
   const subhandle = await discoverNextContractSubhandle({
     network: "preview",
-    deploymentHandleSlug: "pers_proxy",
+    deploymentHandleSlug: "persprx",
     namespace: "handlecontract",
     currentSubhandle: "pz_contract_06",
     userAgent: "codex-test",
     fetchFn: async (url) => new Response("{}", {
-      status: String(url).includes("pers_proxy2") ? 404 : 200,
+      status: String(url).includes("persprx2") ? 404 : 200,
     }),
   });
 
-  assert.equal(subhandle, "pers_proxy1@handlecontract");
+  assert.equal(subhandle, "persprx1@handlecontract");
 });
 
 test("passes through the cardano-sdk deployment tx artifact shape", async () => {
@@ -277,7 +277,7 @@ test("passes through the cardano-sdk deployment tx artifact shape", async () => 
     cborBytes: Buffer.from([0x84, 0x01, 0x02]),
     estimatedSignedTxSize: 4,
     maxTxSize: 10,
-    contractSlug: "pers_proxy",
+    contractSlug: "persprx",
     txId: "0".repeat(64),
     handleUtxoRef: "ab".repeat(32) + "#0",
     consumedInputs: new Set([`${"ab".repeat(32)}#0`]),
@@ -285,8 +285,8 @@ test("passes through the cardano-sdk deployment tx artifact shape", async () => 
 
   const artifact = await buildPersonalizationDeploymentTxArtifact({
     desired: desiredState,
-    contract: desiredState.contracts.find((c) => c.contractSlug === "pers_proxy"),
-    handleName: "pers_proxy7@handlecontract",
+    contract: desiredState.contracts.find((c) => c.contractSlug === "persprx"),
+    handleName: "persprx7@handlecontract",
     changeAddress: "addr_test1qpzxs06vn7qagrqsm7wtquul8s5drxzk82wwr9qx3886m8lv7yv3mukuwdkne3v3va8dgd3xjkzqv90pu9gsc8hrl2xs9yqkej",
     cborUtxos: ["abcd"],
     blockfrostApiKey: "preview-test",
@@ -297,7 +297,7 @@ test("passes through the cardano-sdk deployment tx artifact shape", async () => 
   assert.equal(artifact.cborHex, "840102");
   assert.equal(artifact.estimatedSignedTxSize, 4);
   assert.equal(artifact.maxTxSize, 10);
-  assert.equal(artifact.contractSlug, "pers_proxy");
+  assert.equal(artifact.contractSlug, "persprx");
 });
 
 test("rejects unsigned deployment tx artifacts that would exceed max tx size after signing", async () => {
@@ -308,14 +308,14 @@ test("rejects unsigned deployment tx artifacts that would exceed max tx size aft
     cborBytes: Buffer.alloc(150),
     estimatedSignedTxSize: 350,
     maxTxSize: 300,
-    contractSlug: "pers_proxy",
+    contractSlug: "persprx",
   };
 
   await assert.rejects(
     buildPersonalizationDeploymentTxArtifact({
       desired: desiredState,
-      contract: desiredState.contracts.find((c) => c.contractSlug === "pers_proxy"),
-      handleName: "pers_proxy7@handlecontract",
+      contract: desiredState.contracts.find((c) => c.contractSlug === "persprx"),
+      handleName: "persprx7@handlecontract",
       changeAddress: "addr_test1qpzxs06vn7qagrqsm7wtquul8s5drxzk82wwr9qx3886m8lv7yv3mukuwdkne3v3va8dgd3xjkzqv90pu9gsc8hrl2xs9yqkej",
       cborUtxos: ["abcd"],
       blockfrostApiKey: "preview-test",

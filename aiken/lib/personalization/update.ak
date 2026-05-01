@@ -124,6 +124,33 @@ const key_bg_image: ByteArray = "bg_image"
 
 const key_force_creator_settings: ByteArray = "force_creator_settings"
 
+// Keys whose values must be unchanged between old and new extra when reset
+// is denied (Helios immutables_are_unchanged equivalent for the personalize
+// reset-denied path). Hoisted to a module const so the list isn't allocated
+// per-validator-call.
+const immutable_extra_keys: List<ByteArray> =
+  [
+    key_image_hash, key_pfp_asset, key_bg_asset, key_pfp_image, key_bg_image,
+    key_designer, key_trial, key_nsfw,
+  ]
+
+// Standard immutable keys whose values must match between old and new extra
+// in the immutables_are_unchanged check (always-required, regardless of reset).
+const standard_unchanged_keys: List<ByteArray> =
+  [key_standard_image, key_standard_image_hash, key_original_address]
+
+// Hash of the `persdsg` (designer-settings observer) validator. perspz
+// requires this observer to fire for non-reset Personalize txs — it
+// validates designer_settings_are_valid on perspz's behalf, letting perspz
+// drop ~2,800 bytes of validation logic.
+//
+// IMPORTANT: this hash is determined at deploy time. If `persdsg.ak` or any
+// transitively-reachable code changes, this hash will change too — rebuild
+// persdsg, copy the new hash from `plutus.json` (`validators[].hash`), and
+// update the const here, then rebuild perspz.
+const persdsg_hash: ByteArray =
+  #"f3ff0e144c4e23786934d90dbaa08fbfcd7783c121c73ba2db48eb92"
+
 fn output_data(
   output: transaction.Output,
   tx: transaction.Transaction,
@@ -141,87 +168,6 @@ fn output_data(
 // Helios struct fields. Order verified against pz_settings@handle_settings
 // on preview as of 2026-04-29 (LBL_222 of pz_settings, datum starts `89...`
 // = CBOR array(9)).
-fn parse_main_subhandle_settings_from_list(main_data: Data) -> types.MainSubHandleSettings {
-  expect [
-    valid_contracts_data,
-    admin_creds_data,
-    virtual_price_data,
-    base_price_data,
-    buy_down_prices_data,
-    payment_address_data,
-    expiry_duration_data,
-    renewal_window_data,
-  ]: List<Data> = main_data
-  expect valid_contracts: List<ByteArray> = valid_contracts_data
-  expect admin_creds: List<ByteArray> = admin_creds_data
-  expect virtual_price: Int = virtual_price_data
-  expect base_price: Int = base_price_data
-  expect buy_down_prices: types.IntMatrix = buy_down_prices_data
-  expect payment_address: ByteArray = payment_address_data
-  expect expiry_duration: Int = expiry_duration_data
-  expect renewal_window: Int = renewal_window_data
-  types.MainSubHandleSettings {
-    valid_contracts,
-    admin_creds,
-    virtual_price,
-    base_price,
-    buy_down_prices,
-    payment_address,
-    expiry_duration,
-    renewal_window,
-  }
-}
-
-fn parse_subhandle_settings_from_list(sh_data: Data) -> types.SubHandleSettings {
-  expect [
-    public_minting_enabled_data,
-    pz_enabled_data,
-    tier_pricing_data,
-    default_styles_data,
-    save_original_address_data,
-  ]: List<Data> = sh_data
-  expect public_minting_enabled: Int = public_minting_enabled_data
-  expect pz_enabled: Int = pz_enabled_data
-  expect tier_pricing: types.IntMatrix = tier_pricing_data
-  expect save_original_address: Int = save_original_address_data
-  types.SubHandleSettings {
-    public_minting_enabled,
-    pz_enabled,
-    tier_pricing,
-    default_styles: default_styles_data,
-    save_original_address,
-  }
-}
-
-fn parse_owner_settings_from_list(owner_data: Data) -> types.OwnerSettings {
-  expect [
-    nft_data,
-    virtual_data,
-    buy_down_price_data,
-    buy_down_paid_data,
-    buy_down_percent_data,
-    agreed_terms_data,
-    migrate_sig_required_data,
-    payment_address_data,
-  ]: List<Data> = owner_data
-  let nft = parse_subhandle_settings_from_list(nft_data)
-  let virtual = parse_subhandle_settings_from_list(virtual_data)
-  expect buy_down_price: Int = buy_down_price_data
-  expect buy_down_paid: Int = buy_down_paid_data
-  expect buy_down_percent: Int = buy_down_percent_data
-  expect migrate_sig_required: Int = migrate_sig_required_data
-  expect payment_address: ByteArray = payment_address_data
-  types.OwnerSettings {
-    nft,
-    virtual,
-    buy_down_price,
-    buy_down_paid,
-    buy_down_percent,
-    agreed_terms: agreed_terms_data,
-    migrate_sig_required,
-    payment_address,
-  }
-}
 
 fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
   expect [
@@ -254,6 +200,139 @@ fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
     settings_cred,
     grace_period,
     subhandle_share_percent,
+  }
+}
+
+// Perspz-only lean loader: finds the PZ settings ref input, validates the
+// credential, and returns the 7 fields the personalize path needs as a tuple
+// — bypassing construction of the full 9-field PzSettings record. Reduces
+// perspz binary by avoiding both the record allocation and the unused
+// admin_creds field cast.
+fn load_pz_settings_for_personalize(
+  tx: transaction.Transaction,
+) -> Option<
+  (
+    Int,
+    ByteArray,
+    Int,
+    Pairs<ByteArray, ByteArray>,
+    List<ByteArray>,
+    ByteArray,
+    Int,
+    Int,
+  ),
+> {
+  when
+    list.find(
+      tx.reference_inputs,
+      fn(input) {
+        assets.quantity_of(
+          input.output.value,
+          constants.handle_policy_id,
+          constants.pz_handle_asset_name,
+        ) == 1
+      },
+    )
+  is {
+    None -> None
+    Some(input) ->
+      when output_data(input.output, tx) is {
+        None -> None
+        Some(settings_data) -> {
+          expect [
+            treasury_fee_data,
+            treasury_cred_data,
+            pz_min_fee_data,
+            pz_providers_data,
+            valid_contracts_data,
+            _admin_creds_data,
+            settings_cred_data,
+            grace_period_data,
+            subhandle_share_percent_data,
+          ]: List<Data> = settings_data
+          expect settings_cred: ByteArray = settings_cred_data
+          let credential_is_valid =
+            when input.output.address.payment_credential is {
+              address.Script(hash) -> hash == settings_cred
+              address.VerificationKey(_) -> False
+            }
+          if credential_is_valid {
+            expect treasury_fee: Int = treasury_fee_data
+            expect treasury_cred: ByteArray = treasury_cred_data
+            expect pz_min_fee: Int = pz_min_fee_data
+            expect pz_providers: Pairs<ByteArray, ByteArray> =
+              pz_providers_data
+            expect valid_contracts: List<ByteArray> = valid_contracts_data
+            expect grace_period: Int = grace_period_data
+            expect subhandle_share_percent: Int = subhandle_share_percent_data
+            Some(
+              (
+                treasury_fee,
+                treasury_cred,
+                pz_min_fee,
+                pz_providers,
+                valid_contracts,
+                settings_cred,
+                grace_period,
+                subhandle_share_percent,
+              ),
+            )
+          } else {
+            None
+          }
+        }
+      }
+  }
+}
+
+// Persprx-only lean loader: returns just `valid_contracts` (the only PzSettings
+// field persprx accesses) after validating the settings ref input's credential.
+// Avoids constructing the full 9-field PzSettings record + 8 unused expect casts.
+pub fn load_valid_contracts_for_persprx(
+  tx: transaction.Transaction,
+) -> Option<List<ByteArray>> {
+  when
+    list.find(
+      tx.reference_inputs,
+      fn(input) {
+        assets.quantity_of(
+          input.output.value,
+          constants.handle_policy_id,
+          constants.pz_handle_asset_name,
+        ) == 1
+      },
+    )
+  is {
+    None -> None
+    Some(input) ->
+      when output_data(input.output, tx) is {
+        None -> None
+        Some(settings_data) -> {
+          expect [
+            _,
+            _,
+            _,
+            _,
+            valid_contracts_data,
+            _,
+            settings_cred_data,
+            _,
+            _,
+          ]: List<Data> = settings_data
+          expect settings_cred: ByteArray = settings_cred_data
+          let credential_is_valid =
+            when input.output.address.payment_credential is {
+              address.Script(hash) -> hash == settings_cred
+              address.VerificationKey(_) -> False
+            }
+          if credential_is_valid {
+            expect valid_contracts: List<ByteArray> = valid_contracts_data
+            Some(valid_contracts)
+          } else {
+            None
+          }
+        }
+      }
   }
 }
 
@@ -382,6 +461,35 @@ pub fn observer_withdrawal_is_valid_data(
   )
 }
 
+// Verify `persdsg` (designer-settings observer) fired for this tx with a
+// matching observer-redeemer (Observe { own_ref, redeemer }). perspz uses
+// this on the non-reset path to delegate designer_settings validation. The
+// observer-redeemer match ensures persdsg validated against the same
+// own_ref + spend redeemer perspz is processing.
+fn persdsg_observed_for_personalize(
+  tx: transaction.Transaction,
+  own_ref: transaction.OutputReference,
+  redeemer: types.Redeemer,
+) -> Bool {
+  let own_ref_data: Data = own_ref
+  let redeemer_data: Data = redeemer
+  let observer_redeemer_data: Data =
+    builtin.constr_data(0, [own_ref_data, redeemer_data])
+  list.any(
+    tx.redeemers,
+    fn(entry) {
+      entry.2nd == observer_redeemer_data && when entry.1st is {
+        transaction.Withdraw(credential) ->
+          when credential is {
+            address.Script(hash) -> hash == persdsg_hash
+            _ -> False
+          } && withdrawal_is_zero_for_credential(tx.withdrawals, credential)
+        _ -> False
+      }
+    },
+  )
+}
+
 pub fn dispatch_from_observer(
   observer_redeemer: types.ObserverRedeemer,
   tx: transaction.Transaction,
@@ -423,16 +531,16 @@ fn cip68_ref_at(
 // True when the asset is empty.
 fn image_matches_datum_check(
   asset: datum.AssetClass,
-  ref_datum_index: Int,
+  cip68_opt: Option<types.PersonalizationDatum>,
   image_key: ByteArray,
   new_extra: types.DataMap,
-  tx: transaction.Transaction,
 ) -> Bool {
-  asset == datum.empty_asset || when cip68_ref_at(ref_datum_index, tx) is {
+  asset == datum.empty_asset || when cip68_opt is {
     None -> False
     Some(asset_datum) -> {
       let types.Cip68 { nft: asset_nft, .. } = asset_datum
-      datum.map_get(asset_nft, key_image) == datum.map_get(new_extra, image_key) && datum.map_get(asset_nft, key_image) != None
+      let asset_image = datum.map_get(asset_nft, key_image)
+      asset_image == datum.map_get(new_extra, image_key) && asset_image != None
     }
   }
 }
@@ -486,12 +594,11 @@ fn output_has_handle_asset(
 // `if (bg_datum == EMPTY_CIP_68) Map[String]Data{}` fallback.
 fn designer_settings_valid_for_personalize(
   designer: types.DataMap,
-  bg_datum_index: Int,
+  bg_cip68_opt: Option<types.PersonalizationDatum>,
   new_extra: types.DataMap,
-  tx: transaction.Transaction,
 ) -> Bool {
   let defaults =
-    when cip68_ref_at(bg_datum_index, tx) is {
+    when bg_cip68_opt is {
       None -> []
       Some(bg_datum) -> datum.get_extra(bg_datum.extra)
     }
@@ -518,13 +625,13 @@ fn designer_settings_valid_for_personalize(
 //     the pfp asset OR the handle being personalized.
 fn check_required_assets(
   pz_asset_output: transaction.Output,
-  bg_datum_index: Int,
+  bg_cip68_opt: Option<types.PersonalizationDatum>,
   required_asset_index: Int,
   handle_name: ByteArray,
   pfp_asset: datum.AssetClass,
   tx: transaction.Transaction,
 ) -> Bool {
-  when cip68_ref_at(bg_datum_index, tx) is {
+  when bg_cip68_opt is {
     None -> False
     Some(bg_datum) -> {
       let defaults = datum.get_extra(bg_datum.extra)
@@ -641,34 +748,37 @@ fn attribute_match_for_token(
                     }
                     None -> cip68.nft
                   }
-                list.all(attr_list, fn(a) { attribute_matches(a, attributes) })
+                list.all(
+                  attr_list,
+                  fn(attr_bytes) {
+                    when bytearray.index_of(attr_bytes, #"3a") is {
+                      None -> False
+                      Some((start, _)) -> {
+                        let key = bytearray.take(attr_bytes, start)
+                        let value = bytearray.drop(attr_bytes, start + 1)
+                        when datum.map_get(attributes, key) is {
+                          None -> False
+                          Some(v_data) ->
+                            builtin.choose_data(
+                              v_data,
+                              False,
+                              False,
+                              False,
+                              False,
+                              {
+                                expect v_bytes: ByteArray = v_data
+                                v_bytes == value
+                              },
+                            )
+                        }
+                      }
+                    }
+                  },
+                )
               }
             }
         }
       }
-  }
-}
-
-// One "key:value" attribute string. ByteArray values compared as-is (matching
-// Helios `decode_utf8`); other Data shapes are mismatches. Helios also
-// supports Int attributes rendered as decimal — we intentionally drop that
-// branch to save ~700 bytes of UPLC; if a creator default ever requires an
-// Int attribute match, this needs the int.to_string path restored.
-fn attribute_matches(attr_bytes: ByteArray, attributes: types.DataMap) -> Bool {
-  when bytearray.index_of(attr_bytes, #"3a") is {
-    None -> False
-    Some((start, _)) -> {
-      let key = bytearray.take(attr_bytes, start)
-      let value = bytearray.drop(attr_bytes, start + 1)
-      when datum.map_get(attributes, key) is {
-        None -> False
-        Some(v_data) ->
-          builtin.choose_data(v_data, False, False, False, False, {
-            expect v_bytes: ByteArray = v_data
-            v_bytes == value
-          })
-      }
-    }
   }
 }
 
@@ -698,22 +808,14 @@ fn outputs_have_owner_token(
   outputs: List<transaction.Output>,
   handle: ByteArray,
 ) -> Bool {
-  list.any(
-    outputs,
-    fn(output) {
-      output_has_handle_asset(
-        output,
-        constants.prefixed_asset_name(constants.lbl_222, handle),
-      )
-    },
-  )
+  let owner_token_name = constants.prefixed_asset_name(constants.lbl_222, handle)
+  list.any(outputs, fn(output) { output_has_handle_asset(output, owner_token_name) })
 }
 
 fn validity_start(tx: transaction.Transaction) -> Option<Int> {
   when tx.validity_range.lower_bound.bound_type is {
     interval.Finite(start) -> Some(start)
-    interval.NegativeInfinity -> None
-    interval.PositiveInfinity -> None
+    _ -> None
   }
 }
 
@@ -755,7 +857,7 @@ fn signer_matches_payment_credential(
 ) -> Bool {
   when payment_credential is {
     address.VerificationKey(signer) ->
-      list.any(signatories, fn(sig) { sig == signer })
+      list.has(signatories, signer)
     address.Script(_) -> False
   }
 }
@@ -766,7 +868,7 @@ fn signer_matches_stake_credential(
 ) -> Bool {
   when stake_credential is {
     Some(address.Inline(address.VerificationKey(signer))) ->
-      list.any(signatories, fn(sig) { sig == signer })
+      list.has(signatories, signer)
     _ -> False
   }
 }
@@ -849,20 +951,49 @@ fn personalize_context_from_tx(
   }
 }
 
-fn personalize_inputs_from_context(
+// Loads the tx context (contract output, pz_asset output, old/new datums)
+// and dispatches the entire validation. Inlining the context-loading here
+// avoids constructing PersonalizeTxContext + the Option<PersonalizeTxContext>
+// wrapper that personalize_context_from_tx returns to test callers.
+fn personalize_validate(
   handle: types.Handle,
-  root_handle: ByteArray,
   indexes: types.PzIndexes,
   designer: types.DataMap,
-  settings: types.PzSettings,
+  treasury_fee: Int,
+  treasury_cred: ByteArray,
+  pz_min_fee: Int,
+  pz_providers: Pairs<ByteArray, ByteArray>,
+  valid_contracts: List<ByteArray>,
+  settings_cred: ByteArray,
+  grace_period: Int,
+  subhandle_share_percent: Int,
   own_ref: transaction.OutputReference,
   reset: Bool,
-  context: PersonalizeTxContext,
+  old_datum_data: Data,
   tx: transaction.Transaction,
-) -> PersonalizeValidationInputs {
-  let _ = root_handle
-  let old_extra = context.old_extra
-  let new_extra = context.new_extra
+) -> Bool {
+  expect old_datum: types.PersonalizationDatum = old_datum_data
+  let types.Cip68 { nft: _, version: _, extra: old_extra_data } = old_datum
+  let old_extra = datum.get_extra(old_extra_data)
+  when output_at(tx.outputs, indexes.contract_output) is {
+    None -> False
+    Some(contract_output) ->
+      when output_data(contract_output, tx) is {
+        None -> False
+        Some(new_datum_data) -> {
+          expect new_datum: types.PersonalizationDatum = new_datum_data
+          let types.Cip68 { nft: _, version: _, extra: new_extra_data } =
+            new_datum
+          let new_extra = datum.get_extra(new_extra_data)
+          when
+            if reset {
+              reference_output_at(tx.reference_inputs, indexes.pz_assets)
+            } else {
+              output_at(tx.outputs, indexes.pz_assets)
+            }
+          is {
+            None -> False
+            Some(pz_asset_output) -> {
   let old_bg_asset =
     personalize_mpf_context.asset_from_extra(old_extra, key_bg_asset)
   let old_pfp_asset =
@@ -871,12 +1002,6 @@ fn personalize_inputs_from_context(
     personalize_mpf_context.asset_from_extra(new_extra, key_bg_asset)
   let new_pfp_asset =
     personalize_mpf_context.asset_from_extra(new_extra, key_pfp_asset)
-  let check_bg_asset =
-    if reset {
-      old_bg_asset
-    } else {
-      new_bg_asset
-    }
   let check_pfp_asset =
     if reset {
       old_pfp_asset
@@ -891,55 +1016,52 @@ fn personalize_inputs_from_context(
     personalize_mpf_context.load_policy_index_root(
       indexes.bg_approver,
       key_policy_ids_bg,
-      settings,
+      pz_providers,
+      settings_cred,
       tx,
     )
   let pfp_root =
     personalize_mpf_context.load_policy_index_root(
       indexes.pfp_approver,
       key_policy_ids_pfp,
-      settings,
+      pz_providers,
+      settings_cred,
       tx,
     )
-  let bg_status =
-    personalize_mpf_context.approval_status_for_asset(
-      bg_root,
-      new_bg_asset,
-      context.pz_asset_output.value,
-      bg_proof,
-    )
-  let pfp_status =
-    personalize_mpf_context.approval_status_for_asset(
-      pfp_root,
-      new_pfp_asset,
-      context.pz_asset_output.value,
-      pfp_proof,
-    )
-  // When !reset, check_*_asset == new_*_asset, so check_*_status == *_status.
-  // Only recompute on reset. Saves 2 MPF calls' worth of bytes in the common path.
-  let check_bg_status =
-    if reset {
+  let pz_asset_value = pz_asset_output.value
+  let approve_bg =
+    fn(asset) {
       personalize_mpf_context.approval_status_for_asset(
         bg_root,
-        old_bg_asset,
-        context.pz_asset_output.value,
+        asset,
+        pz_asset_value,
         bg_proof,
       )
+    }
+  let approve_pfp =
+    fn(asset) {
+      personalize_mpf_context.approval_status_for_asset(
+        pfp_root,
+        asset,
+        pz_asset_value,
+        pfp_proof,
+      )
+    }
+  let bg_status = approve_bg(new_bg_asset)
+  let pfp_status = approve_pfp(new_pfp_asset)
+  let check_bg_status =
+    if reset {
+      approve_bg(old_bg_asset)
     } else {
       bg_status
     }
   let check_pfp_status =
     if reset {
-      personalize_mpf_context.approval_status_for_asset(
-        pfp_root,
-        old_pfp_asset,
-        context.pz_asset_output.value,
-        pfp_proof,
-      )
+      approve_pfp(old_pfp_asset)
     } else {
       pfp_status
     }
-  let types.Cip68 { nft: old_nft, version: _, extra: _ } = context.old_datum
+  let types.Cip68 { nft: old_nft, version: _, extra: _ } = old_datum
   let datum_name_matches_redeemer =
     when datum.map_get(old_nft, key_name) is {
       Some(name_data) -> {
@@ -952,8 +1074,8 @@ fn personalize_inputs_from_context(
     when current_validator_hash(own_ref, tx) is {
       Some(current_hash) ->
         utils.is_valid_contract(
-          context.contract_output,
-          settings.valid_contracts,
+          contract_output,
+          valid_contracts,
           current_hash,
         )
       None -> False
@@ -963,7 +1085,7 @@ fn personalize_inputs_from_context(
   // Helios: `pz_asset_output.value.contains(Value::new(LBL_222 + name, 1))`
   let owner_handle_present =
     assets.quantity_of(
-      context.pz_asset_output.value,
+      pz_asset_output.value,
       constants.handle_policy_id,
       constants.prefixed_asset_name(constants.lbl_222, handle.name),
     ) == 1
@@ -983,8 +1105,10 @@ fn personalize_inputs_from_context(
   // last_update_address: new_extra.last_update_address parsed as Shelley
   // address. For HANDLE/NFT_SUBHANDLE compare to pz_asset_output.address;
   // for VIRTUAL_SUBHANDLE compare to the new resolved-ada address.
+  let new_last_update_address_data =
+    datum.map_get(new_extra, key_last_update_address)
   let parsed_last_update_address =
-    when datum.map_get(new_extra, key_last_update_address) is {
+    when new_last_update_address_data is {
       Some(addr_data) -> {
         expect addr_bytes: ByteArray = addr_data
         utils.address_from_shelley_bytes(addr_bytes)
@@ -993,16 +1117,19 @@ fn personalize_inputs_from_context(
     }
   // Helios:
   //   HANDLE / NFT_SUBHANDLE -> address = pz_asset_output.address
-  //   VIRTUAL_SUBHANDLE      -> address = new_ada_address
-  let expected_owner_address =
-    when handle.handle_type is {
-      types.HandleTypeVirtualSubhandle -> parse_resolved_address(new_extra)
-      _ -> Some(context.pz_asset_output.address)
-    }
+  //   VIRTUAL_SUBHANDLE      -> address = new_ada_address (Option, may be None)
   let last_update_address_matches_owner =
-    when (parsed_last_update_address, expected_owner_address) is {
-      (Some(last_addr), Some(expected_addr)) -> last_addr == expected_addr
-      _ -> False
+    when parsed_last_update_address is {
+      None -> False
+      Some(last_addr) ->
+        if handle.handle_type == types.HandleTypeVirtualSubhandle {
+          when parse_resolved_address(new_extra) is {
+            None -> False
+            Some(expected) -> last_addr == expected
+          }
+        } else {
+          last_addr == pz_asset_output.address
+        }
     }
 
   // immutables_unchanged: per Helios immutables_are_unchanged.
@@ -1010,22 +1137,24 @@ fn personalize_inputs_from_context(
   //     must equal between old and new
   //   - every old_nft.* (except 'image' and 'mediaType') must equal new_nft.*
   //   - new_extra.agreed_terms must equal "https://handle.me/$/tou"
-  let types.Cip68 { nft: new_nft, version: _, extra: _ } = context.new_datum
-  let standard_image_unchanged =
-    datum.map_get(old_extra, key_standard_image) == datum.map_get(new_extra, key_standard_image)
-  let standard_image_hash_unchanged =
-    datum.map_get(old_extra, key_standard_image_hash) == datum.map_get(new_extra, key_standard_image_hash)
-  let original_address_unchanged =
-    datum.map_get(old_extra, key_original_address) == datum.map_get(new_extra, key_original_address)
+  let types.Cip68 { nft: new_nft, version: _, extra: _ } = new_datum
+  let standard_unchanged =
+    list.all(
+      standard_unchanged_keys,
+      fn(k) { datum.map_get(old_extra, k) == datum.map_get(new_extra, k) },
+    )
   let immutable_nft_fields_unchanged =
-    list.all(old_nft, fn(pair) {
-      let key = pair.1st
-      if key == key_image || key == "mediaType" {
-        True
-      } else {
-        datum.map_get(new_nft, key) == Some(pair.2nd)
-      }
-    })
+    list.all(
+      old_nft,
+      fn(pair) {
+        let key = pair.1st
+        if key == key_image || key == "mediaType" {
+          True
+        } else {
+          datum.map_get(new_nft, key) == Some(pair.2nd)
+        }
+      },
+    )
   let agreed_terms_is_set =
     when datum.map_get(new_extra, key_agreed_terms) is {
       Some(terms_data) -> {
@@ -1034,14 +1163,11 @@ fn personalize_inputs_from_context(
       }
       None -> False
     }
-  let immutables_unchanged =
-    personalize_base.immutables_are_unchanged(
-      standard_image_unchanged,
-      standard_image_hash_unchanged,
-      original_address_unchanged,
+  let immutables_unchanged = and {
+      standard_unchanged,
       immutable_nft_fields_unchanged,
       agreed_terms_is_set,
-    )
+    }
 
   // sub_pz_enabled / new_pz_enabled — read from old/new extra.
   let sub_pz_enabled =
@@ -1052,32 +1178,43 @@ fn personalize_inputs_from_context(
   // root_pz_enabled + payment_address from owner_settings ref input.
   // For HANDLE type, Helios returns (True, ""). For NFT/VIRTUAL subhandle,
   // looks up OwnerSettings.{nft|virtual}.pz_enabled from indexes.owner_settings.
+  // Only 3 fields of OwnerSettings are needed here (nft.pz_enabled,
+  // virtual.pz_enabled, payment_address). Extract them positionally without
+  // building the full OwnerSettings + 2 SubHandleSettings records.
   let (root_pz_enabled, root_payment_address) =
     when handle.handle_type is {
       types.HandleTypeHandle -> (True, #"")
-      _ ->
+      other ->
         when reference_output_at(tx.reference_inputs, indexes.owner_settings) is {
           Some(owner_output) ->
             when output_data(owner_output, tx) is {
               Some(owner_data) -> {
-                let owner_settings = parse_owner_settings_from_list(owner_data)
-                let enabled =
-                  when handle.handle_type is {
-                    types.HandleTypeNftSubhandle ->
-                      owner_settings.nft.pz_enabled == 1
-                    types.HandleTypeVirtualSubhandle ->
-                      owner_settings.virtual.pz_enabled == 1
-                    _ -> True
+                expect [
+                  nft_data,
+                  virtual_data,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  payment_address_data,
+                ]: List<Data> = owner_data
+                let sh_data =
+                  if other == types.HandleTypeNftSubhandle {
+                    nft_data
+                  } else {
+                    virtual_data
                   }
-                (enabled, owner_settings.payment_address)
+                expect [_, pz_enabled_data, _, _, _]: List<Data> = sh_data
+                expect pz_enabled: Int = pz_enabled_data
+                expect payment_address: ByteArray = payment_address_data
+                (pz_enabled == 1, payment_address)
               }
               None -> (False, #"")
             }
           None -> (False, #"")
         }
     }
-  // root_payment_address is used by fees_paid (root-fee output destination).
-  let _ = root_payment_address
 
   // validated_by_* / expected_nsfw / bg/pfp image fields for policy_datum_is_valid.
   let validated_by_data_opt = datum.map_get(new_extra, "validated_by")
@@ -1086,7 +1223,7 @@ fn personalize_inputs_from_context(
     when validated_by_data_opt is {
       Some(vb_data) -> {
         expect vb_hash: ByteArray = vb_data
-        list.any(tx.extra_signatories, fn(s) { s == vb_hash })
+        list.has(tx.extra_signatories, vb_hash)
       }
       None -> False
     }
@@ -1094,13 +1231,17 @@ fn personalize_inputs_from_context(
   let bg_image_set = datum.map_get(new_extra, key_bg_image) != None
   let pfp_image_set = datum.map_get(new_extra, key_pfp_image) != None
 
+  // Pre-load the bg and pfp CIP-68 reference datums once. Used by both the
+  // image-matches check and (for bg) by designer_settings + check_required_assets.
+  // Avoids 3 separate list.at walks of tx.reference_inputs at indexes.bg_datum.
+  let bg_cip68_opt = cip68_ref_at(indexes.bg_datum, tx)
+  let pfp_cip68_opt = cip68_ref_at(indexes.pfp_datum, tx)
   // bg/pfp_image_matches_datum: when asset is set, the asset's CIP-68 reference
-  // datum (loaded from indexes.{bg,pfp}_datum) must have nft.image == new_extra.{bg,pfp}_image.
-  // Empty asset → vacuously True.
+  // datum must have nft.image == new_extra.{bg,pfp}_image. Empty asset → True.
   let bg_image_matches_datum =
-    image_matches_datum_check(new_bg_asset, indexes.bg_datum, key_bg_image, new_extra, tx)
+    image_matches_datum_check(new_bg_asset, bg_cip68_opt, key_bg_image, new_extra)
   let pfp_image_matches_datum =
-    image_matches_datum_check(new_pfp_asset, indexes.pfp_datum, key_pfp_image, new_extra, tx)
+    image_matches_datum_check(new_pfp_asset, pfp_cip68_opt, key_pfp_image, new_extra)
 
   // is_reset_shape: new datum looks like a reset state (no images, no assets,
   // no designer, trial/nsfw cleared). Helios:
@@ -1111,17 +1252,18 @@ fn personalize_inputs_from_context(
   //   && new_pfp == None && new_bg == None
   //   && !designed
   //   && new_trial == 0 && new_nsfw == 0
-  let designed = datum.map_get(new_extra, key_designer) != None
+  let new_designer_data = datum.map_get(new_extra, key_designer)
+  let designed = new_designer_data != None
   let is_reset_shape = and {
       datum.map_get(new_nft, key_image) == datum.map_get(new_extra, key_standard_image),
       datum.map_get(new_extra, key_image_hash) == datum.map_get(new_extra, key_standard_image_hash),
       new_bg_asset == datum.empty_asset,
       new_pfp_asset == datum.empty_asset,
-      datum.map_get(new_extra, key_bg_image) == None,
-      datum.map_get(new_extra, key_pfp_image) == None,
+      !bg_image_set,
+      !pfp_image_set,
       !designed,
       datum.int_or(datum.map_get(new_extra, key_trial), 0) == 0,
-      datum.int_or(datum.map_get(new_extra, key_nsfw), 0) == 0,
+      expected_nsfw == 0,
     }
 
   // signed_by_owner / signed_by_provider — used by reset auth + reset privacy.
@@ -1129,50 +1271,57 @@ fn personalize_inputs_from_context(
   // payment address. We don't have the address directly here; we use the
   // pz_asset_output.address payment cred (Helios uses `address.credential`).
   let signed_by_owner =
-    when context.pz_asset_output.address.payment_credential is {
+    when pz_asset_output.address.payment_credential is {
       address.VerificationKey(hash) ->
-        list.any(tx.extra_signatories, fn(s) { s == hash })
+        list.has(tx.extra_signatories, hash)
       _ -> False
     }
   let signed_by_provider =
-    list.any(tx.extra_signatories, fn(signer) {
-      list.any(settings.pz_providers, fn(provider) { signer == provider.2nd })
-    })
+    list.any(
+      pz_providers,
+      fn(provider) { list.has(tx.extra_signatories, provider.2nd) },
+    )
 
   // reset_privacy_inputs — for the reset path. Helios checks (line 686-696):
   //   if last_update_address changed (holder changed), socials and
   //   resolved_addresses must be cleared. Otherwise either provider or
   //   owner must sign, OR both socials and resolved_addresses unchanged.
   let old_last_update_address_data = datum.map_get(old_extra, key_last_update_address)
-  let new_last_update_address_data = datum.map_get(new_extra, key_last_update_address)
   let holder_changed =
-    when (old_last_update_address_data, new_last_update_address_data) is {
-      (Some(old_addr_data), Some(new_addr_data)) -> {
-        expect old_bytes: ByteArray = old_addr_data
-        expect new_bytes: ByteArray = new_addr_data
-        when (utils.address_from_shelley_bytes(old_bytes), utils.address_from_shelley_bytes(new_bytes)) is {
-          (Some(old_a), Some(new_a)) -> !utils.holder_addresses_match(old_a, new_a)
-          _ -> True
+    when old_last_update_address_data is {
+      None -> True
+      Some(old_addr_data) ->
+        when new_last_update_address_data is {
+          None -> True
+          Some(new_addr_data) -> {
+            expect old_bytes: ByteArray = old_addr_data
+            expect new_bytes: ByteArray = new_addr_data
+            when utils.address_from_shelley_bytes(old_bytes) is {
+              None -> True
+              Some(old_a) ->
+                when utils.address_from_shelley_bytes(new_bytes) is {
+                  None -> True
+                  Some(new_a) -> !utils.holder_addresses_match(old_a, new_a)
+                }
+            }
+          }
         }
-      }
-      _ -> True
     }
-  let socials_cleared = datum.map_get(new_extra, key_socials) == None
+  let new_socials_data = datum.map_get(new_extra, key_socials)
+  let socials_cleared = new_socials_data == None
   let new_resolved_addresses_data = datum.map_get(new_extra, key_resolved_addresses)
   let resolved_addresses_cleared = new_resolved_addresses_data == None
   let socials_unchanged =
-    datum.map_get(old_extra, key_socials) == datum.map_get(new_extra, key_socials)
+    datum.map_get(old_extra, key_socials) == new_socials_data
   let resolved_addresses_unchanged =
     datum.map_get(old_extra, key_resolved_addresses) == new_resolved_addresses_data
-  let reset_privacy_inputs =
-    personalize_base.ResetPrivacyInputs {
-      holder_changed,
-      signed_by_provider,
-      signed_by_owner,
-      socials_cleared,
-      resolved_addresses_cleared,
-      socials_unchanged,
-      resolved_addresses_unchanged,
+  // Inlined personalize_base.reset_privacy_is_valid: avoids constructing
+  // the 7-field ResetPrivacyInputs record in the validator path.
+  let reset_privacy_pass =
+    if holder_changed {
+      socials_cleared && resolved_addresses_cleared
+    } else {
+      signed_by_provider || signed_by_owner || socials_unchanged && resolved_addresses_unchanged
     }
 
   // unchanged_when_reset_denied — Helios line 704-713: when designer assets
@@ -1184,53 +1333,39 @@ fn personalize_inputs_from_context(
   // Virtual subhandle invariants (Helios line 612-618). Only material when
   // handle_type == VIRTUAL_SUBHANDLE; for other types the validator gate
   // short-circuits via virtual_personalization_rules_are_valid.
-  let parse_resolved_ada_address = fn(extra: types.DataMap) -> Option<address.Address> {
-    when datum.map_get(extra, key_resolved_addresses) is {
-      Some(resolved_data) -> {
-        let resolved_map = datum.get_extra(resolved_data)
-        when datum.map_get(resolved_map, key_ada) is {
-          Some(addr_data) -> {
-            expect addr_bytes: ByteArray = addr_data
-            utils.address_from_shelley_bytes(addr_bytes)
-          }
-          None -> None
-        }
-      }
-      None -> None
-    }
-  }
-  let old_resolved_ada = parse_resolved_ada_address(old_extra)
-  let new_resolved_ada = parse_resolved_ada_address(new_extra)
+  let old_resolved_ada = parse_resolved_address(old_extra)
+  let new_resolved_ada = parse_resolved_address(new_extra)
   let virtual_holder_signed =
     when old_resolved_ada is {
       Some(old_addr) ->
         when old_addr.payment_credential is {
           address.VerificationKey(hash) ->
-            list.any(tx.extra_signatories, fn(s) { s == hash })
+            list.has(tx.extra_signatories, hash)
           _ -> False
         }
       None -> False
     }
   let virtual_resolved_ada_unchanged =
-    when (old_resolved_ada, new_resolved_ada) is {
-      (Some(old_addr), Some(new_addr)) -> old_addr == new_addr
-      (None, None) -> True
-      _ -> False
+    when old_resolved_ada is {
+      None ->
+        when new_resolved_ada is {
+          None -> True
+          Some(_) -> False
+        }
+      Some(old_addr) ->
+        when new_resolved_ada is {
+          None -> False
+          Some(new_addr) -> old_addr == new_addr
+        }
     }
   let virtual_payload_unchanged =
     datum.map_get(old_extra, key_virtual) == datum.map_get(new_extra, key_virtual)
 
-  let unchanged_when_reset_denied = and {
-      datum.map_get(old_nft, key_image) == datum.map_get(new_nft, key_image),
-      datum.map_get(old_extra, key_image_hash) == datum.map_get(new_extra, key_image_hash),
-      datum.map_get(old_extra, key_pfp_asset) == datum.map_get(new_extra, key_pfp_asset),
-      datum.map_get(old_extra, key_bg_asset) == datum.map_get(new_extra, key_bg_asset),
-      datum.map_get(old_extra, key_pfp_image) == datum.map_get(new_extra, key_pfp_image),
-      datum.map_get(old_extra, key_bg_image) == datum.map_get(new_extra, key_bg_image),
-      datum.map_get(old_extra, key_designer) == datum.map_get(new_extra, key_designer),
-      datum.map_get(old_extra, key_trial) == datum.map_get(new_extra, key_trial),
-      datum.map_get(old_extra, key_nsfw) == datum.map_get(new_extra, key_nsfw),
-    }
+  let unchanged_when_reset_denied =
+    datum.map_get(old_nft, key_image) == datum.map_get(new_nft, key_image) && list.all(
+      immutable_extra_keys,
+      fn(k) { datum.map_get(old_extra, k) == datum.map_get(new_extra, k) },
+    )
 
   // fees_paid — translates Helios fees_are_paid. For non-reset designer
   // changes, the personalization tx must pay treasury + provider fees, plus
@@ -1240,21 +1375,25 @@ fn personalize_inputs_from_context(
     datum.int_or(datum.map_get(old_extra, key_last_edited_time), 0)
   let within_grace_period =
     last_edited_time != 0 && when validity_start(tx) is {
-      Some(start) -> start < last_edited_time + settings.grace_period
+      Some(start) -> start < last_edited_time + grace_period
       None -> False
     }
   let is_subhandle = handle.handle_type != types.HandleTypeHandle
   let subhandle_shared_fee =
-    personalize_base.shared_subhandle_fee(settings.pz_min_fee, settings.subhandle_share_percent)
+    personalize_base.shared_subhandle_fee(pz_min_fee, subhandle_share_percent)
   let provider_amount =
     if is_subhandle {
-      settings.pz_min_fee - subhandle_shared_fee
+      pz_min_fee - subhandle_shared_fee
     } else {
-      settings.pz_min_fee
+      pz_min_fee
     }
 
-  let output_inline_datum_matches_handle = fn(out: transaction.Output) -> Bool {
-    when datum.from_transaction_datum(out.datum) is {
+  // Shared check: output's inline datum is the handle name AND output value
+  // pays at least min_lovelace. Used by treasury / provider / root fee paths.
+  let output_pays_handle = fn(out: transaction.Output, min_lovelace: Int) -> Bool {
+    assets.lovelace_of(out.value) >= min_lovelace && when
+      datum.from_transaction_datum(out.datum)
+    is {
       datum.InlineDatumRef(d) -> {
         expect handle_bytes: ByteArray = d
         handle_bytes == handle.name
@@ -1266,32 +1405,34 @@ fn personalize_inputs_from_context(
   // treasury_fee_paid: any output to treasury script credential with the
   // handle name as inline datum and at least treasury_fee lovelace.
   let treasury_fee_paid =
-    list.any(tx.outputs, fn(output) {
-      let cred_match =
+    list.any(
+      tx.outputs,
+      fn(output) {
         when output.address.payment_credential is {
-          address.Script(hash) -> hash == settings.treasury_cred
+          address.Script(hash) ->
+            hash == treasury_cred && output_pays_handle(
+              output,
+              treasury_fee,
+            )
           _ -> False
         }
-      cred_match && output_inline_datum_matches_handle(output) && assets.lovelace_of(output.value) >= settings.treasury_fee
-    })
+      },
+    )
 
   // provider_fee_paid: output at indexes.provider_fee whose payment cred is
   // one of the registered providers and inline datum is the handle.
   let provider_fee_paid =
     when output_at(tx.outputs, indexes.provider_fee) is {
       Some(prov_output) -> {
-        let payment_cred_hash =
+        let cred_hash =
           when prov_output.address.payment_credential is {
-            address.VerificationKey(hash) -> Some(hash)
-            address.Script(hash) -> Some(hash)
+            address.VerificationKey(hash) -> hash
+            address.Script(hash) -> hash
           }
-        let cred_in_providers =
-          when payment_cred_hash is {
-            Some(hash) ->
-              list.any(settings.pz_providers, fn(provider) { hash == provider.2nd })
-            None -> False
-          }
-        cred_in_providers && output_inline_datum_matches_handle(prov_output) && assets.lovelace_of(prov_output.value) >= provider_amount
+        list.any(pz_providers, fn(provider) { cred_hash == provider.2nd }) && output_pays_handle(
+          prov_output,
+          provider_amount,
+        )
       }
       None -> False
     }
@@ -1302,82 +1443,124 @@ fn personalize_inputs_from_context(
   let root_fee_paid =
     !is_subhandle || when utils.address_from_shelley_bytes(root_payment_address) is {
       Some(root_addr) ->
-        list.any(tx.outputs, fn(output) {
-          output.address == root_addr && output_inline_datum_matches_handle(output) && assets.lovelace_of(output.value) >= subhandle_shared_fee
-        })
+        list.any(
+          tx.outputs,
+          fn(output) {
+            output.address == root_addr && output_pays_handle(
+              output,
+              subhandle_shared_fee,
+            )
+          },
+        )
       None -> False
     }
   let fees_paid =
-    personalize_base.fees_are_paid(
-      personalize_base.FeeValidationInputs {
-        within_grace_period,
-        treasury_fee_paid,
-        provider_fee_paid,
-        is_subhandle,
-        root_fee_paid,
-      },
-    )
+    if within_grace_period {
+      True
+    } else if !treasury_fee_paid {
+      False
+    } else if !provider_fee_paid {
+      False
+    } else {
+      !is_subhandle || root_fee_paid
+    }
 
-  PersonalizeValidationInputs {
-    handle_type: handle.handle_type,
-    reset,
-    datum_name_matches_redeemer,
-    output_has_expected_handle_token: personalize_base.output_has_expected_handle_token(
-      context.contract_output.value,
-      handle.handle_type,
-      handle.name,
-    ),
-    last_update_address_matches_owner,
-    owner_handle_present,
-    resolved_ada_is_empty,
-    sub_pz_enabled,
-    root_pz_enabled,
-    new_pz_enabled,
-    virtual_holder_signed,
-    virtual_resolved_ada_unchanged,
-    virtual_payload_unchanged,
-    contract_output_is_valid,
-    immutables_unchanged,
-    bg_status,
-    pfp_status,
-    check_bg_status,
-    check_pfp_status,
-    policy_datum_inputs: personalize_policy_approval.PolicyDatumValidationInputs {
-      validated_by_present: validated_by_present,
-      validated_by_signed: validated_by_signed,
-      expected_nsfw: expected_nsfw,
-      bg_asset_set: new_bg_asset != datum.empty_asset,
-      pfp_asset_set: new_pfp_asset != datum.empty_asset,
-      bg_image_set: bg_image_set,
-      pfp_image_set: pfp_image_set,
-      bg_image_matches_datum: bg_image_matches_datum,
-      pfp_image_matches_datum: pfp_image_matches_datum,
-    },
-    designed,
-    designer_changed: datum.map_get(new_extra, key_designer) != datum.map_get(
-      old_extra,
-      key_designer,
-    ),
-    required_asset_valid: new_bg_asset == datum.empty_asset || check_required_assets(
-      context.pz_asset_output,
-      indexes.bg_datum,
+  // Inlined personalize_is_valid + virtual_personalization_rules_are_valid:
+  // returning Bool directly avoids constructing the 30-field
+  // PersonalizeValidationInputs record in the validator path. The record and
+  // personalize_is_valid remain for unit tests; Aiken DCE drops them from
+  // the perspz binary because no validator path reaches them.
+  let output_has_expected_handle_token =
+    assets.quantity_of(
+      contract_output.value,
+      constants.handle_policy_id,
+      bytearray.concat(
+        if handle.handle_type == types.HandleTypeVirtualSubhandle {
+          constants.lbl_000
+        } else {
+          constants.lbl_100
+        },
+        handle.name,
+      ),
+    ) == 1
+  let designer_changed =
+    new_designer_data != datum.map_get(old_extra, key_designer)
+  let required_asset_valid =
+    new_bg_asset == datum.empty_asset || check_required_assets(
+      pz_asset_output,
+      bg_cip68_opt,
       indexes.required_asset,
       handle.name,
       check_pfp_asset,
       tx,
-    ),
-    fees_paid,
-    designer_settings_valid: designer_settings_valid_for_personalize(
-      designer,
-      indexes.bg_datum,
-      new_extra,
-      tx,
-    ),
-    is_reset_shape,
-    reset_privacy_inputs,
-    signed_by_provider,
-    signed_by_owner,
-    unchanged_when_reset_denied,
+    )
+  // designer_settings_valid is now enforced by the `persdsg` observer (see
+  // persdsg.ak). dispatch_personalize_from_tx gates its non-reset call to
+  // personalize_validate on `persdsg_observed_for_personalize`, so by the
+  // time we're inside personalize_validate's non-reset branch, designer_settings
+  // has already been validated. The `designer` parameter is still used by
+  // proof_from_designer for the bg/pfp MPF proofs.
+
+  // Inlined personalize_policy_approval.policy_datum_is_valid: avoids
+  // constructing the 9-field PolicyDatumValidationInputs record.
+  let bg_asset_set = new_bg_asset != datum.empty_asset
+  let pfp_asset_set = new_pfp_asset != datum.empty_asset
+  let policy_datum_pass = and {
+      !validated_by_present || validated_by_signed,
+      personalize_policy_approval.approvals_are_valid(bg_status, pfp_status),
+      bg_asset_set == bg_image_set,
+      pfp_asset_set == pfp_image_set,
+      !bg_asset_set || bg_image_matches_datum,
+      !pfp_asset_set || pfp_image_matches_datum,
+      personalize_policy_approval.derive_nsfw(bg_status, pfp_status) == expected_nsfw,
+    }
+  let virtual_rules_pass =
+    handle.handle_type != types.HandleTypeVirtualSubhandle || and {
+        reset || virtual_holder_signed,
+        virtual_resolved_ada_unchanged,
+        virtual_payload_unchanged,
+      }
+  let common_gates_pass = and {
+      datum_name_matches_redeemer,
+      output_has_expected_handle_token,
+      last_update_address_matches_owner,
+      personalize_base.subhandle_personalization_is_allowed(
+        handle.handle_type,
+        reset,
+        sub_pz_enabled,
+        root_pz_enabled,
+        new_pz_enabled,
+      ),
+      handle.handle_type == types.HandleTypeVirtualSubhandle || reset || owner_handle_present,
+      personalize_base.resolved_ada_is_allowed(handle.handle_type) || resolved_ada_is_empty,
+      virtual_rules_pass,
+      contract_output_is_valid,
+      immutables_unchanged,
+      policy_datum_pass,
+    }
+  // Inlined non_reset_authorization_is_valid + reset_authorization_is_valid.
+  common_gates_pass && if reset {
+    let designer_assets_valid =
+      personalize_policy_approval.approvals_are_valid(
+        check_bg_status,
+        check_pfp_status,
+      )
+    reset_privacy_pass && if !designer_assets_valid || !required_asset_valid || signed_by_provider || signed_by_owner {
+      is_reset_shape
+    } else {
+      unchanged_when_reset_denied
+    }
+  } else if designed && designer_changed {
+    // designer_settings is enforced by persdsg observer (see persdsg_observed_for_personalize
+    // in dispatch_personalize_from_tx).
+    required_asset_valid && fees_paid
+  } else {
+    designed || is_reset_shape
+  }
+            }
+          }
+        }
+      }
   }
 }
 
@@ -1471,43 +1654,11 @@ fn virtual_personalization_rules_are_valid(
   }
 }
 
-fn default_update_inputs(
-  handle_type: types.HandleType,
-  protocol_settings_present: Bool,
-  root_settings_present: Bool,
-  pz_payload_unchanged: Bool,
-  nft_unchanged: Bool,
-  admin_signed: Bool,
-) -> UpdateValidationInputs {
-  UpdateValidationInputs {
-    handle_type,
-    protocol_settings_present,
-    root_settings_present,
-    pz_payload_unchanged,
-    nft_unchanged,
-    public_mint: False,
-    root_signed: False,
-    expired: False,
-    address_changed: False,
-    address_change_stake_approved: False,
-    assignee_signed_pay: False,
-    assignee_signed_stake: False,
-    extended: False,
-    expiry_unchanged: True,
-    good_main_payment: False,
-    good_root_payment: False,
-    admin_signed,
-    new_public_mint_is_private: False,
-    root_virtual_mint_enabled: False,
-  }
-}
-
-// Flattened: each previously-nested `when ... is { Some(x) -> ... None -> None }`
-// becomes `expect Some(x) = ...`, which panics on None — equivalent to the
-// caller's `None -> False` branch but compiles to far less UPLC. Also uses the
-// manual list-shape parsers for OwnerSettings / MainSubHandleSettings since
-// Helios still emits these as Lists, not Constr 0 records.
-fn update_inputs_from_tx(
+// Inlines `update_is_valid` directly, returning Bool. Avoids constructing the
+// 19-field UpdateValidationInputs record in the validator path. The record and
+// `update_is_valid` remain `pub` for unit tests; Aiken DCE drops them from the
+// perslfc binary because no validator path reaches them after this refactor.
+fn update_validate_from_tx(
   old_nft: types.DataMap,
   old_extra: types.DataMap,
   handle: types.Handle,
@@ -1515,7 +1666,7 @@ fn update_inputs_from_tx(
   indexes: types.VirtIndexes,
   admin_signed: Bool,
   tx: transaction.Transaction,
-) -> Option<UpdateValidationInputs> {
+) -> Bool {
   expect Some(contract_output) = output_at(tx.outputs, indexes.contract_output)
   let root_output_opt = output_at(tx.outputs, indexes.root_handle)
   let admin_settings_output_opt =
@@ -1549,17 +1700,10 @@ fn update_inputs_from_tx(
     pz_payload_without_virtual_and_resolved(old_extra) == pz_payload_without_virtual_and_resolved(new_extra)
   let nft_unchanged = old_nft == new_nft
 
-  if !protocol_settings_present || !root_settings_present || !pz_payload_unchanged || !nft_unchanged {
-    Some(
-      default_update_inputs(
-        handle.handle_type,
-        protocol_settings_present,
-        root_settings_present,
-        pz_payload_unchanged,
-        nft_unchanged,
-        admin_signed,
-      ),
-    )
+  // Combined early-False guard: handle_type check (originally in update_is_valid)
+  // plus the 4-presence checks (originally the early-return path).
+  if handle.handle_type != types.HandleTypeVirtualSubhandle || !protocol_settings_present || !root_settings_present || !pz_payload_unchanged || !nft_unchanged {
+    False
   } else {
     expect Some(old_virtual) = parse_virtual_data(old_extra)
     expect Some(new_virtual) = parse_virtual_data(new_extra)
@@ -1568,9 +1712,47 @@ fn update_inputs_from_tx(
     expect Some(admin_settings_output) = admin_settings_output_opt
     expect Some(root_settings_output) = root_settings_output_opt
     expect Some(admin_settings_data) = output_data(admin_settings_output, tx)
-    let main_settings = parse_main_subhandle_settings_from_list(admin_settings_data)
+    // Lean MainSubHandleSettings parse: only 4 of 8 fields are reached by the
+    // perslfc Update path. Skipping the unused expects bypasses the cast on
+    // valid_contracts / admin_creds / base_price / buy_down_prices.
+    expect [
+      _,
+      _,
+      main_virtual_price_data,
+      _,
+      _,
+      main_payment_address_data,
+      main_expiry_duration_data,
+      main_renewal_window_data,
+    ]: List<Data> = admin_settings_data
+    expect main_virtual_price: Int = main_virtual_price_data
+    expect main_payment_address: ByteArray = main_payment_address_data
+    expect main_expiry_duration: Int = main_expiry_duration_data
+    expect main_renewal_window: Int = main_renewal_window_data
     expect Some(root_settings_data) = output_data(root_settings_output, tx)
-    let root_settings = parse_owner_settings_from_list(root_settings_data)
+    // Lean OwnerSettings parse: only payment_address + the virtual SubHandleSettings's
+    // tier_pricing + public_minting_enabled are reached by the perslfc Update path.
+    expect [
+      _,
+      root_virtual_data,
+      _,
+      _,
+      _,
+      _,
+      _,
+      root_payment_address_data,
+    ]: List<Data> = root_settings_data
+    expect [
+      root_virtual_public_minting_data,
+      _,
+      root_virtual_tier_pricing_data,
+      _,
+      _,
+    ]: List<Data> = root_virtual_data
+    expect root_virtual_public_minting: Int = root_virtual_public_minting_data
+    expect root_virtual_tier_pricing: types.IntMatrix =
+      root_virtual_tier_pricing_data
+    expect root_payment_address: ByteArray = root_payment_address_data
 
     let old_expiry = datum.int_or(datum.map_get(old_virtual, key_expires_time), 0)
     let new_expiry = datum.int_or(datum.map_get(new_virtual, key_expires_time), 0)
@@ -1583,7 +1765,7 @@ fn update_inputs_from_tx(
     let extended =
       when valid_from is {
         Some(start) ->
-          old_expiry + main_settings.expiry_duration == new_expiry && start > old_expiry - main_settings.renewal_window
+          old_expiry + main_expiry_duration == new_expiry && start > old_expiry - main_renewal_window
         None -> False
       }
     let root_signed =
@@ -1602,10 +1784,10 @@ fn update_inputs_from_tx(
 
     let good_main_payment =
       if extended {
-        when utils.address_from_shelley_bytes(main_settings.payment_address) is {
+        when utils.address_from_shelley_bytes(main_payment_address) is {
           Some(main_payment_address) ->
             value_paid_to_with_handle_datum(
-              tx, main_payment_address, handle.name, main_settings.virtual_price,
+              tx, main_payment_address, handle.name, main_virtual_price,
             )
           None -> False
         }
@@ -1617,9 +1799,9 @@ fn update_inputs_from_tx(
         let root_price =
           utils.get_virtual_price(
             bytearray.length(handle.name),
-            root_settings.virtual.tier_pricing,
-          ) - main_settings.virtual_price
-        when utils.address_from_shelley_bytes(root_settings.payment_address) is {
+            root_virtual_tier_pricing,
+          ) - main_virtual_price
+        when utils.address_from_shelley_bytes(root_payment_address) is {
           Some(root_payment_address) ->
             value_paid_to_with_handle_datum(
               tx, root_payment_address, handle.name, root_price,
@@ -1630,29 +1812,31 @@ fn update_inputs_from_tx(
         False
       }
 
-    Some(
-      UpdateValidationInputs {
-        handle_type: handle.handle_type,
-        protocol_settings_present,
-        root_settings_present,
-        pz_payload_unchanged,
-        nft_unchanged,
-        public_mint: datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0,
-        root_signed,
-        expired,
-        address_changed: old_address != new_address,
-        address_change_stake_approved: old_address.stake_credential == new_address.stake_credential,
-        assignee_signed_pay,
-        assignee_signed_stake,
-        extended,
-        expiry_unchanged: old_expiry == new_expiry,
-        good_main_payment,
-        good_root_payment,
-        admin_signed,
-        new_public_mint_is_private: datum.int_or(datum.map_get(new_virtual, key_public_mint), 0) == 0,
-        root_virtual_mint_enabled: root_settings.virtual.public_minting_enabled != 0,
-      },
-    )
+    let public_mint =
+      datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0
+    let address_changed = old_address != new_address
+    let address_change_stake_approved =
+      old_address.stake_credential == new_address.stake_credential
+    let expiry_unchanged = old_expiry == new_expiry
+    let new_public_mint_is_private =
+      datum.int_or(datum.map_get(new_virtual, key_public_mint), 0) == 0
+    let root_virtual_mint_enabled =
+      root_virtual_public_minting != 0
+
+    // Inlined `update_is_valid` body — direct computation on local lets.
+    if !public_mint && root_signed {
+      address_changed || extended && (good_main_payment || admin_signed)
+    } else if public_mint && root_signed && expired {
+      extended && good_main_payment && new_public_mint_is_private
+    } else if assignee_signed_pay || assignee_signed_stake {
+      let addr_change_ok =
+        !address_changed || address_change_stake_approved && assignee_signed_stake
+      addr_change_ok && (
+        extended && good_main_payment && good_root_payment || expiry_unchanged
+      ) && root_virtual_mint_enabled
+    } else {
+      False
+    }
   }
 }
 
@@ -1675,7 +1859,7 @@ pub fn dispatch_from_tx(
           when redeemer is {
             types.ReturnToSender ->
               return_to_sender.return_to_sender_is_valid(
-                list.map(tx.outputs, fn(output) { output.value }),
+                tx.outputs,
                 admin_signed,
               )
 
@@ -1784,48 +1968,47 @@ pub fn dispatch_from_tx(
                 extra: old_extra_data,
               } = old_datum
               let old_extra = datum.get_extra(old_extra_data)
-
-              when
-                update_inputs_from_tx(
-                  old_nft,
-                  old_extra,
-                  handle,
-                  root_handle,
-                  indexes,
-                  admin_signed,
-                  tx,
-                )
-              is {
-                Some(update_inputs) -> update_is_valid(update_inputs)
-                None -> False
-              }
+              update_validate_from_tx(
+                old_nft,
+                old_extra,
+                handle,
+                root_handle,
+                indexes,
+                admin_signed,
+                tx,
+              )
             }
 
-            types.Personalize { handle, root_handle, indexes, designer, reset } ->
-              when
-                personalize_context_from_tx(
-                  old_datum_data,
-                  indexes,
-                  reset != 0,
-                  tx,
-                )
-              is {
-                Some(context) ->
-                  personalize_is_valid(
-                    personalize_inputs_from_context(
-                      handle,
-                      root_handle,
-                      indexes,
-                      designer,
-                      settings,
-                      own_ref,
-                      reset != 0,
-                      context,
-                      tx,
-                    ),
-                  )
-                None -> False
-              }
+            types.Personalize { handle, root_handle: _, indexes, designer, reset } -> {
+              let types.PzSettings {
+                treasury_fee,
+                treasury_cred,
+                pz_min_fee,
+                pz_providers,
+                valid_contracts,
+                admin_creds: _,
+                settings_cred,
+                grace_period,
+                subhandle_share_percent,
+              } = settings
+              personalize_validate(
+                handle,
+                indexes,
+                designer,
+                treasury_fee,
+                treasury_cred,
+                pz_min_fee,
+                pz_providers,
+                valid_contracts,
+                settings_cred,
+                grace_period,
+                subhandle_share_percent,
+                own_ref,
+                reset != 0,
+                old_datum_data,
+                tx,
+              )
+            }
           }
         }
         None -> False
@@ -1846,28 +2029,42 @@ pub fn dispatch_personalize_from_tx(
   tx: transaction.Transaction,
 ) -> Bool {
   expect Some(old_datum_data) = datum_opt
-  expect Some(settings) = load_pz_settings(tx)
+  expect Some(
+    (
+      treasury_fee,
+      treasury_cred,
+      pz_min_fee,
+      pz_providers,
+      valid_contracts,
+      settings_cred,
+      grace_period,
+      subhandle_share_percent,
+    ),
+  ) = load_pz_settings_for_personalize(tx)
   when redeemer is {
-    types.Personalize { handle, root_handle, indexes, designer, reset } ->
-      when
-        personalize_context_from_tx(old_datum_data, indexes, reset != 0, tx)
-      is {
-        Some(context) ->
-          personalize_is_valid(
-            personalize_inputs_from_context(
-              handle,
-              root_handle,
-              indexes,
-              designer,
-              settings,
-              own_ref,
-              reset != 0,
-              context,
-              tx,
-            ),
-          )
-        None -> False
-      }
+    types.Personalize { handle, root_handle: _, indexes, designer, reset } -> {
+      let r = reset != 0
+      // Non-reset txs delegate designer_settings validation to persdsg.
+      // Reset txs skip designer_settings (Helios semantics).
+      let dsg_ok = r || persdsg_observed_for_personalize(tx, own_ref, redeemer)
+      dsg_ok && personalize_validate(
+        handle,
+        indexes,
+        designer,
+        treasury_fee,
+        treasury_cred,
+        pz_min_fee,
+        pz_providers,
+        valid_contracts,
+        settings_cred,
+        grace_period,
+        subhandle_share_percent,
+        own_ref,
+        r,
+        old_datum_data,
+        tx,
+      )
+    }
     _ -> False
   }
 }
@@ -1882,75 +2079,12 @@ pub fn dispatch_other_from_tx(
   expect Some(settings) = load_pz_settings(tx)
   let admin_signed =
     utils.admin_has_signed_tx(settings.admin_creds, tx.extra_signatories)
+  // ReturnToSender doesn't need the old_datum, so dispatch it first; the other
+  // 3 redeemers all share the same Cip68 destructure, so lift it once.
   when redeemer is {
     types.ReturnToSender ->
-      return_to_sender.return_to_sender_is_valid(
-        list.map(tx.outputs, fn(output) { output.value }),
-        admin_signed,
-      )
-
-    types.Migrate { handle, output_index } -> {
-      expect old_datum: types.PersonalizationDatum = old_datum_data
-      let types.Cip68 { nft: _, version: _, extra: old_extra_data } = old_datum
-      let old_extra = datum.get_extra(old_extra_data)
-      let owner_sig_required =
-        datum.int_or(datum.map_get(old_extra, key_migrate_sig_required), 0) != 0
-      expect Some(output) = output_at(tx.outputs, output_index)
-      expect Some(new_datum_data) = output_data(output, tx)
-      expect Some(current_hash) = current_validator_hash(own_ref, tx)
-      migrate.migrate_is_valid(
-        old_datum_data == new_datum_data,
-        output_has_handle_asset(
-          output,
-          constants.prefixed_asset_name(
-            personalize_base.handle_label_for_type(handle.handle_type),
-            handle.name,
-          ),
-        ),
-        utils.is_valid_contract(output, settings.valid_contracts, current_hash),
-        migrate.migration_signers_are_valid(
-          admin_signed,
-          owner_sig_required,
-          outputs_have_owner_token(tx.outputs, handle.name),
-        ),
-      )
-    }
-
-    types.Revoke { handle, root_handle, owner_index } -> {
-      expect old_datum: types.PersonalizationDatum = old_datum_data
-      let types.Cip68 { nft: _, version: _, extra: old_extra_data } = old_datum
-      let old_extra = datum.get_extra(old_extra_data)
-      expect Some(old_virtual) = parse_virtual_data(old_extra)
-      let old_expiry =
-        datum.int_or(datum.map_get(old_virtual, key_expires_time), 0)
-      let expired =
-        when validity_start(tx) is {
-          Some(start) -> start > old_expiry
-          None -> False
-        }
-      let root_signed =
-        when output_at(tx.outputs, owner_index) is {
-          Some(root_output) ->
-            output_has_handle_asset(
-              root_output,
-              constants.prefixed_asset_name(constants.lbl_222, root_handle),
-            )
-          None -> False
-        }
-      revoke.revoke_is_valid(
-        handle.handle_type,
-        datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0,
-        root_signed,
-        expired,
-        assets.quantity_of(
-          tx.mint,
-          constants.handle_policy_id,
-          constants.prefixed_asset_name(constants.lbl_000, handle.name),
-        ),
-      )
-    }
-
-    types.Update { handle, root_handle, indexes } -> {
+      return_to_sender.return_to_sender_is_valid(tx.outputs, admin_signed)
+    _ -> {
       expect old_datum: types.PersonalizationDatum = old_datum_data
       let types.Cip68 {
         nft: old_nft,
@@ -1958,23 +2092,73 @@ pub fn dispatch_other_from_tx(
         extra: old_extra_data,
       } = old_datum
       let old_extra = datum.get_extra(old_extra_data)
-      when
-        update_inputs_from_tx(
-          old_nft,
-          old_extra,
-          handle,
-          root_handle,
-          indexes,
-          admin_signed,
-          tx,
-        )
-      is {
-        Some(update_inputs) -> update_is_valid(update_inputs)
-        None -> False
+      when redeemer is {
+        types.Migrate { handle, output_index } -> {
+          let owner_sig_required =
+            datum.int_or(datum.map_get(old_extra, key_migrate_sig_required), 0) != 0
+          expect Some(output) = output_at(tx.outputs, output_index)
+          expect Some(new_datum_data) = output_data(output, tx)
+          expect Some(current_hash) = current_validator_hash(own_ref, tx)
+          // Inlined migrate_is_valid + migration_signers_are_valid (single
+          // call sites in perslfc binary).
+          and {
+            old_datum_data == new_datum_data,
+            output_has_handle_asset(
+              output,
+              constants.prefixed_asset_name(
+                personalize_base.handle_label_for_type(handle.handle_type),
+                handle.name,
+              ),
+            ),
+            utils.is_valid_contract(output, settings.valid_contracts, current_hash),
+            admin_signed,
+            !owner_sig_required || outputs_have_owner_token(tx.outputs, handle.name),
+          }
+        }
+        types.Revoke { handle, root_handle, owner_index } -> {
+          expect Some(old_virtual) = parse_virtual_data(old_extra)
+          let old_expiry =
+            datum.int_or(datum.map_get(old_virtual, key_expires_time), 0)
+          let expired =
+            when validity_start(tx) is {
+              Some(start) -> start > old_expiry
+              None -> False
+            }
+          let root_signed =
+            when output_at(tx.outputs, owner_index) is {
+              Some(root_output) ->
+                output_has_handle_asset(
+                  root_output,
+                  constants.prefixed_asset_name(constants.lbl_222, root_handle),
+                )
+              None -> False
+            }
+          // Inlined revoke_is_valid (single call site in perslfc binary).
+          if handle.handle_type != types.HandleTypeVirtualSubhandle {
+            False
+          } else {
+            let public_mint =
+              datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0
+            ( !public_mint && root_signed || public_mint && expired ) && assets.quantity_of(
+              tx.mint,
+              constants.handle_policy_id,
+              constants.prefixed_asset_name(constants.lbl_000, handle.name),
+            ) == -1
+          }
+        }
+        types.Update { handle, root_handle, indexes } ->
+          update_validate_from_tx(
+            old_nft,
+            old_extra,
+            handle,
+            root_handle,
+            indexes,
+            admin_signed,
+            tx,
+          )
+        _ -> False
       }
     }
-
-    _ -> False
   }
 }
 
@@ -2006,6 +2190,61 @@ pub fn validate_observer_other(
     Some(input) ->
       dispatch_other_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
     None -> False
+  }
+}
+
+// Designer-settings observer entry. Same observe-redeemer pattern as
+// `validate_observer_personalize`, but only validates designer_settings for
+// the Personalize redeemer (reset=False). Other redeemers and reset=True
+// short-circuit to True; perspz handles non-designer-settings logic locally.
+pub fn validate_observer_designer_settings(
+  observer_redeemer: types.ObserverRedeemer,
+  tx: transaction.Transaction,
+) -> Bool {
+  let types.Observe { own_ref, redeemer } = observer_redeemer
+  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
+    transaction.find_input(tx.inputs, own_ref)
+  is {
+    Some(input) ->
+      dispatch_designer_settings_from_tx(output_data(input.output, tx), redeemer, tx)
+    None -> False
+  }
+}
+
+fn dispatch_designer_settings_from_tx(
+  datum_opt: Option<Data>,
+  redeemer: types.Redeemer,
+  tx: transaction.Transaction,
+) -> Bool {
+  expect Some(_old_datum_data) = datum_opt
+  when redeemer is {
+    types.Personalize { handle: _, root_handle: _, indexes, designer, reset } ->
+      // Reset path doesn't validate designer_settings (Helios semantics);
+      // perspz only requires this observer for non-reset txs.
+      if reset != 0 {
+        True
+      } else {
+        when output_at(tx.outputs, indexes.contract_output) is {
+          None -> False
+          Some(contract_output) ->
+            when output_data(contract_output, tx) is {
+              None -> False
+              Some(new_datum_data) -> {
+                expect new_datum: types.PersonalizationDatum = new_datum_data
+                let types.Cip68 { nft: _, version: _, extra: new_extra_data } =
+                  new_datum
+                let new_extra = datum.get_extra(new_extra_data)
+                let bg_cip68_opt = cip68_ref_at(indexes.bg_datum, tx)
+                designer_settings_valid_for_personalize(
+                  designer,
+                  bg_cip68_opt,
+                  new_extra,
+                )
+              }
+            }
+        }
+      }
+    _ -> False
   }
 }
 
@@ -3276,4 +3515,191 @@ test dispatch_from_tx_personalize_branch_is_wired_through_context_parser() {
     fixture_own_ref(),
     fixture_tx_for_dispatch_from_tx(True, [output]),
   )
+}
+
+// ----- persdsg_observed_for_personalize tests -----
+//
+// perspz delegates designer_settings validation to persdsg via a withdraw
+// observer. For non-reset Personalize txs, perspz must verify persdsg fired
+// with a matching observer-redeemer (Observe { own_ref, redeemer }) and a
+// 0-lovelace withdrawal at persdsg's reward address. These tests exercise
+// the gate function directly (it's a private helper).
+
+fn fixture_personalize_redeemer() -> types.Redeemer {
+  types.Personalize {
+    handle: types.Handle {
+      handle_type: types.HandleTypeHandle,
+      name: "alice",
+    },
+    root_handle: "root",
+    indexes: types.PzIndexes {
+      pfp_approver: 0,
+      bg_approver: 0,
+      pfp_datum: 0,
+      bg_datum: 0,
+      required_asset: 0,
+      owner_settings: 0,
+      contract_output: 0,
+      pz_assets: 0,
+      provider_fee: 0,
+    },
+    designer: [],
+    reset: 0,
+  }
+}
+
+fn fixture_persdsg_observer_redeemer_data(
+  own_ref: transaction.OutputReference,
+  redeemer: types.Redeemer,
+) -> Data {
+  let own_ref_data: Data = own_ref
+  let redeemer_data: Data = redeemer
+  builtin.constr_data(0, [own_ref_data, redeemer_data])
+}
+
+fn fixture_persdsg_credential() -> address.Credential {
+  address.Script(persdsg_hash)
+}
+
+fn fixture_tx_with_persdsg_observation(
+  own_ref: transaction.OutputReference,
+  redeemer: types.Redeemer,
+  withdrawal_amount: Int,
+  observer_credential: address.Credential,
+  observer_redeemer_data: Data,
+) -> transaction.Transaction {
+  transaction.Transaction {
+    ..transaction.placeholder,
+    redeemers: [Pair(transaction.Withdraw(observer_credential), observer_redeemer_data)],
+    withdrawals: [Pair(observer_credential, withdrawal_amount)],
+  }
+}
+
+test persdsg_observed_for_personalize_accepts_matching_withdrawal_and_redeemer() {
+  let own_ref = fixture_own_ref()
+  let redeemer = fixture_personalize_redeemer()
+  let observer_data = fixture_persdsg_observer_redeemer_data(own_ref, redeemer)
+  let tx =
+    fixture_tx_with_persdsg_observation(
+      own_ref,
+      redeemer,
+      0,
+      fixture_persdsg_credential(),
+      observer_data,
+    )
+  persdsg_observed_for_personalize(tx, own_ref, redeemer)
+}
+
+test persdsg_observed_for_personalize_rejects_when_withdrawal_missing() {
+  let own_ref = fixture_own_ref()
+  let redeemer = fixture_personalize_redeemer()
+  let observer_data = fixture_persdsg_observer_redeemer_data(own_ref, redeemer)
+  // Tx has the redeemer entry but tx.withdrawals is empty.
+  let tx =
+    transaction.Transaction {
+      ..transaction.placeholder,
+      redeemers: [Pair(
+        transaction.Withdraw(fixture_persdsg_credential()),
+        observer_data,
+      )],
+      withdrawals: [],
+    }
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
+}
+
+test persdsg_observed_for_personalize_rejects_when_credential_mismatch() {
+  let own_ref = fixture_own_ref()
+  let redeemer = fixture_personalize_redeemer()
+  let observer_data = fixture_persdsg_observer_redeemer_data(own_ref, redeemer)
+  // Withdrawal exists but at a DIFFERENT credential, not persdsg's.
+  let wrong_credential =
+    address.Script(#"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+  let tx =
+    fixture_tx_with_persdsg_observation(
+      own_ref,
+      redeemer,
+      0,
+      wrong_credential,
+      observer_data,
+    )
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
+}
+
+test persdsg_observed_for_personalize_rejects_when_observer_redeemer_mismatch() {
+  let own_ref = fixture_own_ref()
+  let redeemer = fixture_personalize_redeemer()
+  // Observer redeemer references a DIFFERENT own_ref — could happen if a
+  // malicious BFF tried to point persdsg at a different spend.
+  let other_own_ref =
+    transaction.OutputReference {
+      transaction_id: #"0303030303030303030303030303030303030303030303030303030303030303",
+      output_index: 1,
+    }
+  let mismatched_observer_data =
+    fixture_persdsg_observer_redeemer_data(other_own_ref, redeemer)
+  let tx =
+    fixture_tx_with_persdsg_observation(
+      own_ref,
+      redeemer,
+      0,
+      fixture_persdsg_credential(),
+      mismatched_observer_data,
+    )
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
+}
+
+test dispatch_designer_settings_from_tx_short_circuits_on_reset() {
+  // Reset=1 path: persdsg returns True trivially. perspz handles reset's
+  // own validation; persdsg doesn't enforce designer_settings on reset.
+  let reset_redeemer =
+    types.Personalize {
+      handle: types.Handle {
+        handle_type: types.HandleTypeHandle,
+        name: "alice",
+      },
+      root_handle: "root",
+      indexes: types.PzIndexes {
+        pfp_approver: 0,
+        bg_approver: 0,
+        pfp_datum: 0,
+        bg_datum: 0,
+        required_asset: 0,
+        owner_settings: 0,
+        contract_output: 0,
+        pz_assets: 0,
+        provider_fee: 0,
+      },
+      designer: [],
+      reset: 1,
+    }
+  dispatch_designer_settings_from_tx(
+    Some(fixture_old_datum_data()),
+    reset_redeemer,
+    transaction.placeholder,
+  )
+}
+
+test dispatch_designer_settings_from_tx_rejects_non_personalize_redeemer() {
+  // persdsg only validates the Personalize redeemer; everything else fails.
+  !dispatch_designer_settings_from_tx(
+    Some(fixture_old_datum_data()),
+    types.ReturnToSender,
+    transaction.placeholder,
+  )
+}
+
+test persdsg_observed_for_personalize_rejects_nonzero_withdrawal() {
+  let own_ref = fixture_own_ref()
+  let redeemer = fixture_personalize_redeemer()
+  let observer_data = fixture_persdsg_observer_redeemer_data(own_ref, redeemer)
+  // Withdrawal is non-zero — observer pattern requires Withdraw 0.
+  let tx =
+    fixture_tx_with_persdsg_observation(
+      own_ref,
+      redeemer,
+      1,
+      fixture_persdsg_credential(),
+      observer_data,
+    )
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
 }

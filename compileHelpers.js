@@ -20,7 +20,12 @@ export const getContractArtifactPaths = (contractDirectory = "./contract") => {
 // Canonical slugs per adahandle-deployments/docs/contract-deployment-pipeline.md.
 // Match the validator file names under aiken/validators/. Alpha-ordered (the
 // deploy plan iterates in this order).
-export const PERSONALIZATION_VALIDATOR_SLUGS = ["perslfc", "persprx", "perspz"];
+export const PERSONALIZATION_VALIDATOR_SLUGS = [
+    "persdsg",
+    "perslfc",
+    "persprx",
+    "perspz",
+];
 
 export const getAikenArtifactPaths = (contractDirectory = "./contract") => {
   const directory = contractDirectory.endsWith("/")

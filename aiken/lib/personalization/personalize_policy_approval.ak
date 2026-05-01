@@ -1,40 +1,7 @@
-use personalization/datum.{AssetClass, empty_asset}
-use personalization/policy_index_mpf
-use personalization/policy_index_types.{PolicyApprovalProof, PolicyIndexRoot}
-
 pub type AssetApprovalStatus {
   ApprovalNotRequired
   Approved { nsfw: Int }
   ApprovalRejected
-}
-
-pub fn verify_selected_asset(
-  root: PolicyIndexRoot,
-  asset: AssetClass,
-  asset_present_in_output: Bool,
-  approval: Option<PolicyApprovalProof>,
-) -> AssetApprovalStatus {
-  if asset == empty_asset {
-    ApprovalNotRequired
-  } else if !asset_present_in_output {
-    ApprovalRejected
-  } else {
-    when approval is {
-      Some(proof) ->
-        when
-          policy_index_mpf.verify_policy_approval(
-            root,
-            asset.policy_id,
-            asset.asset_name,
-            proof,
-          )
-        is {
-          Some(nsfw) -> Approved { nsfw }
-          None -> ApprovalRejected
-        }
-      None -> ApprovalRejected
-    }
-  }
 }
 
 pub fn derive_nsfw(

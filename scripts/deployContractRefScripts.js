@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 //
-// Deploy the V3 contract ref-scripts (pers_logic + pers_proxy) on chain.
-// Runs after scripts/reserveContractHandles.js has minted the deployment
-// SubHandles (pers_logic1@handlecontract, pers_proxy1@handlecontract) to
-// derivation 12. This script:
+// Deploy the V3 contract ref-scripts (persdsg + perslfc + persprx + perspz)
+// on chain. Runs after scripts/reserveContractHandles.js has minted the
+// deployment SubHandles (persdsg1@handlecontract, perslfc1@handlecontract,
+// persprx1@handlecontract, perspz1@handlecontract) to derivation 12.
+//
+// IMPORTANT: persdsg must deploy BEFORE perspz — perspz hardcodes persdsg's
+// hash via `persdsg_hash` in aiken/lib/personalization/update.ak. The
+// CONTRACTS array below is alpha-ordered which (luckily) matches the
+// required deploy order. If you reorder, keep persdsg first.
+//
+// This script:
 //
 //   1. Verifies both deployment SubHandles exist on chain.
 //   2. Compiles + loads the per-validator CBOR from plutus.json (via
@@ -46,7 +53,13 @@ const ALLOWED_NETWORKS = ["preview", "preprod", "mainnet"];
 //   persprx -> proxy
 //   perspz  -> Personalize-variant logic
 //   perslfc -> lifecycle-variant logic (Migrate/Revoke/Update/ReturnToSender)
+//   persdsg -> designer-settings observer (delegated from perspz; see
+//              persdsg.ak header for the split rationale). MUST deploy
+//              before perspz, since perspz hardcodes persdsg's hash via
+//              `persdsg_hash` in update.ak — if persdsg's hash changes,
+//              update that const and rebuild perspz.
 const CONTRACTS = [
+  { slug: "persdsg", handle: "persdsg1@handlecontract" },
   { slug: "perspz", handle: "perspz1@handlecontract" },
   { slug: "perslfc", handle: "perslfc1@handlecontract" },
   { slug: "persprx", handle: "persprx1@handlecontract" },

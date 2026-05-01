@@ -1,12 +1,12 @@
 # Aiken validator iteration loop (local scalus eval)
 
-Tight inner-loop for iterating on `pers` and `persprx` Aiken validators
-**without** re-publishing the on-chain reference script after every edit.
-The on-chain ref UTxO stays as-is; locally-compiled CBOR is swapped into the
+Tight inner-loop for iterating on the four `pers*` Aiken validators
+**without** re-publishing the on-chain reference scripts after every edit.
+The on-chain ref UTxOs stay as-is; locally-compiled CBOR is swapped into the
 scalus evaluator just before validation, so each iteration is:
 
 ```
-edit aiken/validators/pers.ak (or persprx.ak)
+edit aiken/validators/perspz.ak (or perslfc.ak / persprx.ak / persdsg.ak)
   → aiken build                       # writes plutus.json
   → extract compiledCode hex          # jq -r '.validators[].compiledCode'
   → set LOCAL_PERS_UNOPTIMIZED_CBOR_PATH=<file>
@@ -17,7 +17,22 @@ edit aiken/validators/pers.ak (or persprx.ak)
 No on-chain mint, no @handlecontract publish, no partners-trie update per
 iteration. Submission to preview chain is reserved for the **acceptance
 gate** at the end (when scalus is green and you're ready to push the new
-ref-script live).
+ref-scripts live).
+
+## The four validators
+
+After the size-driven splits, the contract suite is:
+
+- **`persprx`** (spend proxy) — wraps the SubHandle UTxO spend; delegates to
+  any Withdraw 0 observer in `valid_contracts`.
+- **`perspz`** (Personalize observer) — withdraw observer that validates
+  the Personalize redeemer.
+- **`perslfc`** (lifecycle observer) — withdraw observer for
+  Migrate / Revoke / Update / ReturnToSender redeemers.
+- **`persdsg`** (designer-settings observer) — withdraw observer that
+  validates `designer_settings_are_valid` on perspz's behalf for non-reset
+  Personalize txs. **Must deploy before perspz** — perspz hardcodes
+  persdsg's hash via `persdsg_hash` in `update.ak`.
 
 ## Compiling Aiken
 
@@ -27,28 +42,48 @@ aiken build
 # plutus.json now has all validator entries with their compiledCode
 ```
 
-To extract just the spend validator's compiled CBOR:
+To extract a specific validator's compiled CBOR:
 
 ```sh
-jq -r '.validators[] | select(.title=="pers.spend").compiledCode' \
-  plutus.json > /tmp/pers.cbor.hex
-```
+# perspz (Personalize observer)
+jq -r '.validators[] | select(.title=="perspz.perspz.withdraw").compiledCode' \
+  plutus.json > /tmp/perspz.cbor.hex
 
-Or for the proxy:
+# perslfc (lifecycle observer)
+jq -r '.validators[] | select(.title=="perslfc.perslfc.withdraw").compiledCode' \
+  plutus.json > /tmp/perslfc.cbor.hex
 
-```sh
-jq -r '.validators[] | select(.title=="persprx.spend").compiledCode' \
+# persprx (spend proxy)
+jq -r '.validators[] | select(.title=="persprx.persprx.spend").compiledCode' \
   plutus.json > /tmp/persprx.cbor.hex
+
+# persdsg (designer-settings observer)
+jq -r '.validators[] | select(.title=="persdsg.persdsg.withdraw").compiledCode' \
+  plutus.json > /tmp/persdsg.cbor.hex
 ```
 
 The file must contain raw hex with no surrounding whitespace or quoting.
+
+## Updating `persdsg_hash` after a persdsg edit
+
+If you edit anything that `persdsg.ak` transitively reaches
+(`designer_settings.ak`, base58 helpers, `dispatch_designer_settings_from_tx`,
+etc.), persdsg's compiled bytecode — and therefore its hash — will change.
+perspz hardcodes that hash, so it needs to be re-synced:
+
+```sh
+aiken build
+jq -r '.validators[] | select(.title=="persdsg.persdsg.withdraw").hash' plutus.json
+# copy that hex into `persdsg_hash` in aiken/lib/personalization/update.ak
+aiken build  # rebuild perspz with the new hash
+```
 
 ## Wiring into the e2e harness
 
 Set the env var pointing at the file:
 
 ```sh
-export LOCAL_PERS_UNOPTIMIZED_CBOR_PATH=/tmp/pers.cbor.hex
+export LOCAL_PERS_UNOPTIMIZED_CBOR_PATH=/tmp/perspz.cbor.hex
 ```
 
 The BFF's [`fetchUnoptimizedScriptCbor`](../../../handle.me/bff/lib/cardano/evaluateWithTrace.ts)
@@ -80,7 +115,8 @@ validator rejected.
 - Tx-builder shape changes — the BFF still constructs the tx assuming the
   legacy `pz` interface (datum format, redeemer constructors, parameter
   set). If your new Aiken validator changes any of that, the BFF needs
-  matching updates.
+  matching updates. Specifically: **non-reset Personalize txs now require
+  a Withdraw 0 entry at persdsg's reward address** (in addition to perspz's).
 - On-chain submission — fee math, script_data_hash matching against the
   on-chain ref-script, UTxO existence — those only show up at submission
   time and are minor compared to validator-logic bugs.
@@ -91,12 +127,15 @@ validator rejected.
 
 ## Acceptance gate (when scalus is green)
 
-1. Mint the @handlecontract deployment handles
-   (`pers1@handlecontract`, `persprx1@handlecontract`) under the same
+1. Mint the four @handlecontract deployment handles
+   (`persdsg1@handlecontract`, `perslfc1@handlecontract`,
+   `persprx1@handlecontract`, `perspz1@handlecontract`) under the same
    compiled CBOR — see [`mintTestBackground.js`](../../scripts/mintTestBackground.js)
    for the native-script pattern, but using the canonical contract
    slug-naming rules from
    [`adahandle-deployments/docs/contract-deployment-pipeline.md`](../../../adahandle-deployments/docs/contract-deployment-pipeline.md).
+   **Order matters** — `persdsg` first (perspz hardcodes its hash), then
+   the rest.
 2. Update the `pers@handle_settings` datum to register the new
    `valid_contracts` script hashes — requires multisig co-signing.
 3. Unset `LOCAL_PERS_UNOPTIMIZED_CBOR_PATH` and re-run the e2e suite live

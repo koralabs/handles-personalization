@@ -26,12 +26,12 @@ test("getAikenArtifactPaths handles trailing and non-trailing slash", () => {
   assert.equal(noSlash.addresses, "./contract/aiken.addresses.json");
   assert.equal(noSlash.validators, "./contract/aiken.validators.json");
   assert.equal(
-    noSlash.perValidator("pers_proxy").hash,
-    "./contract/aiken.pers_proxy.hash"
+    noSlash.perValidator("persprx").hash,
+    "./contract/aiken.persprx.hash"
   );
   assert.equal(
-    noSlash.perValidator("pers_logic").compiledCbor,
-    "./contract/aiken.pers_logic.compiled.cbor"
+    noSlash.perValidator("perspz").compiledCbor,
+    "./contract/aiken.perspz.compiled.cbor"
   );
 });
 
@@ -44,7 +44,18 @@ test("PERSONALIZATION_VALIDATOR_SLUGS is alpha-ordered and stable", () => {
   );
 });
 
-test("compileAiken.js emits per-validator artifacts for proxy and logic", async () => {
+test("PERSONALIZATION_VALIDATOR_SLUGS includes the 4 expected validators", () => {
+  // persdsg must deploy first (perspz hardcodes its hash via persdsg_hash).
+  // alpha order: persdsg, perslfc, persprx, perspz.
+  assert.deepEqual(PERSONALIZATION_VALIDATOR_SLUGS, [
+    "persdsg",
+    "perslfc",
+    "persprx",
+    "perspz",
+  ]);
+});
+
+test("compileAiken.js emits per-validator artifacts for all 4 validators", async () => {
   const artifactPaths = getAikenArtifactPaths();
   await runCompileModule("aiken");
 
@@ -66,48 +77,76 @@ test("compileAiken.js emits per-validator artifacts for proxy and logic", async 
 
   assert.equal(blueprint.preamble.title, "koralabs/handles-personalization");
   assert.equal(Array.isArray(validatorBundle.validators), true);
-  assert.equal(validatorBundle.validators.length, 2, "expected proxy + logic entries");
+  assert.equal(
+    validatorBundle.validators.length,
+    4,
+    "expected persdsg + perslfc + persprx + perspz entries"
+  );
   const slugs = validatorBundle.validators.map((entry) => entry.slug).sort();
-  assert.deepEqual(slugs, ["pers_logic", "pers_proxy"]);
+  assert.deepEqual(slugs, ["persdsg", "perslfc", "persprx", "perspz"]);
 
-  const proxy = validatorBundle.validators.find((entry) => entry.slug === "pers_proxy");
-  const logic = validatorBundle.validators.find((entry) => entry.slug === "pers_logic");
-  assert.notEqual(proxy.hash, logic.hash, "proxy and logic must have distinct script hashes");
-  assert.ok(proxy.handlers.includes("spend"), "proxy must expose a spend handler");
-  assert.ok(logic.handlers.includes("withdraw"), "logic must expose a withdraw handler");
+  // All 4 hashes must be distinct (each validator is its own script).
+  const hashes = new Set(validatorBundle.validators.map((entry) => entry.hash));
+  assert.equal(hashes.size, 4, "all 4 validators must have distinct script hashes");
+
+  // Handler shape: persprx is the spend proxy; perspz/perslfc/persdsg are withdraw observers.
+  const persprx = validatorBundle.validators.find((e) => e.slug === "persprx");
+  const perspz = validatorBundle.validators.find((e) => e.slug === "perspz");
+  const perslfc = validatorBundle.validators.find((e) => e.slug === "perslfc");
+  const persdsg = validatorBundle.validators.find((e) => e.slug === "persdsg");
+  assert.ok(persprx.handlers.includes("spend"), "persprx must expose a spend handler");
+  assert.ok(perspz.handlers.includes("withdraw"), "perspz must expose a withdraw handler");
+  assert.ok(perslfc.handlers.includes("withdraw"), "perslfc must expose a withdraw handler");
+  assert.ok(persdsg.handlers.includes("withdraw"), "persdsg must expose a withdraw handler");
 
   // Per-file hashes match the bundle entries.
-  const proxyHash = readFileSync(artifactPaths.perValidator("pers_proxy").hash, "utf8").trim();
-  const logicHash = readFileSync(artifactPaths.perValidator("pers_logic").hash, "utf8").trim();
-  assert.equal(proxyHash, proxy.hash);
-  assert.equal(logicHash, logic.hash);
+  for (const slug of PERSONALIZATION_VALIDATOR_SLUGS) {
+    const entry = validatorBundle.validators.find((e) => e.slug === slug);
+    const fileHash = readFileSync(artifactPaths.perValidator(slug).hash, "utf8").trim();
+    assert.equal(fileHash, entry.hash, `${slug} hash file must match validator bundle`);
+  }
 
-  // Logic validator (withdraw) must have stake addresses written too.
-  const logicPaths = artifactPaths.perValidator("pers_logic");
-  assert.equal(existsSync(logicPaths.stakeAddrTestnet), true);
-  assert.equal(existsSync(logicPaths.stakeAddrMainnet), true);
-  const logicStakeTestnet = readFileSync(logicPaths.stakeAddrTestnet, "utf8").trim();
-  const logicStakeMainnet = readFileSync(logicPaths.stakeAddrMainnet, "utf8").trim();
-  assert.equal(logicStakeTestnet.startsWith("stake_test1"), true);
-  assert.equal(logicStakeMainnet.startsWith("stake1"), true);
+  // Withdraw observers must have stake addresses written too.
+  for (const slug of ["persdsg", "perslfc", "perspz"]) {
+    const paths = artifactPaths.perValidator(slug);
+    assert.equal(existsSync(paths.stakeAddrTestnet), true, `missing ${paths.stakeAddrTestnet}`);
+    assert.equal(existsSync(paths.stakeAddrMainnet), true, `missing ${paths.stakeAddrMainnet}`);
+    const stakeTestnet = readFileSync(paths.stakeAddrTestnet, "utf8").trim();
+    const stakeMainnet = readFileSync(paths.stakeAddrMainnet, "utf8").trim();
+    assert.equal(stakeTestnet.startsWith("stake_test1"), true);
+    assert.equal(stakeMainnet.startsWith("stake1"), true);
+  }
 
-  // Proxy validator (spend-only) should not have stake addresses.
-  const proxyPaths = artifactPaths.perValidator("pers_proxy");
-  assert.equal(existsSync(proxyPaths.stakeAddrTestnet), false);
-  assert.equal(existsSync(proxyPaths.stakeAddrMainnet), false);
+  // persprx (spend-only) should not have stake addresses.
+  const persprxPaths = artifactPaths.perValidator("persprx");
+  assert.equal(existsSync(persprxPaths.stakeAddrTestnet), false);
+  assert.equal(existsSync(persprxPaths.stakeAddrMainnet), false);
 
-  assert.equal(addressBundle.validators.length, 2);
+  assert.equal(addressBundle.validators.length, 4);
 });
 
-test("personalization is wired as proxy (spend) + logic (withdraw_0) split", () => {
-  // Feature: the proxy validator delegates to a withdraw_0 from any of pz_settings.valid_contracts.
-  // Failure mode: a regression that re-merges spend+withdraw into one validator would silently turn into a single-script deployment again.
-  const proxySource = readFileSync(
-    path.resolve("./aiken/validators/pers_proxy.ak"),
+test("personalization is wired as persprx (spend) + 3 withdraw observers (perspz/perslfc/persdsg)", () => {
+  // Feature: persprx is the spend proxy that delegates to a withdraw_0 from any
+  // of pz_settings.valid_contracts. perspz/perslfc are the actual observers
+  // that handle Personalize / other redeemers respectively. persdsg is a
+  // SECOND withdraw observer required by perspz for non-reset Personalize txs;
+  // it validates designer_settings (split out for size).
+  // Failure mode: a regression that re-merges spend+withdraw or removes the
+  // persdsg gate would silently change the deployment topology.
+  const persprxSource = readFileSync(
+    path.resolve("./aiken/validators/persprx.ak"),
     "utf8"
   );
-  const logicSource = readFileSync(
-    path.resolve("./aiken/validators/pers_logic.ak"),
+  const perspzSource = readFileSync(
+    path.resolve("./aiken/validators/perspz.ak"),
+    "utf8"
+  );
+  const perslfcSource = readFileSync(
+    path.resolve("./aiken/validators/perslfc.ak"),
+    "utf8"
+  );
+  const persdsgSource = readFileSync(
+    path.resolve("./aiken/validators/persdsg.ak"),
     "utf8"
   );
   const updateSource = readFileSync(
@@ -119,16 +158,46 @@ test("personalization is wired as proxy (spend) + logic (withdraw_0) split", () 
     "utf8"
   );
 
+  // persprx is a spend validator that delegates to observer_withdrawal_is_valid_data.
   assert.ok(
-    proxySource.includes("update.observer_withdrawal_is_valid("),
-    "proxy must delegate to update.observer_withdrawal_is_valid"
+    persprxSource.includes("update.observer_withdrawal_is_valid_data("),
+    "persprx must delegate to update.observer_withdrawal_is_valid_data"
   );
-  assert.ok(!proxySource.includes("withdraw("), "proxy file must not declare a withdraw handler");
   assert.ok(
-    logicSource.includes("update.dispatch_from_observer("),
-    "logic must call update.dispatch_from_observer"
+    !persprxSource.includes("withdraw("),
+    "persprx file must not declare a withdraw handler"
   );
-  assert.ok(!logicSource.includes("spend("), "logic file must not declare a spend handler");
+
+  // perspz is a withdraw observer for the Personalize redeemer.
+  assert.ok(
+    perspzSource.includes("update.validate_observer_personalize("),
+    "perspz must call update.validate_observer_personalize"
+  );
+  assert.ok(!perspzSource.includes("spend("), "perspz must not declare a spend handler");
+
+  // perslfc is a withdraw observer for the lifecycle redeemers.
+  assert.ok(
+    perslfcSource.includes("update.validate_observer_other("),
+    "perslfc must call update.validate_observer_other"
+  );
+  assert.ok(!perslfcSource.includes("spend("), "perslfc must not declare a spend handler");
+
+  // persdsg is a withdraw observer for designer_settings validation.
+  assert.ok(
+    persdsgSource.includes("update.validate_observer_designer_settings("),
+    "persdsg must call update.validate_observer_designer_settings"
+  );
+  assert.ok(!persdsgSource.includes("spend("), "persdsg must not declare a spend handler");
+
+  // Type-level wiring + perspz's persdsg gate.
   assert.ok(typesSource.includes("pub type ObserverRedeemer"));
   assert.ok(updateSource.includes("entry.2nd == observer_redeemer_data"));
+  assert.ok(
+    updateSource.includes("persdsg_observed_for_personalize"),
+    "perspz must check persdsg observed for non-reset Personalize"
+  );
+  assert.ok(
+    /const persdsg_hash:\s*ByteArray/.test(updateSource),
+    "update.ak must hardcode persdsg_hash"
+  );
 });

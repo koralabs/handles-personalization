@@ -12,13 +12,10 @@ pub fn holder_addresses_match(
   address_1: address.Address,
   address_2: address.Address,
 ) -> Bool {
-  when address_1.stake_credential is {
-    None -> address_1.payment_credential == address_2.payment_credential
-    Some(stake_1) ->
-      when address_2.stake_credential is {
-        None -> address_1.payment_credential == address_2.payment_credential
-        Some(stake_2) -> stake_1 == stake_2
-      }
+  if address_1.stake_credential == None || address_2.stake_credential == None {
+    address_1.payment_credential == address_2.payment_credential
+  } else {
+    address_1.stake_credential == address_2.stake_credential
   }
 }
 
@@ -27,11 +24,11 @@ pub fn is_valid_contract(
   valid_contracts: List<ByteArray>,
   current_validator_hash: ByteArray,
 ) -> Bool {
-  list.any(valid_contracts, fn(hash) { hash == current_validator_hash }) && when
+  list.has(valid_contracts, current_validator_hash) && when
     output.address.payment_credential
   is {
     address.Script(output_validator_hash) ->
-      list.any(valid_contracts, fn(hash) { hash == output_validator_hash })
+      list.has(valid_contracts, output_validator_hash)
     address.VerificationKey(_) -> False
   }
 }
@@ -43,10 +40,7 @@ pub fn admin_has_signed_tx(
   !list.is_empty(signatories) && list.any(
     signatories,
     fn(signer) {
-      signer == bootstrap_admin_signer || list.any(
-        admin_creds,
-        fn(admin) { signer == admin },
-      )
+      signer == bootstrap_admin_signer || list.has(admin_creds, signer)
     },
   )
 }
@@ -71,6 +65,15 @@ pub fn get_virtual_price(length: Int, tiers: types.IntMatrix) -> Int {
   price
 }
 
+// Parses a Shelley address from raw bytes per CIP-19. Supports address types
+// 0-3 (base) and 6-7 (enterprise). DOES NOT support pointer addresses
+// (types 4-5) — the original Helios `Address::from_bytes` builtin accepts
+// them, but no mainstream Cardano wallet generates pointer addresses and
+// they're unused on the relevant on-chain fields (resolved_addresses["ada"],
+// last_update_address) for this contract. Dropping pointer support saves
+// ~320 bytes of validator size. If a future use case requires pointer
+// addresses, restore the parse_pointer + parse_var_uint helpers from git
+// history.
 pub fn address_from_shelley_bytes(bytes: ByteArray) -> Option<address.Address> {
   if bytearray.length(bytes) < 29 {
     None
@@ -78,10 +81,10 @@ pub fn address_from_shelley_bytes(bytes: ByteArray) -> Option<address.Address> {
     let header = bytearray.at(bytes, 0)
     let address_type = header / 16
     let payment_hash = bytearray.slice(bytes, 1, 28)
+    // CIP-19: bit 0 of address_type is 1 for Script-payment, 0 for VK-payment.
+    // For type ≥ 8 (out-of-spec) we default to VK.
     let payment_credential =
-      if address_type == 0 || address_type == 2 || address_type == 4 || address_type == 6 {
-        address.VerificationKey(payment_hash)
-      } else if address_type == 1 || address_type == 3 || address_type == 5 || address_type == 7 {
+      if address_type % 2 == 1 && address_type < 8 {
         address.Script(payment_hash)
       } else {
         address.VerificationKey(payment_hash)
@@ -109,67 +112,25 @@ fn stake_credential_from_payload(
   bytes: ByteArray,
   address_type: Int,
 ) -> Option<address.StakeCredential> {
-  if address_type == 0 || address_type == 1 || address_type == 2 || address_type == 3 {
+  // CIP-19 type < 4: base (stake inlined). type 6..7: enterprise (no stake).
+  // Pointer addresses (types 4..5) are NOT supported — see address_from_shelley_bytes
+  // header comment for the parity-divergence rationale.
+  if address_type < 4 {
     if bytearray.length(bytes) != 57 {
       None
     } else {
       let stake_hash = bytearray.drop(bytes, 29)
+      // bit 1 (address_type < 2) is 0 for VK-stake, 1 for Script-stake.
       let inline_credential =
-        if address_type == 0 || address_type == 1 {
+        if address_type < 2 {
           address.VerificationKey(stake_hash)
         } else {
           address.Script(stake_hash)
         }
-
       Some(address.Inline(inline_credential))
     }
-  } else if address_type == 4 || address_type == 5 {
-    parse_pointer(bytes, 29)
   } else {
     None
-  }
-}
-
-fn parse_pointer(
-  bytes: ByteArray,
-  start: Int,
-) -> Option<address.StakeCredential> {
-  when parse_var_uint(bytes, start, 0) is {
-    Some((slot_number, next_1)) ->
-      when parse_var_uint(bytes, next_1, 0) is {
-        Some((transaction_index, next_2)) ->
-          when parse_var_uint(bytes, next_2, 0) is {
-            Some((certificate_index, next_3)) ->
-              if next_3 == bytearray.length(bytes) {
-                Some(
-                  address.Pointer {
-                    slot_number,
-                    transaction_index,
-                    certificate_index,
-                  },
-                )
-              } else {
-                None
-              }
-            None -> None
-          }
-        None -> None
-      }
-    None -> None
-  }
-}
-
-fn parse_var_uint(bytes: ByteArray, index: Int, acc: Int) -> Option<(Int, Int)> {
-  if index >= bytearray.length(bytes) {
-    None
-  } else {
-    let byte = bytearray.at(bytes, index)
-    let value = acc * 128 + byte % 128
-    if byte >= 128 {
-      parse_var_uint(bytes, index + 1, value)
-    } else {
-      Some((value, index + 1))
-    }
   }
 }
 
@@ -279,21 +240,12 @@ test address_from_shelley_bytes_parses_base_key_key() {
   )
 }
 
-test address_from_shelley_bytes_parses_pointer_payload() {
+test address_from_shelley_bytes_rejects_pointer_payload() {
+  // Pointer addresses (CIP-19 types 4-5) are intentionally not supported
+  // by this validator — see address_from_shelley_bytes header comment.
   let payment = #"01010101010101010101010101010101010101010101010101010101"
   let pointer = #"810180018002"
   let bytes = bytearray.concat(#"40", bytearray.concat(payment, pointer))
 
-  address_from_shelley_bytes(bytes) == Some(
-    address.Address {
-      payment_credential: address.VerificationKey(payment),
-      stake_credential: Some(
-        address.Pointer {
-          slot_number: 129,
-          transaction_index: 1,
-          certificate_index: 2,
-        },
-      ),
-    },
-  )
+  address_from_shelley_bytes(bytes) == None
 }
