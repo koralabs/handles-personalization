@@ -48,7 +48,13 @@ import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 //   persprx — proxy (the spend script being delegated to)
 //   perspz  — Personalize-variant logic
 //   perslfc — lifecycle-variant logic (Migrate/Revoke/Update/ReturnToSender)
-// All three need to land in pz_settings.valid_contracts.
+//   persdsg — designer-settings observer (split out of perspz to fit the
+//             16 KB deploy-tx limit; perspz hardcodes persdsg's hash and
+//             requires a matching withdrawal for non-reset Personalize.
+//             See aiken/validators/persdsg.ak header for context.)
+// All four need to land in pz_settings.valid_contracts and have
+// `@handlecontract` SubHandles minted so api.handle.me/scripts can expose
+// each validator's compiledCode + ref-script UTxO to the BFF.
 //
 // Pre-split mints (pers_logic1, pers_proxy1) are stranded but benign — they
 // don't correspond to any deployed validator.
@@ -56,6 +62,7 @@ const CONTRACT_HANDLES = [
   "persprx1@handlecontract",
   "perspz1@handlecontract",
   "perslfc1@handlecontract",
+  "persdsg1@handlecontract",
 ];
 
 const parseArgs = (argv) => {

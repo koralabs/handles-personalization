@@ -117,20 +117,23 @@ const main = async () => {
   const userAgent = "kora-cutover/1.0";
 
   // 1. Compute V3 hashes from plutus.json (canonical-slug per-variant split:
-  //    persprx + perspz + perslfc).
+  //    persprx + perspz + perslfc + persdsg).
   const blueprint = JSON.parse(readFileSync(PLUTUS_JSON, "utf8"));
   const persProxy = blueprint.validators.find((v) => v.title === "persprx.persprx.spend");
   const persPz = blueprint.validators.find((v) => v.title === "perspz.perspz.withdraw");
   const persLfc = blueprint.validators.find((v) => v.title === "perslfc.perslfc.withdraw");
-  if (!persProxy || !persPz || !persLfc) {
-    throw new Error("persprx / perspz / perslfc missing from plutus.json — run aiken build first");
+  const persDsg = blueprint.validators.find((v) => v.title === "persdsg.persdsg.withdraw");
+  if (!persProxy || !persPz || !persLfc || !persDsg) {
+    throw new Error("persprx / perspz / perslfc / persdsg missing from plutus.json — run aiken build first");
   }
   const persProxyHash = await computeV3Hash(persProxy.compiledCode);
   const persPzHash = await computeV3Hash(persPz.compiledCode);
   const persLfcHash = await computeV3Hash(persLfc.compiledCode);
+  const persDsgHash = await computeV3Hash(persDsg.compiledCode);
   console.log(`persprx V3 hash : ${persProxyHash.toString("hex")}`);
   console.log(`perspz  V3 hash : ${persPzHash.toString("hex")}`);
   console.log(`perslfc V3 hash : ${persLfcHash.toString("hex")}`);
+  console.log(`persdsg V3 hash : ${persDsgHash.toString("hex")}`);
 
   // 2. Fetch current pz_settings datum
   console.log(`Fetching ${SETTINGS_HANDLE} datum...`);
@@ -151,12 +154,13 @@ const main = async () => {
     { name: "persprx", buf: persProxyHash },
     { name: "perspz", buf: persPzHash },
     { name: "perslfc", buf: persLfcHash },
+    { name: "persdsg", buf: persDsgHash },
   ];
   const toAdd = wantedHashes
     .filter(({ buf }) => !existingHashes.includes(buf.toString("hex")))
     .map(({ buf }) => buf);
   if (toAdd.length === 0) {
-    console.log("✓ all three V3 hashes already in valid_contracts; nothing to do");
+    console.log("✓ all four V3 hashes already in valid_contracts; nothing to do");
     return;
   }
   decoded[4] = [...validContracts, ...toAdd];
