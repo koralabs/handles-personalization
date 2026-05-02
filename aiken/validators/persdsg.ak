@@ -1,6 +1,5 @@
 use cardano/address.{Credential}
 use cardano/transaction.{Transaction}
-use personalization/types
 use personalization/update
 
 // Designer-settings observer: validates `designer_settings_are_valid` for the
@@ -20,11 +19,11 @@ use personalization/update
 // can't be DCE'd because they're shared with the perspz path).
 validator persdsg {
   withdraw(
-    observer_redeemer: types.ObserverRedeemer,
+    observer_redeemer: Data,
     _account: Credential,
     tx: Transaction,
   ) {
-    update.validate_observer_designer_settings(observer_redeemer, tx)
+    update.validate_observer_designer_settings_data(observer_redeemer, tx)
   }
 
   // See perspz.ak for the rationale — observer credentials must be

@@ -1,6 +1,5 @@
 use cardano/address.{Credential}
 use cardano/transaction.{Transaction}
-use personalization/types
 use personalization/update
 
 // Per-variant split: this withdraw observer handles ONLY the Personalize
@@ -15,11 +14,11 @@ use personalization/update
 // bytes — the original monolithic pers_logic was 20.1 KB.
 validator perspz {
   withdraw(
-    observer_redeemer: types.ObserverRedeemer,
+    observer_redeemer: Data,
     _account: Credential,
     tx: Transaction,
   ) {
-    update.validate_observer_personalize(observer_redeemer, tx)
+    update.validate_observer_personalize_data(observer_redeemer, tx)
   }
 
   // Permit registration / deregistration / delegation of the script

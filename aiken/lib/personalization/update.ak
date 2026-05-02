@@ -149,7 +149,7 @@ const standard_unchanged_keys: List<ByteArray> =
 // persdsg, copy the new hash from `plutus.json` (`validators[].hash`), and
 // update the const here, then rebuild perspz.
 const persdsg_hash: ByteArray =
-  #"f3ff0e144c4e23786934d90dbaa08fbfcd7783c121c73ba2db48eb92"
+  #"a8c1ca7158a4a641e322bd66214875dbfc9c7857255031923923c356"
 
 fn output_data(
   output: transaction.Output,
@@ -395,6 +395,14 @@ fn spend_redeemer_matches(
 ) -> Bool {
   let expected_data: Data = expected_redeemer
 
+  spend_redeemer_data_matches(redeemers, own_ref, expected_data)
+}
+
+fn spend_redeemer_data_matches(
+  redeemers: Pairs<transaction.ScriptPurpose, transaction.Redeemer>,
+  own_ref: transaction.OutputReference,
+  expected_data: Data,
+) -> Bool {
   list.any(
     redeemers,
     fn(entry) {
@@ -405,6 +413,21 @@ fn spend_redeemer_matches(
       }
     },
   )
+}
+
+fn observe_redeemer_fields(observer_redeemer_data: Data) -> Option<Pair<transaction.OutputReference, Data>> {
+  let Pair(tag, fields) = builtin.un_constr_data(observer_redeemer_data)
+  if tag != 0 {
+    None
+  } else {
+    when fields is {
+      [own_ref_data, redeemer_data] -> {
+        expect own_ref: transaction.OutputReference = own_ref_data
+        Some(Pair(own_ref, redeemer_data))
+      }
+      _ -> None
+    }
+  }
 }
 
 pub fn observer_withdrawal_is_valid(
@@ -516,13 +539,41 @@ fn cip68_ref_at(
   when reference_output_at(tx.reference_inputs, ref_index) is {
     None -> None
     Some(out) ->
-      when output_data(out, tx) is {
-        None -> None
-        Some(d) -> {
-          expect cip68: types.PersonalizationDatum = d
-          Some(cip68)
+      if !output_has_cip68_reference_token(out) {
+        None
+      } else {
+        when output_data(out, tx) is {
+          None -> None
+          Some(d) -> {
+            expect cip68: types.PersonalizationDatum = d
+            Some(cip68)
+          }
         }
       }
+  }
+}
+
+fn output_has_cip68_reference_token(output: transaction.Output) -> Bool {
+  assets.flatten(output.value)
+    |> list.any(fn(t) { bytearray.starts_with(t.2nd, constants.lbl_100) })
+}
+
+fn asset_requires_cip68_ref(asset: datum.AssetClass) -> Bool {
+  asset != datum.empty_asset && (bytearray.starts_with(
+    asset.asset_name,
+    constants.lbl_222,
+  ) || bytearray.starts_with(asset.asset_name, constants.lbl_444))
+}
+
+fn cip68_ref_for_asset(
+  asset: datum.AssetClass,
+  ref_index: Int,
+  tx: transaction.Transaction,
+) -> Option<types.PersonalizationDatum> {
+  if asset_requires_cip68_ref(asset) {
+    cip68_ref_at(ref_index, tx)
+  } else {
+    None
   }
 }
 
@@ -535,14 +586,101 @@ fn image_matches_datum_check(
   image_key: ByteArray,
   new_extra: types.DataMap,
 ) -> Bool {
-  asset == datum.empty_asset || when cip68_opt is {
-    None -> False
-    Some(asset_datum) -> {
-      let types.Cip68 { nft: asset_nft, .. } = asset_datum
-      let asset_image = datum.map_get(asset_nft, key_image)
-      asset_image == datum.map_get(new_extra, image_key) && asset_image != None
+  if !asset_requires_cip68_ref(asset) {
+    // Helios get_asset_datum returned OutputDatum::new_none() for non-CIP68
+    // asset names, and the pfp/bg image check accepted that case.
+    True
+  } else {
+    when cip68_opt is {
+      None -> False
+      Some(asset_datum) -> {
+        let types.Cip68 { nft: asset_nft, .. } = asset_datum
+        let asset_image = datum.map_get(asset_nft, key_image)
+        asset_image == datum.map_get(new_extra, image_key) && asset_image != None
+      }
     }
   }
+}
+
+test image_matches_datum_accepts_non_cip68_asset_without_reference_datum() {
+  let asset =
+    datum.AssetClass {
+      policy_id: #"eb66d2159d51cec7bd469c0daef8a93e0d2066f55d3c1a9cf5bc0393",
+      asset_name: "Test 3 DiscoSolaris4601",
+    }
+
+  image_matches_datum_check(asset, None, key_pfp_image, [])
+}
+
+test cip68_ref_for_asset_ignores_non_cip68_asset_with_root_at_zero() {
+  let asset =
+    datum.AssetClass {
+      policy_id: #"eb66d2159d51cec7bd469c0daef8a93e0d2066f55d3c1a9cf5bc0393",
+      asset_name: "Test 3 DiscoSolaris4601",
+    }
+  let root_data: Data =
+    #"c150d28d1c69ce53a137fd62bb8e4b0d065b545f33f638b2a2b09989332efb84"
+  let tx =
+    transaction.Transaction {
+      ..transaction.placeholder,
+      reference_inputs: [
+        transaction.Input {
+          output_reference: transaction.OutputReference {
+            transaction_id: #"0101010101010101010101010101010101010101010101010101010101010101",
+            output_index: 0,
+          },
+          output: transaction.Output {
+            address: address.from_script(#"bb"),
+            value: assets.from_asset(
+              constants.handle_policy_id,
+              constants.prefixed_asset_name(constants.lbl_222, key_policy_ids_pfp),
+              1,
+            ),
+            datum: transaction.InlineDatum(root_data),
+            reference_script: None,
+          },
+        },
+      ],
+    }
+
+  cip68_ref_for_asset(asset, 0, tx) == None
+}
+
+test pz_indexes_external_data_field_order_matches_bff_redeemer() {
+  let raw_indexes: Data =
+    builtin.constr_data(0, [
+      builtin.i_data(11),
+      builtin.i_data(22),
+      builtin.i_data(33),
+      builtin.i_data(44),
+      builtin.i_data(55),
+      builtin.i_data(66),
+      builtin.i_data(77),
+      builtin.i_data(88),
+      builtin.i_data(99),
+    ])
+  expect indexes: types.PzIndexes = raw_indexes
+  and {
+    indexes.pfp_approver == 11,
+    indexes.bg_approver == 22,
+    indexes.pfp_datum == 33,
+    indexes.bg_datum == 44,
+    indexes.required_asset == 55,
+    indexes.owner_settings == 66,
+    indexes.contract_output == 77,
+    indexes.pz_assets == 88,
+    indexes.provider_fee == 99,
+  }
+}
+
+test image_matches_datum_rejects_cip68_asset_without_reference_datum() {
+  let asset =
+    datum.AssetClass {
+      policy_id: #"8ed30c080aba8eb431dabb802ea8dda3a131b0f49c72d2766b25b1eb",
+      asset_name: bytearray.concat(constants.lbl_444, "handles_bg_boat_2"),
+    }
+
+  !image_matches_datum_check(asset, None, key_bg_image, [])
 }
 
 fn current_validator_hash(
@@ -1234,8 +1372,8 @@ fn personalize_validate(
   // Pre-load the bg and pfp CIP-68 reference datums once. Used by both the
   // image-matches check and (for bg) by designer_settings + check_required_assets.
   // Avoids 3 separate list.at walks of tx.reference_inputs at indexes.bg_datum.
-  let bg_cip68_opt = cip68_ref_at(indexes.bg_datum, tx)
-  let pfp_cip68_opt = cip68_ref_at(indexes.pfp_datum, tx)
+  let bg_cip68_opt = cip68_ref_for_asset(new_bg_asset, indexes.bg_datum, tx)
+  let pfp_cip68_opt = cip68_ref_for_asset(new_pfp_asset, indexes.pfp_datum, tx)
   // bg/pfp_image_matches_datum: when asset is set, the asset's CIP-68 reference
   // datum must have nft.image == new_extra.{bg,pfp}_image. Empty asset → True.
   let bg_image_matches_datum =
@@ -2179,6 +2317,25 @@ pub fn validate_observer_personalize(
   }
 }
 
+pub fn validate_observer_personalize_data(
+  observer_redeemer_data: Data,
+  tx: transaction.Transaction,
+) -> Bool {
+  when observe_redeemer_fields(observer_redeemer_data) is {
+    None -> False
+    Some(Pair(own_ref, redeemer_data)) -> {
+      expect redeemer: types.Redeemer = redeemer_data
+      spend_redeemer_data_matches(tx.redeemers, own_ref, redeemer_data) && when
+        transaction.find_input(tx.inputs, own_ref)
+      is {
+        Some(input) ->
+          dispatch_personalize_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
+        None -> False
+      }
+    }
+  }
+}
+
 pub fn validate_observer_other(
   observer_redeemer: types.ObserverRedeemer,
   tx: transaction.Transaction,
@@ -2190,6 +2347,25 @@ pub fn validate_observer_other(
     Some(input) ->
       dispatch_other_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
     None -> False
+  }
+}
+
+pub fn validate_observer_other_data(
+  observer_redeemer_data: Data,
+  tx: transaction.Transaction,
+) -> Bool {
+  when observe_redeemer_fields(observer_redeemer_data) is {
+    None -> False
+    Some(Pair(own_ref, redeemer_data)) -> {
+      expect redeemer: types.Redeemer = redeemer_data
+      spend_redeemer_data_matches(tx.redeemers, own_ref, redeemer_data) && when
+        transaction.find_input(tx.inputs, own_ref)
+      is {
+        Some(input) ->
+          dispatch_other_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
+        None -> False
+      }
+    }
   }
 }
 
@@ -2208,6 +2384,25 @@ pub fn validate_observer_designer_settings(
     Some(input) ->
       dispatch_designer_settings_from_tx(output_data(input.output, tx), redeemer, tx)
     None -> False
+  }
+}
+
+pub fn validate_observer_designer_settings_data(
+  observer_redeemer_data: Data,
+  tx: transaction.Transaction,
+) -> Bool {
+  when observe_redeemer_fields(observer_redeemer_data) is {
+    None -> False
+    Some(Pair(own_ref, redeemer_data)) -> {
+      expect redeemer: types.Redeemer = redeemer_data
+      spend_redeemer_data_matches(tx.redeemers, own_ref, redeemer_data) && when
+        transaction.find_input(tx.inputs, own_ref)
+      is {
+        Some(input) ->
+          dispatch_designer_settings_from_tx(output_data(input.output, tx), redeemer, tx)
+        None -> False
+      }
+    }
   }
 }
 
@@ -2234,7 +2429,10 @@ fn dispatch_designer_settings_from_tx(
                 let types.Cip68 { nft: _, version: _, extra: new_extra_data } =
                   new_datum
                 let new_extra = datum.get_extra(new_extra_data)
-                let bg_cip68_opt = cip68_ref_at(indexes.bg_datum, tx)
+                let new_bg_asset =
+                  personalize_mpf_context.asset_from_extra(new_extra, key_bg_asset)
+                let bg_cip68_opt =
+                  cip68_ref_for_asset(new_bg_asset, indexes.bg_datum, tx)
                 designer_settings_valid_for_personalize(
                   designer,
                   bg_cip68_opt,

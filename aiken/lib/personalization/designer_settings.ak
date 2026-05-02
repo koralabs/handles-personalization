@@ -50,8 +50,20 @@ const qr_props: List<ByteArray> = ["qr_inner_eye", "qr_outer_eye", "qr_dot"]
 
 const square_prefix: ByteArray = "square,"
 
+const internal_bg_proof_key: ByteArray = "__bg_proof"
+
+const internal_pfp_proof_key: ByteArray = "__pfp_proof"
+
 fn list_contains(haystack: List<ByteArray>, needle: ByteArray) -> Bool {
   list.any(haystack, fn(x) { x == needle })
+}
+
+fn is_internal_designer_key(key: ByteArray) -> Bool {
+  key == internal_bg_proof_key || key == internal_pfp_proof_key
+}
+
+fn public_designer_entries(designer: types.DataMap) -> types.DataMap {
+  list.filter(designer, fn(p) { !is_internal_designer_key(p.1st) })
 }
 
 // Faithful port of helios `prop_in_designer_array`:
@@ -129,7 +141,7 @@ pub fn base58_decode(s: ByteArray, expected_size: Int) -> ByteArray {
 // so `serialise_data` produces byte-equivalent output to Helios's
 // `designer.serialize()`.
 fn designer_to_plutus_map_data(designer: types.DataMap) -> Data {
-  designer
+  public_designer_entries(designer)
     |> list.map(fn(p) { Pair(builtin.b_data(p.1st), p.2nd) })
     |> builtin.map_data
 }
@@ -278,12 +290,14 @@ fn qr_prop_valid(
   }
 }
 
-// FontShadowSize is `Constr 0 [x: Int, y: Int, blur: Int]` per Helios.
+// Helios structs in legacy personalization maps are list-encoded, not
+// Plutus Constr records. The bg datum and redeemer both carry this field as
+// `[x, y, blur]`.
 fn font_shadow_size_in_bounds(designer_value_opt: Option<Data>) -> Bool {
   when designer_value_opt is {
     None -> True
     Some(d) -> {
-      let Pair(_, fields) = builtin.un_constr_data(d)
+      expect fields: List<Data> = d
       when fields is {
         [x_data, y_data, blur_data] -> {
           expect x: Int = x_data
@@ -307,8 +321,8 @@ fn pfp_zoom_in_bounds(designer_value_opt: Option<Data>) -> Bool {
   }
 }
 
-// PfpOffset is `Constr 0 [x: Int, y: Int]` per Helios. The bound is
-// derived from the current pfp_zoom: offset_max = ((576 * (zoom - 100)) / 100) / 2.
+// PfpOffset uses the same legacy list encoding: `[x, y]`. The bound is derived
+// from the current pfp_zoom: offset_max = ((576 * (zoom - 100)) / 100) / 2.
 // When pfp_zoom is absent, default zoom is 100 (offset_max = 0).
 fn pfp_offset_in_bounds(
   designer_value_opt: Option<Data>,
@@ -326,7 +340,7 @@ fn pfp_offset_in_bounds(
           }
         }
       let offset_max = 576 * ( zoom - 100 ) / 100 / 2
-      let Pair(_, fields) = builtin.un_constr_data(d)
+      expect fields: List<Data> = d
       when fields is {
         [x_data, y_data] -> {
           expect x: Int = x_data
@@ -466,6 +480,138 @@ test base58_decode_handles_multi_char_input() {
   }
 }
 
+fn designer_hash(designer: types.DataMap) -> ByteArray {
+  builtin.sha2_256(builtin.serialise_data(designer_to_plutus_map_data(designer)))
+}
+
+fn live_scope3_designer() -> types.DataMap {
+  [
+    Pair("pfp_border_color", builtin.b_data(#"12546294")),
+    Pair("bg_border_color", builtin.b_data(#"f57f17ff")),
+    Pair("bg_color", builtin.b_data(#"3f7ae0ff")),
+    Pair("font_shadow_color", builtin.b_data(#"0a1fd3")),
+    Pair("pfp_zoom", builtin.i_data(100)),
+    Pair("pfp_offset", builtin.list_data([builtin.i_data(0), builtin.i_data(0)])),
+    Pair("qr_inner_eye", builtin.b_data("square,#000000")),
+    Pair("qr_outer_eye", builtin.b_data("square,#000000")),
+    Pair("qr_dot", builtin.b_data("square,#000000")),
+    Pair(
+      "qr_link",
+      builtin.b_data("https://handle.me/lgtbmn77?live-cip30=v3cut-11"),
+    ),
+    Pair(
+      "socials",
+      builtin.list_data([
+        builtin.map_data([
+          Pair(builtin.b_data("display"), builtin.b_data("v3cut-11-s1")),
+          Pair(
+            builtin.b_data("url"),
+            builtin.b_data("https://handle.me/lgtbmn77?social=v3cut-11-s1"),
+          ),
+        ]),
+        builtin.map_data([
+          Pair(builtin.b_data("display"), builtin.b_data("v3cut-11-s2")),
+          Pair(
+            builtin.b_data("url"),
+            builtin.b_data("https://handle.me/lgtbmn77?social=v3cut-11-s2"),
+          ),
+        ]),
+      ]),
+    ),
+    Pair(
+      "bg_image",
+      builtin.b_data("ipfs://QmSkgqaCapgw99Y2oAZ72tj9iGRb89DzM7kJPetvsj7NND"),
+    ),
+    Pair(
+      "pfp_image",
+      builtin.b_data("ipfs://QmY3uZmaBrWiCAisREsKMwhJyaDXSUxk5PiC6hVoVLW1iP"),
+    ),
+    Pair(
+      "bg_asset",
+      builtin.b_data(
+        #"8ed30c080aba8eb431dabb802ea8dda3a131b0f49c72d2766b25b1eb001bc28068616e646c65735f62675f626f61745f32",
+      ),
+    ),
+    Pair(
+      "pfp_asset",
+      builtin.b_data(
+        #"eb66d2159d51cec7bd469c0daef8a93e0d2066f55d3c1a9cf5bc039354657374203320446973636f536f6c6172697334363031",
+      ),
+    ),
+    Pair(internal_bg_proof_key, builtin.i_data(0)),
+    Pair(internal_pfp_proof_key, builtin.i_data(0)),
+  ]
+}
+
+fn live_scope3_defaults() -> types.DataMap {
+  [
+    Pair("font", builtin.b_data("Tilt Prism,https://tinyurl.com/2an5pb5a")),
+    Pair("price", builtin.i_data(50)),
+    Pair("font_color", builtin.b_data(#"ff6130")),
+    Pair("qr_dot", builtin.b_data("rounded,#ff6130")),
+    Pair("qr_inner_eye", builtin.b_data("square,#f2f285")),
+    Pair("qr_outer_eye", builtin.b_data("rounded,#f2f285")),
+    Pair(
+      "border_colors",
+      builtin.list_data([builtin.b_data(#"12546294"), builtin.b_data(#"797986")]),
+    ),
+    Pair("pfp_border_colors", builtin.list_data([builtin.b_data(#"12546294")])),
+    Pair(
+      "font_shadow_colors",
+      builtin.list_data([
+        builtin.b_data(#"0a1fd3"),
+        builtin.b_data(#"22d1af"),
+        builtin.b_data(#"31bc23"),
+      ]),
+    ),
+    Pair(
+      "text_ribbon_colors",
+      builtin.list_data([builtin.b_data(#"000000"), builtin.b_data(#"12546294")]),
+    ),
+    Pair("qr_bg_color", builtin.b_data(#"00000000")),
+    Pair("text_ribbon_gradient", builtin.b_data("radial")),
+  ]
+}
+
+test base58_decode_handles_live_designer_cid() {
+  base58_decode("b2rhZg2N5RPi4bwe3E9NuNHvEkC1TKfaHrfmkFjXgiu7geMi", 36) == #"015512202d057483c37f13594c99a90272c24de6a55c3f371a6686dfea86f8e16950659d"
+}
+
+test designer_hash_matches_live_scope3_payload() {
+  designer_hash(live_scope3_designer()) == #"6857dc623c524755e6bd90c4a9e376b570d6defe65cc0490e7c188209da03692"
+}
+
+test designer_settings_accepts_live_scope3_payload() {
+  and {
+    designer_hash(live_scope3_designer()) == #"6857dc623c524755e6bd90c4a9e376b570d6defe65cc0490e7c188209da03692",
+    designer_settings_are_valid(
+      live_scope3_designer(),
+      live_scope3_defaults(),
+      Some(builtin.b_data("ipfs://zb2rhdfbJG94ZPfN5q6pXaxVERCT5qgLyaHCL4cjCHJH2zJc9")),
+    ),
+  }
+}
+
+test designer_hash_ignores_internal_policy_proofs() {
+  let public_designer =
+    [Pair("bg_image", builtin.b_data("ipfs://public-bg"))]
+  let with_internal_proofs =
+    [
+      Pair("bg_image", builtin.b_data("ipfs://public-bg")),
+      Pair(internal_bg_proof_key, builtin.i_data(1)),
+      Pair(internal_pfp_proof_key, builtin.i_data(2)),
+    ]
+  let with_public_change =
+    [
+      Pair("bg_image", builtin.b_data("ipfs://public-bg")),
+      Pair("pfp_image", builtin.b_data("ipfs://public-pfp")),
+    ]
+  and {
+    designer_hash(with_internal_proofs) == designer_hash(public_designer),
+    designer_hash(with_public_change) != designer_hash(public_designer),
+  }
+}
+
 // prop_in_designer_array — pers.helios:357 simple_props rule.
 //   default == None || forced == false || (forced && has_val && default_arr.contains(prop))
 test prop_in_designer_array_accepts_when_default_missing() {
@@ -573,7 +719,7 @@ test qr_prop_valid_enforces_match_when_forced() {
 
 // font_shadow_size — pers.helios:392-401. x,y in [-20,20], blur in [0,20].
 fn font_shadow_data(x: Int, y: Int, blur: Int) -> Data {
-  builtin.constr_data(0, [builtin.i_data(x), builtin.i_data(y), builtin.i_data(blur)])
+  builtin.list_data([builtin.i_data(x), builtin.i_data(y), builtin.i_data(blur)])
 }
 
 test font_shadow_size_in_bounds_accepts_extremes() {
@@ -610,7 +756,7 @@ test pfp_zoom_in_bounds_matrix() {
 // pfp_offset — pers.helios:386-389. x,y bounds derived from current pfp_zoom:
 //   offset_max = ((576 * (zoom - 100)) / 100) / 2
 fn pfp_offset_data(x: Int, y: Int) -> Data {
-  builtin.constr_data(0, [builtin.i_data(x), builtin.i_data(y)])
+  builtin.list_data([builtin.i_data(x), builtin.i_data(y)])
 }
 
 test pfp_offset_in_bounds_with_default_zoom() {
