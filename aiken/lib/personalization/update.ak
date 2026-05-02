@@ -285,56 +285,10 @@ fn load_pz_settings_for_personalize(
   }
 }
 
-// Persprx-only lean loader: returns just `valid_contracts` (the only PzSettings
-// field persprx accesses) after validating the settings ref input's credential.
-// Avoids constructing the full 9-field PzSettings record + 8 unused expect casts.
-pub fn load_valid_contracts_for_persprx(
-  tx: transaction.Transaction,
-) -> Option<List<ByteArray>> {
-  when
-    list.find(
-      tx.reference_inputs,
-      fn(input) {
-        assets.quantity_of(
-          input.output.value,
-          constants.handle_policy_id,
-          constants.pz_handle_asset_name,
-        ) == 1
-      },
-    )
-  is {
-    None -> None
-    Some(input) ->
-      when output_data(input.output, tx) is {
-        None -> None
-        Some(settings_data) -> {
-          expect [
-            _,
-            _,
-            _,
-            _,
-            valid_contracts_data,
-            _,
-            settings_cred_data,
-            _,
-            _,
-          ]: List<Data> = settings_data
-          expect settings_cred: ByteArray = settings_cred_data
-          let credential_is_valid =
-            when input.output.address.payment_credential is {
-              address.Script(hash) -> hash == settings_cred
-              address.VerificationKey(_) -> False
-            }
-          if credential_is_valid {
-            expect valid_contracts: List<ByteArray> = valid_contracts_data
-            Some(valid_contracts)
-          } else {
-            None
-          }
-        }
-      }
-  }
-}
+// (`load_valid_contracts_for_persprx` and `observer_withdrawal_is_valid_data`
+// used to live here. persprx now uses `personalization/proxy_check.ak`, an
+// isolated module designed to keep the proxy's on-chain hash stable across
+// future evolution of update.ak / designer_settings.ak / observer logic.)
 
 pub fn load_pz_settings(tx: transaction.Transaction) -> Option<types.PzSettings> {
   when
@@ -418,46 +372,6 @@ fn observe_redeemer_fields(observer_redeemer_data: Data) -> Option<Pair<transact
       _ -> None
     }
   }
-}
-
-// The pers_proxy spend handler keeps its redeemer as raw `Data` to avoid
-// Aiken's auto-cast on the Helios-shaped Personalize Constr (where inner
-// fields like Handle / PzIndexes are List-encoded, not Constr-encoded). We
-// construct the observer-redeemer Constr manually so byte-for-byte
-// equality with the chain's withdrawal redeemer still holds.
-//
-// Hash-stability rule: persprx is the ONLY caller of this function, and
-// persprx is the spend proxy whose script address must be stable across
-// validator iterations (existing handles' LBL_100 ref tokens are locked
-// at it forever). Any change to this function's body changes persprx's
-// inlined UPLC and therefore its on-chain hash, forcing a chain-wide
-// migration of every locked LBL_100 — which defeats the proxy's purpose.
-// Mem/cpu micro-optimizations (e.g. cheap-first reordering) belong in the
-// observer-side `persdsg_observed_for_personalize` etc. instead, where the
-// caller (perspz/persdsg) is itself replaceable via pz_settings.valid_contracts.
-pub fn observer_withdrawal_is_valid_data(
-  tx: transaction.Transaction,
-  own_ref: transaction.OutputReference,
-  redeemer_data: Data,
-  valid_contracts: List<ByteArray>,
-) -> Bool {
-  let own_ref_data: Data = own_ref
-  let observer_redeemer_data: Data =
-    builtin.constr_data(0, [own_ref_data, redeemer_data])
-
-  list.any(
-    tx.redeemers,
-    fn(entry) {
-      entry.2nd == observer_redeemer_data && when entry.1st is {
-        transaction.Withdraw(credential) ->
-          credential_is_allowed_observer(credential, valid_contracts) && withdrawal_is_zero_for_credential(
-            tx.withdrawals,
-            credential,
-          )
-        _ -> False
-      }
-    },
-  )
 }
 
 // Verify `persdsg` (designer-settings observer) fired for this tx with a
