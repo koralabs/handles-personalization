@@ -388,16 +388,6 @@ fn credential_is_allowed_observer(
   }
 }
 
-fn spend_redeemer_matches(
-  redeemers: Pairs<transaction.ScriptPurpose, transaction.Redeemer>,
-  own_ref: transaction.OutputReference,
-  expected_redeemer: types.Redeemer,
-) -> Bool {
-  let expected_data: Data = expected_redeemer
-
-  spend_redeemer_data_matches(redeemers, own_ref, expected_data)
-}
-
 fn spend_redeemer_data_matches(
   redeemers: Pairs<transaction.ScriptPurpose, transaction.Redeemer>,
   own_ref: transaction.OutputReference,
@@ -430,35 +420,21 @@ fn observe_redeemer_fields(observer_redeemer_data: Data) -> Option<Pair<transact
   }
 }
 
-pub fn observer_withdrawal_is_valid(
-  tx: transaction.Transaction,
-  own_ref: transaction.OutputReference,
-  redeemer: types.Redeemer,
-  valid_contracts: List<ByteArray>,
-) -> Bool {
-  let observer_redeemer_data: Data = types.Observe { own_ref, redeemer }
-
-  list.any(
-    tx.redeemers,
-    fn(entry) {
-      entry.2nd == observer_redeemer_data && when entry.1st is {
-        transaction.Withdraw(credential) ->
-          credential_is_allowed_observer(credential, valid_contracts) && withdrawal_is_zero_for_credential(
-            tx.withdrawals,
-            credential,
-          )
-        _ -> False
-      }
-    },
-  )
-}
-
-// Same logic as observer_withdrawal_is_valid, but takes the redeemer as raw
-// PlutusData. The pers_proxy spend handler keeps its redeemer as `Data` to
-// avoid Aiken's auto-cast on the Helios-shaped Personalize Constr (where
-// inner fields like Handle / PzIndexes are List-encoded, not Constr-encoded).
-// We construct the observer-redeemer Constr manually so byte-for-byte
+// The pers_proxy spend handler keeps its redeemer as raw `Data` to avoid
+// Aiken's auto-cast on the Helios-shaped Personalize Constr (where inner
+// fields like Handle / PzIndexes are List-encoded, not Constr-encoded). We
+// construct the observer-redeemer Constr manually so byte-for-byte
 // equality with the chain's withdrawal redeemer still holds.
+//
+// Hash-stability rule: persprx is the ONLY caller of this function, and
+// persprx is the spend proxy whose script address must be stable across
+// validator iterations (existing handles' LBL_100 ref tokens are locked
+// at it forever). Any change to this function's body changes persprx's
+// inlined UPLC and therefore its on-chain hash, forcing a chain-wide
+// migration of every locked LBL_100 — which defeats the proxy's purpose.
+// Mem/cpu micro-optimizations (e.g. cheap-first reordering) belong in the
+// observer-side `persdsg_observed_for_personalize` etc. instead, where the
+// caller (perspz/persdsg) is itself replaceable via pz_settings.valid_contracts.
 pub fn observer_withdrawal_is_valid_data(
   tx: transaction.Transaction,
   own_ref: transaction.OutputReference,
@@ -501,29 +477,16 @@ fn persdsg_observed_for_personalize(
   list.any(
     tx.redeemers,
     fn(entry) {
-      entry.2nd == observer_redeemer_data && when entry.1st is {
+      when entry.1st is {
         transaction.Withdraw(credential) ->
           when credential is {
             address.Script(hash) -> hash == persdsg_hash
             _ -> False
-          } && withdrawal_is_zero_for_credential(tx.withdrawals, credential)
+          } && withdrawal_is_zero_for_credential(tx.withdrawals, credential) && entry.2nd == observer_redeemer_data
         _ -> False
       }
     },
   )
-}
-
-pub fn dispatch_from_observer(
-  observer_redeemer: types.ObserverRedeemer,
-  tx: transaction.Transaction,
-) -> Bool {
-  let types.Observe { own_ref, redeemer } = observer_redeemer
-  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
-    transaction.find_input(tx.inputs, own_ref)
-  is {
-    Some(input) -> dispatch_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
-    None -> False
-  }
 }
 
 // Single CIP-68 reference-input loader. Returns the typed
@@ -2303,20 +2266,6 @@ pub fn dispatch_other_from_tx(
 // Observer-level entry points for each split. Each verifies the spend-redeemer
 // matches the observer-carried redeemer, finds the spend input, and dispatches
 // to its variant-specific helper.
-pub fn validate_observer_personalize(
-  observer_redeemer: types.ObserverRedeemer,
-  tx: transaction.Transaction,
-) -> Bool {
-  let types.Observe { own_ref, redeemer } = observer_redeemer
-  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
-    transaction.find_input(tx.inputs, own_ref)
-  is {
-    Some(input) ->
-      dispatch_personalize_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
-    None -> False
-  }
-}
-
 pub fn validate_observer_personalize_data(
   observer_redeemer_data: Data,
   tx: transaction.Transaction,
@@ -2333,20 +2282,6 @@ pub fn validate_observer_personalize_data(
         None -> False
       }
     }
-  }
-}
-
-pub fn validate_observer_other(
-  observer_redeemer: types.ObserverRedeemer,
-  tx: transaction.Transaction,
-) -> Bool {
-  let types.Observe { own_ref, redeemer } = observer_redeemer
-  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
-    transaction.find_input(tx.inputs, own_ref)
-  is {
-    Some(input) ->
-      dispatch_other_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
-    None -> False
   }
 }
 
@@ -2369,24 +2304,9 @@ pub fn validate_observer_other_data(
   }
 }
 
-// Designer-settings observer entry. Same observe-redeemer pattern as
-// `validate_observer_personalize`, but only validates designer_settings for
-// the Personalize redeemer (reset=False). Other redeemers and reset=True
+// Designer-settings observer entry. Validates designer_settings for the
+// Personalize redeemer (reset=False) only. Other redeemers and reset=True
 // short-circuit to True; perspz handles non-designer-settings logic locally.
-pub fn validate_observer_designer_settings(
-  observer_redeemer: types.ObserverRedeemer,
-  tx: transaction.Transaction,
-) -> Bool {
-  let types.Observe { own_ref, redeemer } = observer_redeemer
-  spend_redeemer_matches(tx.redeemers, own_ref, redeemer) && when
-    transaction.find_input(tx.inputs, own_ref)
-  is {
-    Some(input) ->
-      dispatch_designer_settings_from_tx(output_data(input.output, tx), redeemer, tx)
-    None -> False
-  }
-}
-
 pub fn validate_observer_designer_settings_data(
   observer_redeemer_data: Data,
   tx: transaction.Transaction,
