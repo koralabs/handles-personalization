@@ -40,6 +40,15 @@ const simple_props_plural: List<ByteArray> =
     "font_shadow_colors",
   ]
 
+// Singular form of `simple_props_plural`, used by `designer_entry_valid` to
+// avoid allocating `key ++ "s"` per designer iteration when the key isn't a
+// simple-prop. Only the 4-of-19 keys that match this list pay the concat.
+const simple_props_singular: List<ByteArray> =
+  [
+    "bg_border_color", "bg_color", "circuit_color", "pfp_border_color",
+    "font_shadow_color",
+  ]
+
 const simp_equal_props: List<ByteArray> =
   ["qr_bg_color", "socials_color"]
 
@@ -107,22 +116,44 @@ fn prop_equals_designer_default(
 // leading '1' chars, but our caller (multihash for sha2-256) always starts
 // with 0x12 so we don't special-case leading zeros.
 // Bitcoin base58 alphabet: 1-9 A-H J-N P-Z a-k m-z (skips 0, O, I, l).
-// Used to decode the IPFS multihash CID. `bytearray.index_of` returns the
-// position in the alphabet, which is the digit value (or -1 if not found).
-const base58_alphabet: ByteArray =
-  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+// Direct ASCII-range arithmetic avoids the per-iteration cons_bytearray +
+// O(58) bytearray.index_of cost the prior implementation paid; for a 50-char
+// CID this drops mem from ~6.5M to a single-digit-K-per-char path.
+fn b58_value(c: Int) -> Int {
+  if c < 49 {
+    -1
+  } else if c <= 57 {
+    c - 49
+  } else if c < 65 {
+    -1
+  } else if c <= 72 {
+    c - 56
+  } else if c == 73 {
+    -1
+  } else if c <= 78 {
+    c - 57
+  } else if c == 79 {
+    -1
+  } else if c <= 90 {
+    c - 58
+  } else if c < 97 {
+    -1
+  } else if c <= 107 {
+    c - 64
+  } else if c == 108 {
+    -1
+  } else if c <= 122 {
+    c - 65
+  } else {
+    -1
+  }
+}
 
 fn base58_to_int(s: ByteArray, idx: Int, len: Int, acc: Int) -> Int {
   if idx >= len {
     acc
   } else {
-    let c = bytearray.at(s, idx)
-    let digit =
-      when bytearray.index_of(base58_alphabet, builtin.cons_bytearray(c, #"")) is {
-        Some((pos, _)) -> pos
-        None -> -1
-      }
-    base58_to_int(s, idx + 1, len, acc * 58 + digit)
+    base58_to_int(s, idx + 1, len, acc * 58 + b58_value(bytearray.at(s, idx)))
   }
 }
 
@@ -219,14 +250,20 @@ fn defaults_entry_valid(
 }
 
 // One iteration of the `designer.for_each` loop in Helios:406-442.
+//
+// Concat-deferred from the literal Helios port: testing membership in
+// `simple_props_singular` (instead of computing `key ++ "s"` first and
+// testing against `simple_props_plural`) means the concat allocation only
+// happens for the ~4-of-19 keys that actually match a simple-prop, instead
+// of every iteration.
 fn designer_entry_valid(
   key: ByteArray,
   value: Data,
   defaults: types.DataMap,
   forced: Bool,
 ) -> Bool {
-  let plural_form = bytearray.concat(key, "s")
-  if list_contains(simple_props_plural, plural_form) {
+  if list_contains(simple_props_singular, key) {
+    let plural_form = bytearray.concat(key, "s")
     prop_in_designer_array(
       datum.map_get(defaults, plural_form),
       Some(value),
@@ -591,6 +628,125 @@ test designer_settings_accepts_live_scope3_payload() {
     ),
   }
 }
+
+// Mirrors the on-chain persdsg call exercised by the focused v3cut-11g
+// scope-3 tx (e2enh1g23nfu) which spends the bg `handles_bg_boat_full` whose
+// CIP-68 defaults declare `force_creator_settings: 1`. This is the worst-case
+// path the live persdsg observer hits on chain (~11.2M mem under the prior
+// implementation); any optimization aimed at on-chain headroom should be
+// compared against this fixture's `execution_units` on `aiken check`.
+fn live_force_creator_designer() -> types.DataMap {
+  [
+    Pair("pfp_border_color", builtin.b_data(#"12546294")),
+    Pair("qr_inner_eye", builtin.b_data("rounded,#aabbcc")),
+    Pair("qr_outer_eye", builtin.b_data("square,#ddeeff")),
+    Pair("qr_dot", builtin.b_data("dots,#112233")),
+    Pair("font_shadow_color", builtin.b_data(#"0a1fd3")),
+    Pair(
+      "font_shadow_size",
+      builtin.list_data([builtin.i_data(12), builtin.i_data(10), builtin.i_data(8)]),
+    ),
+    Pair("pfp_zoom", builtin.i_data(130)),
+    Pair("pfp_offset", builtin.list_data([builtin.i_data(10), builtin.i_data(5)])),
+    Pair("bg_border_color", builtin.b_data(#"0a1fd3ff")),
+    Pair("circuit_color", builtin.b_data(#"ffaa00ff")),
+    Pair("qr_bg_color", builtin.b_data(#"000000ff")),
+    Pair("socials_color", builtin.b_data(#"aa00aaff")),
+    Pair("text_ribbon_gradient", builtin.b_data("radial")),
+    Pair(
+      "text_ribbon_colors",
+      builtin.list_data([builtin.b_data(#"000000ff"), builtin.b_data(#"12546294")]),
+    ),
+    Pair("font_color", builtin.b_data(#"ff6130")),
+    Pair("font", builtin.b_data("TestFont,https://example.com/font.woff")),
+    Pair("qr_image", builtin.b_data("https://example.com/qr.svg")),
+    Pair("bg_color", builtin.b_data(#"ff0000ff")),
+    Pair(
+      "bg_image",
+      builtin.b_data(
+        "ipfs://QmSkgqaCapgw99Y2oAZ72tj9iGRb89DzM7kJPetvsj7NND",
+      ),
+    ),
+  ]
+}
+
+fn live_force_creator_defaults() -> types.DataMap {
+  [
+    Pair(
+      "bg_border_colors",
+      builtin.list_data([
+        builtin.b_data(#"0a1fd3ff"),
+        builtin.b_data(#"22d1af88"),
+        builtin.b_data(#"31bc2399"),
+      ]),
+    ),
+    Pair(
+      "bg_colors",
+      builtin.list_data([
+        builtin.b_data(#"ff0000ff"),
+        builtin.b_data(#"00ff00ff"),
+        builtin.b_data(#"0000ffff"),
+      ]),
+    ),
+    Pair(
+      "circuit_colors",
+      builtin.list_data([
+        builtin.b_data(#"ffaa00ff"),
+        builtin.b_data(#"00aaffff"),
+        builtin.b_data(#"aa00ffff"),
+      ]),
+    ),
+    Pair("pfp_border_colors", builtin.list_data([builtin.b_data(#"12546294")])),
+    Pair(
+      "font_shadow_colors",
+      builtin.list_data([
+        builtin.b_data(#"0a1fd3"),
+        builtin.b_data(#"22d1af"),
+        builtin.b_data(#"31bc23"),
+      ]),
+    ),
+    Pair(
+      "text_ribbon_colors",
+      builtin.list_data([builtin.b_data(#"000000ff"), builtin.b_data(#"12546294")]),
+    ),
+    Pair("qr_bg_color", builtin.b_data(#"000000ff")),
+    Pair("socials_color", builtin.b_data(#"aa00aaff")),
+    Pair("text_ribbon_gradient", builtin.b_data("radial")),
+    Pair("font_color", builtin.b_data(#"ff6130")),
+    Pair("font", builtin.b_data("TestFont,https://example.com/font.woff")),
+    Pair("qr_image", builtin.b_data("https://example.com/qr.svg")),
+    Pair("qr_inner_eye", builtin.b_data("rounded,#aabbcc")),
+    Pair("qr_outer_eye", builtin.b_data("square,#ddeeff")),
+    Pair("qr_dot", builtin.b_data("dots,#112233")),
+    Pair(
+      "font_shadow_size",
+      builtin.list_data([builtin.i_data(12), builtin.i_data(10), builtin.i_data(8)]),
+    ),
+    Pair("pfp_zoom", builtin.i_data(130)),
+    Pair("pfp_offset", builtin.list_data([builtin.i_data(10), builtin.i_data(5)])),
+    Pair("force_creator_settings", builtin.i_data(1)),
+    Pair("require_asset_displayed", builtin.i_data(0)),
+    Pair("custom_dollar_symbol", builtin.i_data(1)),
+    Pair("price", builtin.i_data(100)),
+  ]
+}
+
+test designer_hash_matches_live_force_creator_payload() {
+  designer_hash(live_force_creator_designer()) == #"b43b9bbd4109ee80acc75af11c9f36616f3d6a2ef72c8c91caf9b5379308ade5"
+}
+
+test designer_settings_accepts_live_force_creator_payload() {
+  designer_settings_are_valid(
+    live_force_creator_designer(),
+    live_force_creator_defaults(),
+    Some(
+      builtin.b_data(
+        "ipfs://zb2rhimqJAd857k4ZfWF7NzACaHpn24QENmdEhX1sAKBTXRzC",
+      ),
+    ),
+  )
+}
+
 
 test designer_hash_ignores_internal_policy_proofs() {
   let public_designer =
