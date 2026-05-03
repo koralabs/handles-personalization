@@ -149,7 +149,7 @@ const standard_unchanged_keys: List<ByteArray> =
 // persdsg, copy the new hash from `plutus.json` (`validators[].hash`), and
 // update the const here, then rebuild perspz.
 const persdsg_hash: ByteArray =
-  #"a8c1ca7158a4a641e322bd66214875dbfc9c7857255031923923c356"
+  #"6627fa362e816cc3a8e941cdcc86a753de1434bae2b7e149011bb25b"
 
 fn output_data(
   output: transaction.Output,
