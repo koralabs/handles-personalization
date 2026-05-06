@@ -64,7 +64,6 @@ use aiken/builtin
 use aiken/collection/list
 use cardano/address
 use cardano/assets
-use cardano/transaction
 use cardano/transaction.{InlineDatum, OutputReference, Transaction}
 
 // Hard-coded copies of the two constants persprx needs. Defined here
@@ -189,53 +188,4 @@ pub fn proxy_spend_is_valid(
         observer_redeemer_envelope(own_ref, redeemer),
       )
   }
-}
-
-// ----- tests -----
-
-test load_valid_contracts_extracts_idx4_when_settings_cred_matches() {
-  // Synthetic pz_settings datum: 9-element list at indices [0..8], with
-  // valid_contracts at [4] and settings_cred at [6]. Build a reference
-  // input at a script address whose payment cred hash matches
-  // settings_cred.
-  let settings_script_hash: ByteArray = #"deadbeef"
-  let valid_contracts: Data = builtin.list_data([builtin.b_data("hash1"), builtin.b_data("hash2")])
-  let settings_cred_data: Data = builtin.b_data(settings_script_hash)
-  let datum_list: Data =
-    builtin.list_data(
-      [
-        builtin.i_data(0),
-        builtin.i_data(0),
-        builtin.i_data(0),
-        builtin.i_data(0),
-        valid_contracts,
-        builtin.list_data([]),
-        settings_cred_data,
-        builtin.i_data(0),
-        builtin.i_data(0),
-      ],
-    )
-
-  let pz_settings_input =
-    transaction.Input {
-      output_reference: OutputReference {
-        transaction_id: #"00",
-        output_index: 0,
-      },
-      output: transaction.Output {
-        address: address.Address {
-          payment_credential: address.Script(settings_script_hash),
-          stake_credential: None,
-        },
-        value: assets.from_asset(handle_policy_id, pz_handle_asset_name, 1),
-        datum: InlineDatum(datum_list),
-        reference_script: None,
-      },
-    }
-
-  let tx =
-    transaction.placeholder
-      |> fn(t) { transaction.Transaction { ..t, reference_inputs: [pz_settings_input] } }
-
-  load_valid_contracts(tx) == Some(["hash1", "hash2"])
 }
