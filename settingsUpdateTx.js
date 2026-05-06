@@ -49,12 +49,6 @@ const resolveSettingsHandleUtxo = async ({
   userAgent,
   fetchFn = fetch,
 }) => {
-  // The api's /handles/<name> response can lag chain by hours-to-days
-  // for low-traffic settings handles (the api scanner doesn't index every
-  // UTxO move equally fast, especially for tokens that rarely change).
-  // We use the api ONLY for `resolved_addresses.ada` (the script address);
-  // the actual current UTxO holding the LBL_222 token is resolved by
-  // querying Blockfrost's asset-addresses endpoint, which is chain-truthy.
   const apiBase = handlesApiBaseUrlForNetwork(network);
   const handleResponse = await fetchFn(
     `${apiBase}/handles/${encodeURIComponent(handleName)}`,
@@ -64,51 +58,17 @@ const resolveSettingsHandleUtxo = async ({
     throw new Error(`failed to look up handle ${handleName}: HTTP ${handleResponse.status}`);
   }
   const handleData = await handleResponse.json();
+  const utxoRef = handleData?.utxo;
+  if (!utxoRef) {
+    throw new Error(`handle ${handleName} has no UTxO`);
+  }
   const handleAddress = handleData.resolved_addresses?.ada;
   if (!handleAddress) {
     throw new Error(`handle ${handleName} has no resolved ADA address`);
   }
 
-  // Resolve current LBL_222 UTxO via Blockfrost. Chain-truthy.
-  const handleHexInner = Buffer.from(handleName, "utf8").toString("hex");
-  const assetUnit = `${HANDLE_POLICY_ID}${PREFIX_222}${handleHexInner}`;
-  const assetTxsUrl = `https://cardano-${network}.blockfrost.io/api/v0/assets/${assetUnit}/transactions?order=desc&count=1`;
-  const assetTxsResponse = await fetchFn(assetTxsUrl, {
-    headers: { project_id: blockfrostApiKey },
-  });
-  if (!assetTxsResponse.ok) {
-    throw new Error(`failed to look up handle ${handleName} asset txs: HTTP ${assetTxsResponse.status}`);
-  }
-  const assetTxs = await assetTxsResponse.json();
-  if (!Array.isArray(assetTxs) || assetTxs.length === 0) {
-    throw new Error(`handle ${handleName} asset has no on-chain history`);
-  }
-  // Walk the asset's tx history, newest first, and pick the first tx
-  // whose output for this asset is NOT consumed yet.
-  let txHash = null;
-  let txIndex = null;
-  for (const candidate of assetTxs) {
-    const utxosUrl = `https://cardano-${network}.blockfrost.io/api/v0/txs/${candidate.tx_hash}/utxos`;
-    const utxosResponse = await fetchFn(utxosUrl, {
-      headers: { project_id: blockfrostApiKey },
-    });
-    if (!utxosResponse.ok) continue;
-    const utxosData = await utxosResponse.json();
-    for (let i = 0; i < (utxosData.outputs ?? []).length; i += 1) {
-      const out = utxosData.outputs[i];
-      const hasAsset = (out.amount ?? []).some((a) => a.unit === assetUnit && BigInt(a.quantity) >= 1n);
-      if (hasAsset && !out.consumed_by_tx) {
-        txHash = candidate.tx_hash;
-        txIndex = out.output_index ?? i;
-        break;
-      }
-    }
-    if (txHash) break;
-  }
-  if (!txHash) {
-    throw new Error(`handle ${handleName} has no live (unconsumed) UTxO holding ${assetUnit}`);
-  }
-
+  const [txHash, txIndexStr] = utxoRef.split("#");
+  const txIndex = Number.parseInt(txIndexStr, 10);
   const output = await fetchBlockfrostTxOutput(txHash, txIndex, blockfrostApiKey, network, fetchFn);
 
   let coins = 0n;
