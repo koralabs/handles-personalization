@@ -37,7 +37,7 @@
 // in valid_contracts once that tx is signed + submitted).
 
 import { Buffer } from "node:buffer";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 import { buildReferenceScriptDeploymentTx } from "../deploymentTx.js";
 import { getPolicyWallet } from "../helpers/cardano-sdk/policyKeyWallet.js";
@@ -266,7 +266,15 @@ const main = async () => {
     console.log(`  estimated signed size: ${built.estimatedSignedTxSize}/${built.maxTxSize}`);
 
     if (dryRun) {
-      deployed.push({ ...c, txId: built.txId, refScriptUtxo: `${built.txId}#0`, status: "dry_run" });
+      // Persist the unsigned CBOR so the operator can inspect / sign /
+      // submit out-of-band (e.g. via a separate signing host) without
+      // re-running the script. POLICY_KEY (derivation 12) is the only
+      // signature the chain requires; either sign+submit here or sign
+      // externally from this CBOR.
+      const outPath = `/tmp/deployContractRefScripts-${network}-${c.slug}-unsigned.tx.cbor.hex`;
+      writeFileSync(outPath, built.cborHex);
+      console.log(`  dry-run CBOR saved: ${outPath} (${built.cborHex.length / 2} bytes)`);
+      deployed.push({ ...c, txId: built.txId, refScriptUtxo: `${built.txId}#0`, status: "dry_run", unsignedCborPath: outPath });
       continue;
     }
 
