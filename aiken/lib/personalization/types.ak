@@ -94,6 +94,14 @@ pub type PzSettings {
   settings_cred: ByteArray,
   grace_period: Int,
   subhandle_share_percent: Int,
+  // Optional 10th field added 2026-05-06. Approved persdsg observer
+  // hashes; perspz's `persdsg_observed_for_personalize` accepts a
+  // withdrawal from any address whose script hash is in this list. Empty
+  // when settings is in the legacy 9-element shape — perspz then falls
+  // back to its hardcoded constant. Decoupling perspz from the persdsg
+  // hash via this field is what lets persdsg redeploy without a
+  // perspz cascade.
+  persdsg_hashes: List<ByteArray>,
 }
 
 pub type FontShadowSize {

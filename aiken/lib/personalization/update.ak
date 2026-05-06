@@ -170,6 +170,11 @@ fn output_data(
 // = CBOR array(9)).
 
 fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
+  // `..rest` accepts both the legacy 9-element settings shape and any
+  // future schema extensions. Per `proxy_check.ak`'s commentary, every
+  // contract that reads pz_settings should use a rest pattern so the
+  // multisig can append fields to settings without invalidating
+  // already-deployed validators.
   expect [
     treasury_fee_data,
     treasury_cred_data,
@@ -180,6 +185,7 @@ fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
     settings_cred_data,
     grace_period_data,
     subhandle_share_percent_data,
+    ..rest_data
   ]: List<Data> = settings_data
   expect treasury_fee: Int = treasury_fee_data
   expect treasury_cred: ByteArray = treasury_cred_data
@@ -190,6 +196,14 @@ fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
   expect settings_cred: ByteArray = settings_cred_data
   expect grace_period: Int = grace_period_data
   expect subhandle_share_percent: Int = subhandle_share_percent_data
+  let persdsg_hashes =
+    when rest_data is {
+      [] -> []
+      [persdsg_hashes_data, ..] -> {
+        expect parsed: List<ByteArray> = persdsg_hashes_data
+        parsed
+      }
+    }
   types.PzSettings {
     treasury_fee,
     treasury_cred,
@@ -200,6 +214,7 @@ fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
     settings_cred,
     grace_period,
     subhandle_share_percent,
+    persdsg_hashes,
   }
 }
 
@@ -220,6 +235,7 @@ fn load_pz_settings_for_personalize(
     ByteArray,
     Int,
     Int,
+    List<ByteArray>,
   ),
 > {
   when
@@ -249,6 +265,7 @@ fn load_pz_settings_for_personalize(
             settings_cred_data,
             grace_period_data,
             subhandle_share_percent_data,
+            ..rest_data
           ]: List<Data> = settings_data
           expect settings_cred: ByteArray = settings_cred_data
           let credential_is_valid =
@@ -265,6 +282,14 @@ fn load_pz_settings_for_personalize(
             expect valid_contracts: List<ByteArray> = valid_contracts_data
             expect grace_period: Int = grace_period_data
             expect subhandle_share_percent: Int = subhandle_share_percent_data
+            let persdsg_hashes =
+              when rest_data is {
+                [] -> []
+                [persdsg_hashes_data, ..] -> {
+                  expect parsed: List<ByteArray> = persdsg_hashes_data
+                  parsed
+                }
+              }
             Some(
               (
                 treasury_fee,
@@ -275,6 +300,7 @@ fn load_pz_settings_for_personalize(
                 settings_cred,
                 grace_period,
                 subhandle_share_percent,
+                persdsg_hashes,
               ),
             )
           } else {
@@ -379,22 +405,36 @@ fn observe_redeemer_fields(observer_redeemer_data: Data) -> Option<Pair<transact
 // this on the non-reset path to delegate designer_settings validation. The
 // observer-redeemer match ensures persdsg validated against the same
 // own_ref + spend redeemer perspz is processing.
+// `persdsg_hashes` carries the multisig-governed list of approved persdsg
+// observer hashes from `pz_settings` (10th element, added 2026-05-06). When
+// the list is empty (legacy 9-element settings), perspz falls back to the
+// hardcoded `persdsg_hash` constant for back-compat. Once the multisig
+// populates `persdsg_hashes` with the active persdsg (and any in-flight
+// migration ones), persdsg can redeploy without rebuilding perspz: the
+// multisig just adds the new persdsg hash to the list.
 fn persdsg_observed_for_personalize(
   tx: transaction.Transaction,
   own_ref: transaction.OutputReference,
   redeemer: types.Redeemer,
+  persdsg_hashes: List<ByteArray>,
 ) -> Bool {
   let own_ref_data: Data = own_ref
   let redeemer_data: Data = redeemer
   let observer_redeemer_data: Data =
     builtin.constr_data(0, [own_ref_data, redeemer_data])
+  let hash_is_approved = fn(hash: ByteArray) -> Bool {
+    when persdsg_hashes is {
+      [] -> hash == persdsg_hash
+      _ -> list.any(persdsg_hashes, fn(approved) { approved == hash })
+    }
+  }
   list.any(
     tx.redeemers,
     fn(entry) {
       when entry.1st is {
         transaction.Withdraw(credential) ->
           when credential is {
-            address.Script(hash) -> hash == persdsg_hash
+            address.Script(hash) -> hash_is_approved(hash)
             _ -> False
           } && withdrawal_is_zero_for_credential(tx.withdrawals, credential) && entry.2nd == observer_redeemer_data
         _ -> False
@@ -972,6 +1012,7 @@ fn personalize_context_from_tx(
 // wrapper that personalize_context_from_tx returns to test callers.
 fn personalize_validate(
   handle: types.Handle,
+  root_handle: ByteArray,
   indexes: types.PzIndexes,
   designer: types.DataMap,
   treasury_fee: Int,
@@ -982,6 +1023,7 @@ fn personalize_validate(
   settings_cred: ByteArray,
   grace_period: Int,
   subhandle_share_percent: Int,
+  persdsg_hashes: List<ByteArray>,
   own_ref: transaction.OutputReference,
   reset: Bool,
   old_datum_data: Data,
@@ -1566,9 +1608,31 @@ fn personalize_validate(
       unchanged_when_reset_denied
     }
   } else if designed && designer_changed {
-    // designer_settings is enforced by persdsg observer (see persdsg_observed_for_personalize
-    // in dispatch_personalize_from_tx).
-    required_asset_valid && fees_paid
+    // Helios-faithful: designer_settings_are_valid is invoked iff the
+    // designer is being SET or CHANGED. perspz delegates that validation
+    // to the persdsg withdraw observer; we require persdsg's observation
+    // here, *inside* the conditional, so that DRep transitions and other
+    // non-reset Personalize txs that don't touch designer settings don't
+    // need to wire the persdsg observer at all (matching pers.helios's
+    // `if (designed && new_designer != old_extra.get_safe("designer"))`).
+    let observation_redeemer =
+      types.Personalize {
+        handle,
+        root_handle,
+        indexes,
+        designer,
+        reset: if reset {
+          1
+        } else {
+          0
+        },
+      }
+    required_asset_valid && fees_paid && persdsg_observed_for_personalize(
+      tx,
+      own_ref,
+      observation_redeemer,
+      persdsg_hashes,
+    )
   } else {
     designed || is_reset_shape
   }
@@ -1994,7 +2058,7 @@ pub fn dispatch_from_tx(
               )
             }
 
-            types.Personalize { handle, root_handle: _, indexes, designer, reset } -> {
+            types.Personalize { handle, root_handle, indexes, designer, reset } -> {
               let types.PzSettings {
                 treasury_fee,
                 treasury_cred,
@@ -2005,9 +2069,11 @@ pub fn dispatch_from_tx(
                 settings_cred,
                 grace_period,
                 subhandle_share_percent,
+                persdsg_hashes,
               } = settings
               personalize_validate(
                 handle,
+                root_handle,
                 indexes,
                 designer,
                 treasury_fee,
@@ -2018,6 +2084,7 @@ pub fn dispatch_from_tx(
                 settings_cred,
                 grace_period,
                 subhandle_share_percent,
+                persdsg_hashes,
                 own_ref,
                 reset != 0,
                 old_datum_data,
@@ -2054,16 +2121,20 @@ pub fn dispatch_personalize_from_tx(
       settings_cred,
       grace_period,
       subhandle_share_percent,
+      persdsg_hashes,
     ),
   ) = load_pz_settings_for_personalize(tx)
   when redeemer is {
-    types.Personalize { handle, root_handle: _, indexes, designer, reset } -> {
+    types.Personalize { handle, root_handle, indexes, designer, reset } -> {
       let r = reset != 0
-      // Non-reset txs delegate designer_settings validation to persdsg.
-      // Reset txs skip designer_settings (Helios semantics).
-      let dsg_ok = r || persdsg_observed_for_personalize(tx, own_ref, redeemer)
-      dsg_ok && personalize_validate(
+      // persdsg observation is required only when designer is being SET or
+      // CHANGED; that gate now lives inside personalize_validate (Helios-
+      // faithful). Reset and designer-unchanged Personalize variants
+      // (DRep transitions, plain text/color edits that didn't touch
+      // designer, etc.) skip the persdsg observer entirely.
+      personalize_validate(
         handle,
+        root_handle,
         indexes,
         designer,
         treasury_fee,
@@ -2074,6 +2145,7 @@ pub fn dispatch_personalize_from_tx(
         settings_cred,
         grace_period,
         subhandle_share_percent,
+        persdsg_hashes,
         own_ref,
         r,
         old_datum_data,
@@ -2245,7 +2317,7 @@ fn dispatch_designer_settings_from_tx(
   redeemer: types.Redeemer,
   tx: transaction.Transaction,
 ) -> Bool {
-  expect Some(_old_datum_data) = datum_opt
+  expect Some(old_datum_data) = datum_opt
   when redeemer is {
     types.Personalize { handle: _, root_handle: _, indexes, designer, reset } ->
       // Reset path doesn't validate designer_settings (Helios semantics);
@@ -2263,15 +2335,41 @@ fn dispatch_designer_settings_from_tx(
                 let types.Cip68 { nft: _, version: _, extra: new_extra_data } =
                   new_datum
                 let new_extra = datum.get_extra(new_extra_data)
-                let new_bg_asset =
-                  personalize_mpf_context.asset_from_extra(new_extra, key_bg_asset)
-                let bg_cip68_opt =
-                  cip68_ref_for_asset(new_bg_asset, indexes.bg_datum, tx)
-                designer_settings_valid_for_personalize(
-                  designer,
-                  bg_cip68_opt,
-                  new_extra,
-                )
+                expect old_datum: types.PersonalizationDatum = old_datum_data
+                let types.Cip68 { nft: _, version: _, extra: old_extra_data } =
+                  old_datum
+                let old_extra = datum.get_extra(old_extra_data)
+                let old_designer_opt = datum.map_get(old_extra, "designer")
+                let new_designer_opt = datum.map_get(new_extra, "designer")
+                // Pass-through case: neither old nor new datum carries a
+                // `designer` field. Covers state-transition Personalize txs
+                // that don't touch designer settings — e.g. DRep setup on a
+                // never-personalized handle, or DRep setup on a handle that
+                // was previously reset (reset clears designer, so the ref
+                // token can sit in an undecorated state). Without this
+                // exemption, persdsg would reject any non-reset Personalize
+                // unless the caller fabricates a designer payload, which
+                // forces every DRep flow to also do a personalize handshake.
+                when (old_designer_opt, new_designer_opt) is {
+                  (None, None) -> True
+                  // Silent designer drop is illegal — if old had designer,
+                  // new must too (or the tx must be reset=1).
+                  (Some(_), None) -> False
+                  _ -> {
+                    let new_bg_asset =
+                      personalize_mpf_context.asset_from_extra(
+                        new_extra,
+                        key_bg_asset,
+                      )
+                    let bg_cip68_opt =
+                      cip68_ref_for_asset(new_bg_asset, indexes.bg_datum, tx)
+                    designer_settings_valid_for_personalize(
+                      designer,
+                      bg_cip68_opt,
+                      new_extra,
+                    )
+                  }
+                }
               }
             }
         }
@@ -3003,6 +3101,7 @@ fn fixture_settings() -> types.PzSettings {
     settings_cred: #"bb",
     grace_period: 0,
     subhandle_share_percent: 0,
+    persdsg_hashes: [],
   }
 }
 
@@ -3619,7 +3718,7 @@ test persdsg_observed_for_personalize_accepts_matching_withdrawal_and_redeemer()
       fixture_persdsg_credential(),
       observer_data,
     )
-  persdsg_observed_for_personalize(tx, own_ref, redeemer)
+  persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
 }
 
 test persdsg_observed_for_personalize_rejects_when_withdrawal_missing() {
@@ -3636,7 +3735,7 @@ test persdsg_observed_for_personalize_rejects_when_withdrawal_missing() {
       )],
       withdrawals: [],
     }
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
 }
 
 test persdsg_observed_for_personalize_rejects_when_credential_mismatch() {
@@ -3654,7 +3753,7 @@ test persdsg_observed_for_personalize_rejects_when_credential_mismatch() {
       wrong_credential,
       observer_data,
     )
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
 }
 
 test persdsg_observed_for_personalize_rejects_when_observer_redeemer_mismatch() {
@@ -3677,7 +3776,7 @@ test persdsg_observed_for_personalize_rejects_when_observer_redeemer_mismatch() 
       fixture_persdsg_credential(),
       mismatched_observer_data,
     )
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
 }
 
 test dispatch_designer_settings_from_tx_short_circuits_on_reset() {
@@ -3733,5 +3832,5 @@ test persdsg_observed_for_personalize_rejects_nonzero_withdrawal() {
       fixture_persdsg_credential(),
       observer_data,
     )
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer)
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
 }

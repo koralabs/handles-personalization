@@ -153,6 +153,7 @@ fn fixture_settings() -> types.PzSettings {
     settings_cred: #"bb",
     grace_period: 0,
     subhandle_share_percent: 0,
+    persdsg_hashes: [],
   }
 }
 
