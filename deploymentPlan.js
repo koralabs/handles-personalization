@@ -1,9 +1,13 @@
 import crypto from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
 import { Buffer } from "node:buffer";
 
 import cbor from "cbor";
+
+const execFileP = promisify(execFile);
 
 import {
   getAikenArtifactPaths,
@@ -163,50 +167,63 @@ export const fetchLiveDeploymentState = async ({
   };
 };
 
-const parseHandleOrdinal = ({ candidate, deploymentHandleSlug, namespace }) => {
-  const prefix = deploymentHandleSlug;
-  const suffix = `@${namespace}`;
-  if (!candidate.startsWith(prefix) || !candidate.endsWith(suffix)) {
-    return null;
+// Locate the canonical Python helper that owns SubHandle ordinal discovery.
+// Authoritative source: https://github.com/koralabs/adahandle-deployments/blob/master/common/discover_subhandles.py
+//
+// Resolution order:
+//   1. DISCOVER_SUBHANDLES_PATH env var (explicit override; CI sets this)
+//   2. $ADAHANDLE_DEPLOYMENTS_PATH/common/discover_subhandles.py
+//   3. ../adahandle-deployments/common/discover_subhandles.py (sibling checkout)
+// Throws if none resolve so callers can't accidentally fall back to a stale
+// local implementation.
+const resolveDiscoverSubhandlesScript = () => {
+  const explicit = process.env.DISCOVER_SUBHANDLES_PATH;
+  if (explicit && fs.existsSync(explicit)) return explicit;
+  const deployRoot = process.env.ADAHANDLE_DEPLOYMENTS_PATH;
+  if (deployRoot) {
+    const candidate = path.join(deployRoot, "common", "discover_subhandles.py");
+    if (fs.existsSync(candidate)) return candidate;
   }
-  const ordinalText = candidate.slice(prefix.length, candidate.length - suffix.length);
-  if (!/^[0-9]+$/.test(ordinalText)) {
-    return null;
-  }
-  return Number.parseInt(ordinalText, 10);
+  const sibling = path.resolve("..", "adahandle-deployments", "common", "discover_subhandles.py");
+  if (fs.existsSync(sibling)) return sibling;
+  throw new Error(
+    "discover_subhandles.py not found. Set DISCOVER_SUBHANDLES_PATH or ADAHANDLE_DEPLOYMENTS_PATH, " +
+    "or check out koralabs/adahandle-deployments alongside this repo. " +
+    "See docs at https://github.com/koralabs/adahandle-deployments/blob/master/docs/contract-deployment-pipeline.md#replacement-handle-allocation"
+  );
 };
 
+// Discover the next SubHandle ordinal for a contract slug.
+//
+// Delegates to the canonical Python implementation at
+// `adahandle-deployments/common/discover_subhandles.py`. This wrapper just
+// shells out and parses the result so every Kora contract repo gets
+// identical ordinal-reuse behavior. Do NOT add a local fallback — the rule
+// is "one source of truth, in adahandle-deployments."
 export const discoverNextContractSubhandle = async ({
   network,
   deploymentHandleSlug,
-  namespace,
+  namespace = "handlecontract",
   currentSubhandle = null,
-  userAgent,
-  fetchFn = fetch,
+  userAgent = "kora-deploy/1.0",
 }) => {
-  const baseUrl = handlesApiBaseUrlForNetwork(network);
-  const existingOrdinals = [];
-  for (let ordinal = 1; ordinal < 10000; ordinal += 1) {
-    const candidate = `${deploymentHandleSlug}${ordinal}@${namespace}`;
-    const response = await fetchFn(
-      `${baseUrl}/handles/${encodeURIComponent(candidate)}`,
-      { headers: { "User-Agent": userAgent } }
-    );
-    if (response.status === 404) {
-      const currentOrdinal = currentSubhandle
-        ? parseHandleOrdinal({ candidate: currentSubhandle, deploymentHandleSlug, namespace }) || 0
-        : 0;
-      const existingReplacement = existingOrdinals.find((existingOrdinal) => existingOrdinal > currentOrdinal);
-      return existingReplacement
-        ? `${deploymentHandleSlug}${existingReplacement}@${namespace}`
-        : candidate;
-    }
-    if (!response.ok) {
-      throw new Error(`failed to probe SubHandle ${candidate}: HTTP ${response.status}`);
-    }
-    existingOrdinals.push(ordinal);
+  const scriptPath = resolveDiscoverSubhandlesScript();
+  const args = [
+    scriptPath,
+    "--slug", deploymentHandleSlug,
+    "--network", network,
+    "--namespace", namespace,
+    "--user-agent", userAgent,
+  ];
+  if (currentSubhandle) {
+    args.push("--current-subhandle", currentSubhandle);
   }
-  throw new Error(`no available SubHandle found for ${deploymentHandleSlug}@${namespace}`);
+  const { stdout } = await execFileP("python3", args, { encoding: "utf8" });
+  const result = stdout.trim();
+  if (!result) {
+    throw new Error(`discover_subhandles.py returned empty stdout for ${deploymentHandleSlug}@${namespace}`);
+  }
+  return result;
 };
 
 // `nextSubhandles` is an optional map of contractSlug → SubHandle string.

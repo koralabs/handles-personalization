@@ -230,43 +230,38 @@ test("marks per-contract script drift for manual review when no replacement hand
   assert.match(plan.summaryMarkdown, /operator review/i);
 });
 
-test("discovers the next available SubHandle ordinal for a contract slug", async () => {
-  // Feature: script-hash deployments allocate the next free <deployment_handle_slug><ordinal>@handlecontract name.
-  // Failure mode: a generated plan could exceed the 10-character slug rule or collide with an existing handle.
-  const requested = [];
-  const subhandle = await discoverNextContractSubhandle({
-    network: "preview",
-    deploymentHandleSlug: "persprx",
-    namespace: "handlecontract",
-    currentSubhandle: "persprx2@handlecontract",
-    userAgent: "codex-test",
-    fetchFn: async (url) => {
-      requested.push(String(url));
-      return new Response("{}", {
-        status: String(url).includes("persprx4") ? 404 : 200,
-      });
-    },
-  });
-
-  assert.equal(subhandle, "persprx3@handlecontract");
-  assert.ok(requested.some((u) => u.includes("persprx1")));
-});
-
-test("reuses an already minted replacement handle", async () => {
-  // Feature: planner reruns should keep the first minted replacement ordinal instead of allocating a newer one.
-  // Failure mode: repeated workflow runs would create extra `@handlecontract` sessions before any deployment is signed.
-  const subhandle = await discoverNextContractSubhandle({
-    network: "preview",
-    deploymentHandleSlug: "persprx",
-    namespace: "handlecontract",
-    currentSubhandle: "pz_contract_06",
-    userAgent: "codex-test",
-    fetchFn: async (url) => new Response("{}", {
-      status: String(url).includes("persprx2") ? 404 : 200,
-    }),
-  });
-
-  assert.equal(subhandle, "persprx1@handlecontract");
+test("discoverNextContractSubhandle delegates to the canonical Python helper", async () => {
+  // The discovery logic itself is owned by adahandle-deployments/common/discover_subhandles.py
+  // and tested at common/discover_subhandles_test.py. Here we only verify
+  // that the JS wrapper invokes the right script and returns its stdout —
+  // we point DISCOVER_SUBHANDLES_PATH at a stub that prints what we expect
+  // and check the wrapper passes the SubHandle through verbatim.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "discover-stub-"));
+  const stubPath = path.join(tmpDir, "discover_subhandles.py");
+  fs.writeFileSync(
+    stubPath,
+    "#!/usr/bin/env python3\n" +
+      "import sys\n" +
+      "for i, a in enumerate(sys.argv):\n" +
+      "  if a == '--slug': slug = sys.argv[i+1]\n" +
+      "print(f'{slug}1@handlecontract')\n",
+    { mode: 0o755 }
+  );
+  const origPath = process.env.DISCOVER_SUBHANDLES_PATH;
+  process.env.DISCOVER_SUBHANDLES_PATH = stubPath;
+  try {
+    const subhandle = await discoverNextContractSubhandle({
+      network: "preview",
+      deploymentHandleSlug: "persprx",
+      namespace: "handlecontract",
+      currentSubhandle: null,
+      userAgent: "codex-test",
+    });
+    assert.equal(subhandle, "persprx1@handlecontract");
+  } finally {
+    process.env.DISCOVER_SUBHANDLES_PATH = origPath;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
 
 test("passes through the cardano-sdk deployment tx artifact shape", async () => {
