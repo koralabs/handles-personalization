@@ -49,26 +49,20 @@ assigned_handles:
     - pers_pfp@handle_settings
   scripts:
     # PZ V3 split: four active validators (proxy + per-redeemer-variant
-    # observers + designer-settings observer). All four marked active so
+    # observers + designer-settings observer). All four are marked active so
     # api.handle.me/scripts reports `latest: true` for each, and the BFF
     # discovers them per-validator-role via /scripts.
-    #
-    # Ordinal 1 SubHandles are at the project-owner multisig (the correct
-    # resting place, where ensureHandlecontractSession.ts sent them).
-    # Ordinal 2 was an erroneous re-mint to derivation 12 (deployer
-    # transit stop) before the design was clarified — pre-launch, no burn
-    # capability yet, so the ord-2 SubHandles stay on chain but
-    # unreferenced.
-    #
-    # NOTE: ord-1 SubHandles still need V3 ref-scripts attached at the
-    # multisig. Until that happens api.handle.me/scripts reports them
-    # with no `script.cbor`, which makes the BFF fall back to the
-    # legacy V2 family. See tasks/preprod-cutover-progress/HANDOFF.md
-    # for the multisig tx that completes the attachment.
-    - persdsg1@handlecontract
-    - perslfc1@handlecontract
-    - persprx1@handlecontract
-    - perspz1@handlecontract
+    # ordinal 2: ordinal 1 was minted via ensureHandlecontractSession.ts
+    # which sends to the handlecontract multisig SEND address (script,
+    # type=any, 2-of-N where N excludes our preview wallet). The deployer
+    # team's deploy path requires the SubHandle UTxO at derivation 12, so
+    # we re-minted at ordinal 2 via reserveContractHandles.js's flow
+    # (anchor self-tx + 'already_paid' session). Ordinal 1 stranded but
+    # benign.
+    - persdsg2@handlecontract
+    - perslfc2@handlecontract
+    - persprx2@handlecontract
+    - perspz2@handlecontract
 ignored_settings: []
 settings:
   type: personalization_settings
