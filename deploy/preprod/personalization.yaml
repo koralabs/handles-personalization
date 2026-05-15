@@ -52,17 +52,15 @@ assigned_handles:
     # observers + designer-settings observer). All four are marked active so
     # api.handle.me/scripts reports `latest: true` for each, and the BFF
     # discovers them per-validator-role via /scripts.
-    # ordinal 2: ordinal 1 was minted via ensureHandlecontractSession.ts
-    # which sends to the handlecontract multisig SEND address (script,
-    # type=any, 2-of-N where N excludes our preview wallet). The deployer
-    # team's deploy path requires the SubHandle UTxO at derivation 12, so
-    # we re-minted at ordinal 2 via reserveContractHandles.js's flow
-    # (anchor self-tx + 'already_paid' session). Ordinal 1 stranded but
-    # benign.
-    - persdsg2@handlecontract
-    - perslfc2@handlecontract
-    - persprx2@handlecontract
-    - perspz2@handlecontract
+    # Canonical ord-1 SubHandles live at the handlecontract multisig with
+    # the V3 ref-script attached (cutover txs 2026-05-15:
+    # persdsg=efb84141, perspz=76988cd1, perslfc=b0e6ce1e, persprx=9f19423c).
+    # ord-2 was a wrong-mint to derivation 12 and has been retired —
+    # tokens returned to d12 awaiting Kora-policy burn.
+    - persdsg1@handlecontract
+    - perslfc1@handlecontract
+    - persprx1@handlecontract
+    - perspz1@handlecontract
 ignored_settings: []
 settings:
   type: personalization_settings
