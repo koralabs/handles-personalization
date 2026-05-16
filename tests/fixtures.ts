@@ -456,7 +456,9 @@ export class PzFixture extends Fixture {
                     hasAsset(input, bgAsset.policyId, `${AssetNameLabel.LBL_100}${bgAsset.assetName.slice(8)}`)
             ),
             refInputIndex((input) => hasAsset(input, PFP_POLICY_ID, `${AssetNameLabel.LBL_222}${Buffer.from("pfp").toString('hex')}`)),
-            refInputIndex((input) => hasAsset(input, POLICY_ID, `${AssetNameLabel.LBL_001}${Buffer.from(rootHandleName).toString('hex')}`)),
+            rootHandleName
+                ? refInputIndex((input) => hasAsset(input, POLICY_ID, `${AssetNameLabel.LBL_001}${Buffer.from(rootHandleName).toString('hex')}`))
+                : 0,
             0,
             1,
             3

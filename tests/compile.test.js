@@ -5,6 +5,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import {
+  getAikenArtifactPaths,
   getContractArtifactPaths,
   resolveOptimizeFlag,
 } from "../compileHelpers.js";
@@ -45,6 +46,27 @@ test("getContractArtifactPaths handles trailing and non-trailing slash", () => {
   assert.equal(withSlash.directory, "./contract");
   assert.equal(noSlash.json, "./contract/contract.json");
   assert.equal(withSlash.uplc, "./contract/contract.uplc");
+});
+
+test("getAikenArtifactPaths returns the full Aiken artifact bundle", () => {
+  const defaultPaths = getAikenArtifactPaths();
+  const withSlash = getAikenArtifactPaths("./contract/");
+
+  assert.deepEqual(defaultPaths, {
+    directory: "./contract",
+    blueprint: "./contract/aiken.plutus.json",
+    validators: "./contract/aiken.validators.json",
+    addresses: "./contract/aiken.addresses.json",
+    spendHash: "./contract/aiken.spend.hash",
+    spendAddrTestnet: "./contract/aiken.spend.addr_testnet",
+    spendAddrMainnet: "./contract/aiken.spend.addr_mainnet",
+    withdrawHash: "./contract/aiken.withdraw.hash",
+    withdrawStakeAddrTestnet: "./contract/aiken.withdraw.stake_addr_testnet",
+    withdrawStakeAddrMainnet: "./contract/aiken.withdraw.stake_addr_mainnet",
+  });
+  assert.equal(withSlash.directory, "./contract");
+  assert.equal(withSlash.blueprint, "./contract/aiken.plutus.json");
+  assert.equal(withSlash.withdrawStakeAddrMainnet, "./contract/aiken.withdraw.stake_addr_mainnet");
 });
 
 test("compile.js creates contract artifacts with optimize disabled", async () => {
