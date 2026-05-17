@@ -15,9 +15,6 @@ import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 import { computeRootsFromEntries } from "../helpers/dynamoPartnersRoots.js";
 
-const NETWORK = "preview";
-const TABLE_NAME = `partners_${NETWORK}`;
-
 const parseArgs = (argv) => {
   const args = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -36,6 +33,11 @@ const parseArgs = (argv) => {
 
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
+  const network = (args.network || "").trim().toLowerCase();
+  if (!["preview", "preprod"].includes(network)) {
+    throw new Error("required: --network preview|preprod (no default)");
+  }
+  const TABLE_NAME = `partners_${network}`;
   const policyId = (args["policy-id"] || "").trim().toLowerCase();
   const category = args.category || "bg";
   const displayName = args["display-name"] || "Test BG (full)";
@@ -61,7 +63,13 @@ const main = async () => {
     })
   );
 
-  console.log(`Inserting META row`);
+  // META row must carry `bg: true` / `pfp: true` because the BFF reads
+  // those flags to classify partner policies (META schema), while the
+  // handles-personalization MPF helpers historically read POLICY#bg /
+  // POLICY#pfp (legacy schema). Write both so consumers of either schema
+  // resolve correctly. The previously bare META row left the BFF unable
+  // to see the policy as a bg-partner.
+  console.log(`Inserting META row with ${category}=true`);
   await client.send(
     new PutCommand({
       TableName: TABLE_NAME,
@@ -69,16 +77,18 @@ const main = async () => {
         policy_id: policyId,
         sk: "META",
         name: displayName,
+        bg: category === "bg",
+        pfp: category === "pfp",
         ...(image ? { image } : {}),
       },
     })
   );
 
-  console.log("Recomputing trie roots from POLICY/OVERRIDE rows...");
-  const roots = await computeRootsFromEntries({ network: NETWORK });
+  console.log(`Recomputing trie roots from POLICY/OVERRIDE rows in ${network}...`);
+  const roots = await computeRootsFromEntries({ network });
   console.log(JSON.stringify(roots, null, 2));
   console.log("\nNEW BG_ROOT:", roots.bg_root);
-  console.log("Now run scripts/syncBgRootOnChain.js to push this on-chain.");
+  console.log(`Now run scripts/syncBgRootOnChain.js --network ${network} to push this on-chain.`);
 };
 
 main().catch((err) => {

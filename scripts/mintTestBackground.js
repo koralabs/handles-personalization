@@ -36,14 +36,37 @@ import {
 } from "../helpers/cardano-sdk/index.js";
 import { submitTx } from "../helpers/cardano-sdk/submitTx.js";
 
-const NETWORK = "preview";
 const HARDENED = 0x80000000;
+
+// Require --network on the CLI — no silent default. Same posture as
+// valkey-utility after the empty-payload-defaults-to-mainnet incident:
+// silent defaults on multi-network scripts produce action-at-a-distance
+// bugs that are hard to undo on chain.
+const parseCliArg = (name) => {
+  const argv = process.argv.slice(2);
+  const idx = argv.indexOf(`--${name}`);
+  return idx >= 0 && argv[idx + 1] ? argv[idx + 1] : null;
+};
+const NETWORK = (() => {
+  const v = parseCliArg("network");
+  if (!v || !["preview", "preprod"].includes(v)) {
+    throw new Error("required: --network preview|preprod (no default)");
+  }
+  return v;
+})();
+const NETWORK_ID = NETWORK === "mainnet" ? 1 : 0;
+const BFF_ENV_PATH = `/home/jesse/src/koralabs/handle.me/bff/.env.${NETWORK}.local`;
+// Asset name under the wallet-derived policy. Default keeps the original
+// boat_full fixture intact for callers that don't pass --bg-name; the
+// frontend live-cip30 scope-3 path filters by `_boat_2` suffix and needs
+// a separately-named asset to exist for that branch to find it.
+const BG_NAME_OVERRIDE = parseCliArg("bg-name");
 
 const LBL_001 = "001bc280"; // user-held bg label (matches handles_bg_boat_2 fixture)
 const LBL_100 = "000643b0"; // CIP-68 ref NFT label
 
-const BG_NAME = "handles_bg_boat_full";
-const BG_IMAGE = "ipfs://QmSkgqaCapgw99Y2oAZ72tj9iGRb89DzM7kJPetvsj7NND"; // boat_2 image
+const BG_NAME = BG_NAME_OVERRIDE || "handles_bg_boat_full";
+const BG_IMAGE = "ipfs://QmSkgqaCapgw99Y2oAZ72tj9iGRb89DzM7kJPetvsj7NND"; // boat image
 
 // The e2e wallet holds a stack of `e2e0*@` Kora handles. Use them as the
 // require_asset_collections target so the asset-gate validator branch is
@@ -201,17 +224,19 @@ const fetchProtocolParams = async (blockfrostApiKey, network) => {
 
 const buildAndSubmit = async () => {
   await sodium.ready;
-  const env = loadEnv("/home/jesse/src/koralabs/handle.me/bff/.env.preview.local");
+  const env = loadEnv(BFF_ENV_PATH);
   const mnemonic = env.E2E_LIVE_WALLET_MNEMONIC;
   const expectedAddress = env.E2E_LIVE_WALLET_ADDRESS;
-  if (!mnemonic) throw new Error("E2E_LIVE_WALLET_MNEMONIC missing");
-  if (!expectedAddress) throw new Error("E2E_LIVE_WALLET_ADDRESS missing");
+  if (!mnemonic) throw new Error(`E2E_LIVE_WALLET_MNEMONIC missing in ${BFF_ENV_PATH}`);
+  if (!expectedAddress) throw new Error(`E2E_LIVE_WALLET_ADDRESS missing in ${BFF_ENV_PATH}`);
 
-  const minting = loadEnv("/home/jesse/src/koralabs/minting.handle.me/.env");
-  const blockfrostApiKey = minting.BLOCKFROST_API_KEY;
-  if (!blockfrostApiKey) throw new Error("BLOCKFROST_API_KEY missing in minting.handle.me/.env");
+  // Take the blockfrost project id from the network's BFF env (already
+  // network-scoped), not from minting.handle.me/.env which is a global
+  // file that may be pointed at any network at any time.
+  const blockfrostApiKey = env.BLOCKFROST_API_KEY || env.E2E_LIVE_BLOCKFROST_API_KEY;
+  if (!blockfrostApiKey) throw new Error(`BLOCKFROST_API_KEY missing in ${BFF_ENV_PATH}`);
 
-  const networkId = 0; // preview
+  const networkId = NETWORK_ID;
 
   const wallet = await deriveE2eWallet(mnemonic, networkId);
   if (wallet.address !== expectedAddress) {
