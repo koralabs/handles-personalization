@@ -28,11 +28,51 @@ import { fetchPartnersTrieRoots } from "../helpers/dynamoPartnersRoots.js";
 import { Serialization } from "../helpers/cardano-sdk/index.js";
 
 const SETTINGS_HANDLE = "pers_bg@handle_settings";
-const NETWORK = "preview";
 
-const PREVIEW_NATIVE_SCRIPT_CBOR_HEX =
-  "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b" +
-  "8200581cd9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d";
+// Per-network multisig native script CBORs. Source of truth:
+//   preview : adahandle-deployments preview config (RequireAnyOf 1-of-2)
+//   preprod : adahandle-deployments preprod config (RequireAnyOf 1-of-2)
+//   mainnet : adahandle-deployments/tasks/tmp/mainnet-contract-migration/
+//             mainnet-wallet-payment-native-script.json (RequireMOf 2-of-4).
+//             Script hash d0496ab7c9be3c9947676328dbac37dcb39d0f0586a22f4ee9c49494
+//             — verified matches the on-chain script credential of
+//             pz_settings@handlecontract and pers1@handlecontract.
+const NATIVE_SCRIPT_CBOR_HEX_BY_NETWORK = {
+  preview:
+    "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b" +
+    "8200581cd9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d",
+  preprod:
+    // RequireAnyOf admins 5b468ea6… / 548afd43… (per project memory)
+    "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b" +
+    "8200581c548afd43158ec53fcd94290c41d1b4496c0746617f0efbb974440bb4",
+  mainnet:
+    // RequireMOf 2 of 4 (CBOR tag 03 = AtLeast, required=2, 4 sig scripts)
+    "830302848200581c0d147948e63cf418abccbc8e53f1f759b0e2375ba7cc07b351d09c9d" +
+    "8200581cfafa11964fda9a4ec829d9cc6fcc98bae73621a10b0be64cf7a91db8" +
+    "8200581c75cca35458a485e3c61d3803da366933424628e47c335a32d2cbbac2" +
+    "8200581cb5fa099804ba14c5494dc97ddc15e114043704c6ad90ac87d7d805aa",
+};
+const MULTISIG_SIGNERS_BY_NETWORK = {
+  preview: [
+    "5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b",
+    "d9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d",
+  ],
+  preprod: [
+    "5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b",
+    "548afd43158ec53fcd94290c41d1b4496c0746617f0efbb974440bb4",
+  ],
+  mainnet: [
+    "0d147948e63cf418abccbc8e53f1f759b0e2375ba7cc07b351d09c9d",
+    "fafa11964fda9a4ec829d9cc6fcc98bae73621a10b0be64cf7a91db8",
+    "75cca35458a485e3c61d3803da366933424628e47c335a32d2cbbac2",
+    "b5fa099804ba14c5494dc97ddc15e114043704c6ad90ac87d7d805aa",
+  ],
+};
+const MULTISIG_THRESHOLD_BY_NETWORK = {
+  preview: 1,
+  preprod: 1,
+  mainnet: 2,
+};
 
 const loadEnvFromFile = (path) => {
   try {
@@ -73,11 +113,25 @@ const encodeRootHexAsByteArrayDatum = (rootHex) => {
 const main = async () => {
   await sodium.ready;
   const args = parseArgs(process.argv.slice(2));
-  const minting = loadEnvFromFile("/home/jesse/src/koralabs/minting.handle.me/.env");
-  const policyKeyBech32 = (args["policy-key"] || minting.POLICY_KEY || process.env.POLICY_KEY || "").trim();
-  const blockfrostApiKey = (args["blockfrost-api-key"] || minting.BLOCKFROST_API_KEY || process.env.BLOCKFROST_API_KEY || "").trim();
-  if (!policyKeyBech32) throw new Error("POLICY_KEY is required");
-  if (!blockfrostApiKey) throw new Error("BLOCKFROST_API_KEY is required");
+
+  // Require --network (no silent default). Same posture as
+  // valkey-utility post-incident: silent network defaults on multi-net
+  // scripts mutate the wrong chain.
+  const NETWORK = (args["network"] || "").trim().toLowerCase();
+  if (!["preview", "preprod", "mainnet"].includes(NETWORK)) {
+    throw new Error("required: --network preview|preprod|mainnet (no default)");
+  }
+  const NATIVE_SCRIPT_CBOR_HEX = NATIVE_SCRIPT_CBOR_HEX_BY_NETWORK[NETWORK];
+  const expectedSigners = MULTISIG_SIGNERS_BY_NETWORK[NETWORK];
+  const multisigThreshold = MULTISIG_THRESHOLD_BY_NETWORK[NETWORK];
+
+  // Read blockfrost key from the network's BFF env, not the global
+  // minting.handle.me/.env (which may be pointed at any network).
+  const bffEnv = loadEnvFromFile(`/home/jesse/src/koralabs/handle.me/bff/.env.${NETWORK}.local`);
+  const policyKeyBech32 = (args["policy-key"] || bffEnv.POLICY_KEY || process.env.POLICY_KEY || "").trim();
+  const blockfrostApiKey = (args["blockfrost-api-key"] || bffEnv.BLOCKFROST_API_KEY || process.env.BLOCKFROST_API_KEY || "").trim();
+  if (!policyKeyBech32) throw new Error(`POLICY_KEY is required (from --policy-key or bff/.env.${NETWORK}.local)`);
+  if (!blockfrostApiKey) throw new Error(`BLOCKFROST_API_KEY is required (from --blockfrost-api-key or bff/.env.${NETWORK}.local)`);
   const userAgent = "kora-cutover/1.0";
 
   console.log(`Fetching latest bg_root from partners_${NETWORK}...`);
@@ -89,10 +143,6 @@ const main = async () => {
   console.log(`deployer wallet (d12): ${wallet.address}`);
   console.log(`deployer payment key hash: ${wallet.publicKeyHash}`);
 
-  const expectedSigners = [
-    "5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b",
-    "d9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d",
-  ];
   const deployerCanSign = expectedSigners.includes(wallet.publicKeyHash);
   if (!deployerCanSign) {
     console.warn(
@@ -100,6 +150,8 @@ const main = async () => {
         `(${expectedSigners.join(", ")}). Will produce an unsigned tx artifact for ` +
         `multisig co-signing instead of submitting.`
     );
+  } else if (multisigThreshold > 1) {
+    console.log(`✓ deployer is one of the multisig signers, but ${multisigThreshold}-of-${expectedSigners.length} threshold means the deployer alone is insufficient. Will produce unsigned tx artifact for co-signing.`);
   } else {
     console.log(`✓ deployer is a valid signer for the multisig`);
   }
@@ -112,7 +164,7 @@ const main = async () => {
     network: NETWORK,
     settingsHandleName: SETTINGS_HANDLE,
     patchedDatumHex,
-    nativeScriptCborHex: PREVIEW_NATIVE_SCRIPT_CBOR_HEX,
+    nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
     blockfrostApiKey,
     userAgent,
   });
@@ -120,12 +172,18 @@ const main = async () => {
   console.log(`  unsigned txId:        ${built.txId}`);
   console.log(`  estimated signed size: ${built.estimatedSignedTxSize}/${built.maxTxSize}`);
 
-  if (!deployerCanSign) {
+  const needsMultisig = !deployerCanSign || multisigThreshold > 1;
+  if (needsMultisig) {
     const out = `/tmp/syncBgRoot-${NETWORK}-unsigned.tx.cbor.hex`;
     const fs = await import("node:fs");
     fs.writeFileSync(out, built.cborHex);
     console.log(`Unsigned tx CBOR saved to ${out}`);
-    console.log(`Hand off to a multisig signer (one of: ${expectedSigners.join(", ")}) to add witnesses + submit.`);
+    if (multisigThreshold > 1) {
+      console.log(`Hand off to ${multisigThreshold} of these ${expectedSigners.length} multisig signers to add witnesses + submit:`);
+    } else {
+      console.log(`Hand off to a multisig signer (one of these) to add witnesses + submit:`);
+    }
+    expectedSigners.forEach((s) => console.log(`  - ${s}`));
     return;
   }
 

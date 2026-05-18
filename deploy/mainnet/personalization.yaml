@@ -48,6 +48,20 @@ assigned_handles:
     - pers_bg@handle_settings
     - pers_pfp@handle_settings
   scripts:
+    # PZ V3 split: four active validators (proxy + per-redeemer-variant
+    # observers + designer-settings observer). All four are marked active so
+    # api.handle.me/scripts reports `latest: true` for each, and the BFF
+    # discovers them per-validator-role via /scripts.
+    # The four canonical ord-1 SubHandles will rest at the handlecontract
+    # multisig with their V3 ref-script attached, mirroring the preprod
+    # cutover pattern (preprod txs 2026-05-15:
+    # persdsg=efb84141, perspz=76988cd1, perslfc=b0e6ce1e, persprx=9f19423c).
+    # Legacy `pz_contract_04` is retained until in-flight V2-resident
+    # personalizations have all auto-migrated to V3.
+    - persdsg1@handlecontract
+    - perslfc1@handlecontract
+    - persprx1@handlecontract
+    - perspz1@handlecontract
     - pz_contract_04
 ignored_settings: []
 settings:
@@ -59,12 +73,22 @@ settings:
       pz_min_fee: 1500000
       pz_providers:
         4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1: 208979b3688a0fd3d285e847c20aa1daf27cee02655b91efe7c8ed73
+      # valid_contracts: existing 5 legacy V2 entries PLUS the 4 V3 ord-1
+      # hashes (parameterless validators — identical bytes across networks
+      # per preview/preprod verification). The 4 V3 hashes are what the
+      # legacy $pz_settings handle's valid_contracts list needs in order for
+      # V3 personalize/migrate txs to validate while the legacy V2 contract
+      # still gates the personalize spend path.
       valid_contracts:
         - d84e5bd5394b96cb61104439732fdf31fe272275f4a3235c105bc332
         - 5cd18d995b79d3dab1d5190f84d73f3966610420254ac0379bbbfe1a
         - 503d94a31d3e6c3592323962a263273e2557c749f35e36e5a2d69011
         - 4cd9e0bd6c1639f6c61d46288bc2094112cefa216ff501d75ccdea41
         - acbb75f1996b1f50a4a8719307695b6e280c6c3db0d50207c390b6dd
+        - 7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3  # persprx V3
+        - 7c99516a8151f27f45ac068f2593520a7987ca138998c041ec6e2d26  # perspz V3
+        - 23a2ef442a7c27260d20d6eaef37c5479468c4d7dab76ded6f01fa4c  # perslfc V3
+        - fd65087a76a7d57a90714d279247beb6c2c99e9790f899a3153f2d2c  # persdsg V3
       admin_creds:
         - 4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1
       settings_cred: 7e3a48aff0ddfadec229d13fe4ec544ff3cc4f044629d4e31e8359f0
