@@ -97,7 +97,12 @@ const fetchHandlePayload = async (handle, network, userAgent) => {
 
 const fetchHandleDatumHex = async (handle, network, userAgent) => {
   const url = `${handlesApiBaseUrlForNetwork(network)}/handles/${encodeURIComponent(handle)}/datum`;
-  const response = await fetch(url, { headers: { "User-Agent": userAgent } });
+  // Accept: text/plain forces api.handle.me to return raw CBOR hex
+  // (matches the on-chain inline_datum bytes). Default response is JSON-
+  // decoded which breaks PlutusData.fromCbor at the attach step.
+  const response = await fetch(url, {
+    headers: { "User-Agent": userAgent, Accept: "text/plain" },
+  });
   if (!response.ok) {
     throw new Error(`datum lookup ${handle}: HTTP ${response.status}`);
   }
@@ -171,11 +176,30 @@ const buildAttachContext = async ({
   return { handle, network, multisigAddress, deployerAddress, cborUtxos };
 };
 
-const isAlreadyAttached = async (handle, network, userAgent, multisigAddress) => {
+// Resolve the asset's current on-chain address. Prefers Blockfrost
+// (truth as of last block) over api.handle.me (may lag scanner cadence).
+// On mainnet 2026-05-18 we hit a case where the attach tx had confirmed
+// on Blockfrost but api still showed the handle at the deployer address,
+// causing isAlreadyAttached → false → re-attempt → build fail.
+const fetchAssetCurrentAddress = async (handle, blockfrostApiKey, network) => {
+  if (!blockfrostApiKey) return null;
+  const assetUnit =
+    "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a000de140" +
+    Buffer.from(handle, "utf8").toString("hex");
+  const url = `https://cardano-${network}.blockfrost.io/api/v0/assets/${assetUnit}/addresses`;
+  const r = await fetch(url, { headers: { project_id: blockfrostApiKey } });
+  if (!r.ok) return null;
+  const j = await r.json();
+  return j?.[0]?.address ?? null;
+};
+
+const isAlreadyAttached = async (handle, network, userAgent, multisigAddress, blockfrostApiKey) => {
+  const bfAddr = await fetchAssetCurrentAddress(handle, blockfrostApiKey, network);
+  if (bfAddr) return bfAddr === multisigAddress;
+  // Fall back to api when blockfrost lookup fails.
   const payload = await fetchHandlePayload(handle, network, userAgent);
   if (!payload) return false;
-  const addr = payload.resolved_addresses?.ada;
-  return addr === multisigAddress;
+  return payload.resolved_addresses?.ada === multisigAddress;
 };
 
 const main = async () => {
@@ -240,11 +264,30 @@ const main = async () => {
           `derived derivation-12 address ${reserveWallet.address} does not match RETURN_ADDRESS[${network}] ${RETURN_ADDRESS[network]} — POLICY_KEY mismatch?`
         );
       }
+      // Sequential anchors must wait for chain confirmation between
+      // submissions; otherwise the second anchor picks the same "smallest
+      // clean UTxO" the first just consumed and Blockfrost rejects with
+      // "All inputs are spent" (seen on mainnet 2026-05-18). Preprod and
+      // preview tolerated faster cadence because of more numerous clean
+      // UTxOs at d12 on those networks.
+      const waitForConfirm = async (txHash) => {
+        const base = `https://cardano-${network}.blockfrost.io/api/v0`;
+        const headers = { project_id: blockfrostApiKey, "User-Agent": userAgent };
+        for (let i = 0; i < 60; i += 1) {
+          await new Promise((r) => setTimeout(r, 10_000));
+          const res = await fetch(`${base}/txs/${txHash}`, { headers });
+          if (res.ok) return;
+        }
+        throw new Error(`anchor tx ${txHash} did not confirm within 10 minutes`);
+      };
       for (const handle of SETTINGS_HANDLES) {
         process.stdout.write(`  anchor tx for ${handle}... `);
         const anchor = await submitAnchorSelfTx({ network, wallet: reserveWallet, blockfrostApiKey });
         txHashByHandle[handle] = anchor.txHash;
         console.log(`${anchor.txHash} (fee=${anchor.fee} lovelace, ${anchor.estimatedSignedTxSize} bytes)`);
+        process.stdout.write(`    waiting for ${anchor.txHash.slice(0, 12)}… to confirm... `);
+        await waitForConfirm(anchor.txHash);
+        console.log("confirmed");
       }
     }
 
@@ -332,7 +375,7 @@ const main = async () => {
     console.log(`    datum (${inlineDatumHex.length / 2} bytes): ${inlineDatumHex.slice(0, 32)}...`);
 
     if (!dryRun) {
-      const alreadyAttached = await isAlreadyAttached(handle, network, userAgent, multisigAddress);
+      const alreadyAttached = await isAlreadyAttached(handle, network, userAgent, multisigAddress, blockfrostApiKey);
       if (alreadyAttached) {
         console.log(`    already at multisig address — skipping attach`);
         txResults.push({ handle, status: "already_attached" });
@@ -366,6 +409,24 @@ const main = async () => {
     const submittedTxHash = await submitTx({ network, signedTxCborHex: signedHex, blockfrostApiKey });
     console.log(`    submitted: ${submittedTxHash}`);
     txResults.push({ handle, status: "submitted", txHash: submittedTxHash, multisigAddress });
+
+    // Wait for the submitted tx to confirm AND for Blockfrost to re-index
+    // its UTxO view, otherwise the next iteration's buildAttachContext
+    // fetches a stale wallet UTxO snapshot and the chain rejects the
+    // submit with BadInputsUTxO (seen on mainnet 2026-05-18). Same lag we
+    // worked around in deployContractRefScripts.js.
+    process.stdout.write(`    waiting for ${submittedTxHash.slice(0, 12)}… to confirm... `);
+    const base = `https://cardano-${network}.blockfrost.io/api/v0`;
+    const bfHeaders = { project_id: blockfrostApiKey, "User-Agent": userAgent };
+    for (let i = 0; i < 60; i += 1) {
+      await sleep(10_000);
+      const r = await fetch(`${base}/txs/${submittedTxHash}`, { headers: bfHeaders });
+      if (r.ok) break;
+      if (i === 59) throw new Error(`attach tx ${submittedTxHash} did not confirm within 10min`);
+    }
+    console.log("confirmed");
+    console.log(`    pausing 45s for Blockfrost UTxO indexing...`);
+    await sleep(45_000);
   }
 
   // ---- Step 4: verify ----

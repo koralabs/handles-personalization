@@ -9,23 +9,30 @@ import { Trie } from "@aiken-lang/merkle-patricia-forestry";
 
 // Reads partners-trie roots from the partners_{network} DynamoDB table.
 //
-// Schema (matches handle.me feature/partners-mpt-foundations branch's
-// bff/lib/repos/Partners.ts):
+// Schema (META — the canonical schema as of 2026-05-17 partners_mainnet
+// audit; matches what bff/scripts/backfill-jpg-top-200-pfp-policies.ts
+// writes and what the BFF's PartnersRepo reads):
 //
 //   Table: partners_{network}
-//   Roots row (cached): policy_id='__ROOTS__', sk='STATE'
-//                       fields: bg_root, pfp_root, on_chain_tx_id_bg,
-//                               on_chain_tx_id_pfp, updated_at
-//   Policy entry:       policy_id=<28-byte hex>, sk='POLICY#bg' | 'POLICY#pfp'
-//                       fields: nsfw (0 or 1)
-//   Override entry:     policy_id=<28-byte hex>,
-//                       sk='OVERRIDE#bg#<asset_hex>' | 'OVERRIDE#pfp#<asset_hex>'
-//                       fields: asset_name_hex, nsfw, reason?
+//   Roots row (cached):  policy_id='__ROOTS__', sk='STATE'
+//                        fields: bg_root, pfp_root, on_chain_tx_id_bg,
+//                                on_chain_tx_id_pfp, updated_at
+//   Partner META row:    policy_id=<28-byte hex>, sk='META'
+//                        fields: bg (bool), pfp (bool), name?, image?,
+//                                nsfw? (number 0/1), settings_handle?, ...
+//                        Trie membership is determined by bg=true / pfp=true.
+//   Override entry:      policy_id=<28-byte hex>,
+//                        sk='OVERRIDE#bg#<asset_hex>' | 'OVERRIDE#pfp#<asset_hex>'
+//                        fields: asset_name_hex, nsfw, reason?
+//
+// Legacy POLICY#bg / POLICY#pfp sk rows are also accepted for back-compat
+// with networks where the older schema was written (preprod had 1
+// POLICY#bg row at audit). META is the source of truth where both exist.
 //
 // `getRoots` returns the cached row if present; throws otherwise.
-// `computeRootsFromEntries` rebuilds bg + pfp tries from POLICY/OVERRIDE
-// rows and returns the on-the-fly hashes — for cutover use *before* the
-// cached row is seeded.
+// `computeRootsFromEntries` rebuilds bg + pfp tries from META + OVERRIDE
+// rows (and legacy POLICY#bg/pfp rows) and returns the on-the-fly hashes
+// — for cutover use *before* the cached row is seeded.
 
 const PARTNERS_TABLE_BASE = "partners";
 const ROOTS_PK = "__ROOTS__";
@@ -47,19 +54,34 @@ const buildTrieEntries = (rows, category) => {
   const policySk = policySkForCategory(category);
   const overridePrefix = overrideSkPrefix(category);
   const entries = [];
+  // Dedup by policyId so a partner with both META.bg=true and a legacy
+  // POLICY#bg row doesn't contribute twice.
+  const seenPolicies = new Set();
   for (const row of rows) {
-    if (row.sk === policySk) {
+    if (typeof row.sk !== "string") continue;
+    if (row.policy_id?.startsWith?.("GROUP#")) continue;
+    if (row.sk === "META" && row[category] === true) {
+      if (seenPolicies.has(row.policy_id)) continue;
+      seenPolicies.add(row.policy_id);
       entries.push({
         type: "policy",
         policyId: row.policy_id,
-        nsfw: row.nsfw === 1 ? 1 : 0,
+        nsfw: Number(row.nsfw) === 1 ? 1 : 0,
       });
-    } else if (typeof row.sk === "string" && row.sk.startsWith(overridePrefix)) {
+    } else if (row.sk === policySk) {
+      if (seenPolicies.has(row.policy_id)) continue;
+      seenPolicies.add(row.policy_id);
+      entries.push({
+        type: "policy",
+        policyId: row.policy_id,
+        nsfw: Number(row.nsfw) === 1 ? 1 : 0,
+      });
+    } else if (row.sk.startsWith(overridePrefix)) {
       entries.push({
         type: "override",
         policyId: row.policy_id,
         assetNameHex: row.asset_name_hex,
-        nsfw: row.nsfw === 1 ? 1 : 0,
+        nsfw: Number(row.nsfw) === 1 ? 1 : 0,
       });
     }
   }
@@ -82,14 +104,23 @@ const trieFromEntries = async (entries) => {
 const scanCategoryEntries = async (client, tableName, category) => {
   const policySk = policySkForCategory(category);
   const overridePrefix = overrideSkPrefix(category);
+  // Three row types contribute: META rows with category=true, legacy
+  // POLICY#<category> rows, and OVERRIDE#<category>#<asset> rows. Filter
+  // server-side to all three (#cat is a placeholder for the category
+  // attribute name since `bg`/`pfp` aren't reserved keywords but we'd
+  // need to escape if they ever became so).
   const entries = [];
   let lastKey;
   do {
     const result = await client.send(
       new ScanCommand({
         TableName: tableName,
-        FilterExpression: "sk = :policy OR begins_with(sk, :ovr)",
+        FilterExpression:
+          "(sk = :meta AND #cat = :true) OR sk = :policy OR begins_with(sk, :ovr)",
+        ExpressionAttributeNames: { "#cat": category },
         ExpressionAttributeValues: {
+          ":meta": "META",
+          ":true": true,
           ":policy": policySk,
           ":ovr": overridePrefix,
         },

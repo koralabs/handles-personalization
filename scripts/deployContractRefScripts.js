@@ -290,6 +290,13 @@ const main = async () => {
       throw new Error(`tx ${txHash} did not confirm within timeout`);
     }
     console.log(`  ✓ confirmed`);
+    // Blockfrost indexes the UTxO set ~30s behind tx confirmation. Without
+    // this wait, the next loop iteration fetches stale wallet UTxOs that
+    // still include inputs the just-confirmed tx consumed, and Blockfrost
+    // /tx/submit rejects the next tx with BadInputsUTxO (seen on mainnet
+    // 2026-05-18 across persdsg→perspz and perspz→perslfc transitions).
+    console.log(`  pausing 45s for Blockfrost UTxO indexing...`);
+    await new Promise((r) => setTimeout(r, 45_000));
     deployed.push({ ...c, txId: txHash, refScriptUtxo: `${txHash}#0` });
   }
 
