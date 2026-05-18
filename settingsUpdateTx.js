@@ -135,6 +135,29 @@ export const buildSettingsUpdateTx = async ({
   nativeScriptCborHex,
   blockfrostApiKey,
   userAgent,
+  // Chained-tx support: when building a sequence of multisig settings updates
+  // off the same wallet, the first tx consumes the only ada-only UTxO and the
+  // subsequent ones must spend the projected change of the previous (which
+  // doesn't exist on chain yet). Pass the [txIn, txOut] pair here to add it
+  // to the pre-selected input set; the script-address ada-only check is
+  // skipped when this is provided.
+  additionalPreSelectedUtxos = [],
+  // Optional list of UTxO refs ("<txId>#<index>") to EXCLUDE from the
+  // selector's remainingUtxos pool. Used when building a batch of
+  // independent (non-chained) multisig txs from the same wallet: each
+  // tx pre-selects a different on-chain ada-only UTxO, and we want to
+  // guarantee the selector doesn't grab one of the other txs' UTxOs as
+  // fee padding. Different from additionalPreSelectedUtxos, which
+  // includes the listed UTxOs in this tx's inputs.
+  excludeFromRemainingUtxos = [],
+  // Optional Plutus ref-script to attach to the re-output UTxO. Used by the
+  // ord-1 SubHandle attach flow: spends the SubHandle (e.g. persprx1) at the
+  // multisig and re-outputs at the same multisig with the V3 contract's
+  // compiled cbor as a reference script. The new output's min-ada climbs to
+  // cover the script bytes; cardano-sdk's GreedyTxEvaluator picks up the
+  // output-side ref-script bytes via requestedOutputs so per-byte fee is
+  // already in the selection's computed fee.
+  scriptReference = undefined,
 }) => {
   if (!network) throw new Error("settings-update tx: network is required");
   if (!settingsHandleName) throw new Error("settings-update tx: settingsHandleName is required");
@@ -173,6 +196,7 @@ export const buildSettingsUpdateTx = async ({
     address: scriptAddress,
     value: handleValue,
     datum,
+    ...(scriptReference ? { scriptReference } : {}),
   };
   settingsOutput.value = { ...settingsOutput.value, coins: minimumCoinQuantity(settingsOutput) };
 
@@ -191,12 +215,17 @@ export const buildSettingsUpdateTx = async ({
   // Skip UTxOs holding any tokens — other settings handles at this address
   // (bg_policy_ids, pfp_policy_ids, etc.) must not be consumed as fee inputs.
   const handleUtxoRef = toUtxoRef(handleUtxo);
-  const selectedUtxos = [handleUtxo];
+  const additionalRefs = new Set(additionalPreSelectedUtxos.map(toUtxoRef));
+  const excludedRefs = new Set(excludeFromRemainingUtxos);
+  const selectedUtxos = [handleUtxo, ...additionalPreSelectedUtxos];
   const remainingUtxos = allScriptUtxos.filter((utxo) => {
-    if (toUtxoRef(utxo) === handleUtxoRef) return false;
+    const ref = toUtxoRef(utxo);
+    if (ref === handleUtxoRef) return false;
+    if (additionalRefs.has(ref)) return false;
+    if (excludedRefs.has(ref)) return false;
     return (utxo[1].value.assets?.size ?? 0) === 0;
   });
-  if (remainingUtxos.length === 0) {
+  if (remainingUtxos.length === 0 && additionalPreSelectedUtxos.length === 0) {
     throw new Error(
       `no clean (no-token) UTxOs at script address ${scriptAddress} to fund settings update; the multisig wallet needs at least one ada-only UTxO`
     );
@@ -275,15 +304,33 @@ export const buildSettingsUpdateTx = async ({
     consumedInputs.add(toUtxoRef(utxo));
   }
 
+  // Find the ada-only change output for chained-tx callers; the body's
+  // outputs are settings-handle-output + 0..N change outputs. The change
+  // output(s) live at the script address with no assets.
+  const txIdStr = String(unsignedTx.id);
+  let changeUtxo = null;
+  for (let i = 0; i < unsignedTx.body.outputs.length; i += 1) {
+    const out = unsignedTx.body.outputs[i];
+    if ((out.value.assets?.size ?? 0) > 0) continue;
+    const txIn = {
+      txId: Cardano.TransactionId(txIdStr),
+      index: i,
+      address: out.address,
+    };
+    changeUtxo = [txIn, out];
+    break;
+  }
+
   return {
     cborHex,
     cborBytes,
     estimatedSignedTxSize,
     maxTxSize: buildContext.protocolParameters.maxTxSize,
     consumedInputs,
-    txId: String(unsignedTx.id),
+    txId: txIdStr,
     settingsHandleName,
     handleUtxoRef,
     scriptAddress: String(scriptAddress),
+    changeUtxo,
   };
 };
