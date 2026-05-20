@@ -107,6 +107,13 @@ export const buildReferenceScriptDeploymentTx = async ({
   // 0.46.12 doesn't include input ref-script bytes in its fee estimate).
   // 0 (no input ref script) is the default; supply only when redeploying.
   inputRefScriptBytes = 0,
+  // Optional: where the SubHandle + ref-script output goes. Defaults to
+  // `changeAddress` (deployer holds the contract). Pass a different address
+  // (e.g. the Kora multisig) to move the contract to its canonical resting
+  // place. Per Kora convention all contracts + settings live at the multisig
+  // except MPT roots; fresh deploys via this function go to d12 by default
+  // and a separate move call relocates them.
+  targetAddress,
 }) => {
   if (!network) throw new Error("buildReferenceScriptDeploymentTx: network is required");
   if (!contractSlug) throw new Error("buildReferenceScriptDeploymentTx: contractSlug is required");
@@ -118,6 +125,7 @@ export const buildReferenceScriptDeploymentTx = async ({
   if (!blockfrostApiKey) {
     throw new Error("buildReferenceScriptDeploymentTx: blockfrostApiKey is required");
   }
+  const subhandleTargetAddress = targetAddress ?? changeAddress;
 
   const parsedAddress = Cardano.Address.fromString(changeAddress);
   if (!parsedAddress) {
@@ -165,7 +173,7 @@ export const buildReferenceScriptDeploymentTx = async ({
 
   const handleValue = { coins: 0n, assets: new Map([[handleAssetId, 1n]]) };
   const handleOutput = {
-    address: asPaymentAddress(changeAddress),
+    address: asPaymentAddress(subhandleTargetAddress),
     value: handleValue,
     scriptReference,
   };
