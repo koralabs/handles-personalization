@@ -185,14 +185,20 @@ fn multihash_matches(
   designer_redeemer: types.DataMap,
   designer_hash_data: Data,
 ) -> Bool {
+  trace @"multihash_matches: entered"
   expect ipfs_uri: ByteArray = designer_hash_data
+  trace ipfs_uri
   let b58 = bytearray.drop(ipfs_uri, 8)
   let decoded = base58_decode(b58, 36)
   let multihash = bytearray.drop(decoded, 4)
-  let designer_sha =
-    builtin.sha2_256(builtin.serialise_data(designer_to_plutus_map_data(
-      designer_redeemer,
-    )))
+  trace @"multihash from URI:"
+  trace multihash
+  let serialised = builtin.serialise_data(designer_to_plutus_map_data(designer_redeemer))
+  trace @"serialised designer bytes:"
+  trace serialised
+  let designer_sha = builtin.sha2_256(serialised)
+  trace @"computed sha256:"
+  trace designer_sha
   multihash == designer_sha
 }
 

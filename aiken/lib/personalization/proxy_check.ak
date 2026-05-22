@@ -174,18 +174,28 @@ fn observer_fired(
 
 // The single entry-point the persprx validator calls. Returns True iff
 // the spend is authorized by an observer in pz_settings.valid_contracts.
+//
+// Diagnostic traces (BX-003) — `trace @"…"` stripped at silent build
+// (deployed hash unchanged), preserved at verbose build for the BFF
+// hot-swap diagnostic. See docs/spec/aiken-compiler-constraints.md.
 pub fn proxy_spend_is_valid(
   redeemer: Data,
   own_ref: OutputReference,
   tx: Transaction,
 ) -> Bool {
+  trace @"persprx: proxy_spend_is_valid entered, loading pz_settings.valid_contracts"
   when load_valid_contracts(tx) is {
-    None -> False
-    Some(valid_contracts) ->
+    None -> {
+      trace @"persprx: load_valid_contracts returned None (no pz_settings ref input, wrong settings_cred, or malformed datum)"
+      False
+    }
+    Some(valid_contracts) -> {
+      trace @"persprx: valid_contracts loaded, checking observer_fired"
       observer_fired(
         tx,
         valid_contracts,
         observer_redeemer_envelope(own_ref, redeemer),
-      )
+      )?
+    }
   }
 }

@@ -1562,38 +1562,41 @@ fn personalize_validate(
   // constructing the 9-field PolicyDatumValidationInputs record.
   let bg_asset_set = new_bg_asset != datum.empty_asset
   let pfp_asset_set = new_pfp_asset != datum.empty_asset
+  // BX-003 diagnostic: tag each gate with `?` so scalus's err.logs identifies
+  // which specific check returned False. Silent build strips traces; verbose
+  // preserves them for the BFF hot-swap diagnostic.
   let policy_datum_pass = and {
-      !validated_by_present || validated_by_signed,
-      personalize_policy_approval.approvals_are_valid(bg_status, pfp_status),
-      bg_asset_set == bg_image_set,
-      pfp_asset_set == pfp_image_set,
-      !bg_asset_set || bg_image_matches_datum,
-      !pfp_asset_set || pfp_image_matches_datum,
-      personalize_policy_approval.derive_nsfw(bg_status, pfp_status) == expected_nsfw,
+      (!validated_by_present || validated_by_signed)?,
+      personalize_policy_approval.approvals_are_valid(bg_status, pfp_status)?,
+      (bg_asset_set == bg_image_set)?,
+      (pfp_asset_set == pfp_image_set)?,
+      (!bg_asset_set || bg_image_matches_datum)?,
+      (!pfp_asset_set || pfp_image_matches_datum)?,
+      (personalize_policy_approval.derive_nsfw(bg_status, pfp_status) == expected_nsfw)?,
     }
   let virtual_rules_pass =
     handle.handle_type != types.HandleTypeVirtualSubhandle || and {
-        reset || virtual_holder_signed,
-        virtual_resolved_ada_unchanged,
-        virtual_payload_unchanged,
+        (reset || virtual_holder_signed)?,
+        virtual_resolved_ada_unchanged?,
+        virtual_payload_unchanged?,
       }
   let common_gates_pass = and {
-      datum_name_matches_redeemer,
-      output_has_expected_handle_token,
-      last_update_address_matches_owner,
+      datum_name_matches_redeemer?,
+      output_has_expected_handle_token?,
+      last_update_address_matches_owner?,
       personalize_base.subhandle_personalization_is_allowed(
         handle.handle_type,
         reset,
         sub_pz_enabled,
         root_pz_enabled,
         new_pz_enabled,
-      ),
-      handle.handle_type == types.HandleTypeVirtualSubhandle || reset || owner_handle_present,
-      personalize_base.resolved_ada_is_allowed(handle.handle_type) || resolved_ada_is_empty,
-      virtual_rules_pass,
-      contract_output_is_valid,
-      immutables_unchanged,
-      policy_datum_pass,
+      )?,
+      (handle.handle_type == types.HandleTypeVirtualSubhandle || reset || owner_handle_present)?,
+      (personalize_base.resolved_ada_is_allowed(handle.handle_type) || resolved_ada_is_empty)?,
+      virtual_rules_pass?,
+      contract_output_is_valid?,
+      immutables_unchanged?,
+      policy_datum_pass?,
     }
   // Inlined non_reset_authorization_is_valid + reset_authorization_is_valid.
   common_gates_pass && if reset {
@@ -1627,14 +1630,14 @@ fn personalize_validate(
           0
         },
       }
-    required_asset_valid && fees_paid && persdsg_observed_for_personalize(
+    required_asset_valid? && fees_paid? && persdsg_observed_for_personalize(
       tx,
       own_ref,
       observation_redeemer,
       persdsg_hashes,
-    )
+    )?
   } else {
-    designed || is_reset_shape
+    (designed || is_reset_shape)?
   }
             }
           }
@@ -2256,16 +2259,27 @@ pub fn validate_observer_personalize_data(
   observer_redeemer_data: Data,
   tx: transaction.Transaction,
 ) -> Bool {
+  trace @"perspz: validate_observer_personalize_data entered"
   when observe_redeemer_fields(observer_redeemer_data) is {
-    None -> False
+    None -> {
+      trace @"perspz: observe_redeemer_fields returned None (envelope shape wrong)"
+      False
+    }
     Some(Pair(own_ref, redeemer_data)) -> {
+      trace @"perspz: parsing observer envelope's redeemer as types.Redeemer"
       expect redeemer: types.Redeemer = redeemer_data
-      spend_redeemer_data_matches(tx.redeemers, own_ref, redeemer_data) && when
+      trace @"perspz: checking spend_redeemer_data_matches"
+      spend_redeemer_data_matches(tx.redeemers, own_ref, redeemer_data)? && when
         transaction.find_input(tx.inputs, own_ref)
       is {
-        Some(input) ->
-          dispatch_personalize_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)
-        None -> False
+        Some(input) -> {
+          trace @"perspz: own_ref found, dispatching"
+          dispatch_personalize_from_tx(output_data(input.output, tx), redeemer, own_ref, tx)?
+        }
+        None -> {
+          trace @"perspz: own_ref NOT found in tx.inputs"
+          False
+        }
       }
     }
   }
