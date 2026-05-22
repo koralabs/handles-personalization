@@ -2297,16 +2297,32 @@ pub fn validate_observer_designer_settings_data(
   observer_redeemer_data: Data,
   tx: transaction.Transaction,
 ) -> Bool {
+  // Diagnostic traces (BX-003 restoration) — user-defined `trace @"…"`
+  // statements survive optimizer passes more reliably than compiler-
+  // generated expect-failure traces. These appear in scalus's err.logs
+  // when the validator crashes, which the BFF surfaces as friendly
+  // error text to the user. See docs/spec/aiken-compiler-constraints.md.
+  trace @"persdsg: validate_observer_designer_settings_data entered"
   when observe_redeemer_fields(observer_redeemer_data) is {
-    None -> False
+    None -> {
+      trace @"persdsg: observe_redeemer_fields returned None (envelope shape wrong)"
+      False
+    }
     Some(Pair(own_ref, redeemer_data)) -> {
+      trace @"persdsg: parsing observer envelope's redeemer as types.Redeemer"
       expect redeemer: types.Redeemer = redeemer_data
-      spend_redeemer_data_matches(tx.redeemers, own_ref, redeemer_data) && when
+      trace @"persdsg: redeemer parsed, checking spend_redeemer_data_matches"
+      spend_redeemer_data_matches(tx.redeemers, own_ref, redeemer_data)? && when
         transaction.find_input(tx.inputs, own_ref)
       is {
-        Some(input) ->
+        Some(input) -> {
+          trace @"persdsg: own_ref found in tx.inputs, dispatching"
           dispatch_designer_settings_from_tx(output_data(input.output, tx), redeemer, tx)
-        None -> False
+        }
+        None -> {
+          trace @"persdsg: own_ref NOT found in tx.inputs"
+          False
+        }
       }
     }
   }
@@ -2317,24 +2333,35 @@ fn dispatch_designer_settings_from_tx(
   redeemer: types.Redeemer,
   tx: transaction.Transaction,
 ) -> Bool {
+  trace @"persdsg: dispatch_designer_settings_from_tx — unwrapping old datum"
   expect Some(old_datum_data) = datum_opt
   when redeemer is {
     types.Personalize { handle: _, root_handle: _, indexes, designer, reset } ->
       // Reset path doesn't validate designer_settings (Helios semantics);
       // perspz only requires this observer for non-reset txs.
       if reset != 0 {
+        trace @"persdsg: reset=1 path, short-circuit True"
         True
       } else {
+        trace @"persdsg: looking up contract_output at indexes.contract_output"
         when output_at(tx.outputs, indexes.contract_output) is {
-          None -> False
+          None -> {
+            trace @"persdsg: contract_output index out of range"
+            False
+          }
           Some(contract_output) ->
             when output_data(contract_output, tx) is {
-              None -> False
+              None -> {
+                trace @"persdsg: contract_output has no datum"
+                False
+              }
               Some(new_datum_data) -> {
+                trace @"persdsg: parsing NEW datum as PersonalizationDatum"
                 expect new_datum: types.PersonalizationDatum = new_datum_data
                 let types.Cip68 { nft: _, version: _, extra: new_extra_data } =
                   new_datum
                 let new_extra = datum.get_extra(new_extra_data)
+                trace @"persdsg: parsing OLD datum as PersonalizationDatum"
                 expect old_datum: types.PersonalizationDatum = old_datum_data
                 let types.Cip68 { nft: _, version: _, extra: old_extra_data } =
                   old_datum
@@ -2351,11 +2378,18 @@ fn dispatch_designer_settings_from_tx(
                 // unless the caller fabricates a designer payload, which
                 // forces every DRep flow to also do a personalize handshake.
                 when (old_designer_opt, new_designer_opt) is {
-                  (None, None) -> True
+                  (None, None) -> {
+                    trace @"persdsg: (no old designer, no new designer) — pass-through"
+                    True
+                  }
                   // Silent designer drop is illegal — if old had designer,
                   // new must too (or the tx must be reset=1).
-                  (Some(_), None) -> False
+                  (Some(_), None) -> {
+                    trace @"persdsg: old had designer but new dropped it (illegal silent drop)"
+                    False
+                  }
                   _ -> {
+                    trace @"persdsg: designer changed — resolving bg defaults + calling designer_settings_valid_for_personalize"
                     let new_bg_asset =
                       personalize_mpf_context.asset_from_extra(
                         new_extra,

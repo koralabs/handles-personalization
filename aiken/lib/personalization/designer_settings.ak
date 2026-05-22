@@ -434,15 +434,20 @@ fn text_ribbon_colors_valid(
           },
         )
     }
-  // Flatten Helios's 4-way disjunction:
+  // Flatten Helios's 4-way disjunction (tagged with `?` for BX-003 trace
+  // visibility — scalus's err.logs identifies which branch yielded False):
   //   (creator None && designer ≤ 1 ribbon)
   //   || (!forced && designer ≤ 1 ribbon)
   //   || (gradient && colors match exactly)
   //   || (!gradient && designer is single AND that single color is one of creator's)
-  creator_default_opt == None && designer_len <= 1 || !forced && designer_len <= 1 || gradient && creator_colors == designer_colors || !gradient && designer_len == 1 && designer_single_in_creator(
+  let no_defaults_short = ( creator_default_opt == None && designer_len <= 1 )?
+  let not_forced_short = ( !forced && designer_len <= 1 )?
+  let gradient_match = ( gradient && creator_colors == designer_colors )?
+  let single_in_creator = ( !gradient && designer_len == 1 && designer_single_in_creator(
     designer_colors,
     creator_colors,
-  )
+  ) )?
+  no_defaults_short || not_forced_short || gradient_match || single_in_creator
 }
 
 fn designer_single_in_creator(
@@ -465,11 +470,17 @@ pub fn designer_settings_are_valid(
   defaults: types.DataMap,
   designer_hash_opt: Option<Data>,
 ) -> Bool {
+  // BX-003: tagged with `?` so scalus's err.logs identifies which conjunction
+  // term returned False. trace strings only appear in verbose builds.
+  trace @"designer_settings_are_valid: checking designer_hash_opt"
   when designer_hash_opt is {
-    None -> False
+    None -> {
+      trace @"designer_settings_are_valid: new_extra.designer is None — rejecting"
+      False
+    }
     Some(hash_data) -> {
       let forced = forced_from_defaults(defaults)
-      multihash_matches(designer, hash_data) && list.all(
+      multihash_matches(designer, hash_data)? && list.all(
         defaults,
         fn(p) {
           let key = p.1st
@@ -481,10 +492,10 @@ pub fn designer_settings_are_valid(
             forced,
           )
         },
-      ) && list.all(
+      )? && list.all(
         designer,
         fn(p) { designer_entry_valid(p.1st, p.2nd, defaults, forced) },
-      ) && text_ribbon_colors_valid(defaults, designer, forced)
+      )? && text_ribbon_colors_valid(defaults, designer, forced)?
     }
   }
 }
