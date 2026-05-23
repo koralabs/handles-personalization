@@ -139,18 +139,6 @@ const immutable_extra_keys: List<ByteArray> =
 const standard_unchanged_keys: List<ByteArray> =
   [key_standard_image, key_standard_image_hash, key_original_address]
 
-// Hash of the `persdsg` (designer-settings observer) validator. perspz
-// requires this observer to fire for non-reset Personalize txs — it
-// validates designer_settings_are_valid on perspz's behalf, letting perspz
-// drop ~2,800 bytes of validation logic.
-//
-// IMPORTANT: this hash is determined at deploy time. If `persdsg.ak` or any
-// transitively-reachable code changes, this hash will change too — rebuild
-// persdsg, copy the new hash from `plutus.json` (`validators[].hash`), and
-// update the const here, then rebuild perspz.
-const persdsg_hash: ByteArray =
-  #"6627fa362e816cc3a8e941cdcc86a753de1434bae2b7e149011bb25b"
-
 fn output_data(
   output: transaction.Output,
   tx: transaction.Transaction,
@@ -170,11 +158,16 @@ fn output_data(
 // = CBOR array(9)).
 
 fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
-  // `..rest` accepts both the legacy 9-element settings shape and any
-  // future schema extensions. Per `proxy_check.ak`'s commentary, every
-  // contract that reads pz_settings should use a rest pattern so the
-  // multisig can append fields to settings without invalidating
-  // already-deployed validators.
+  // pz_settings is a 10-element raw List<Data>. persdsg_hashes is
+  // REQUIRED — perspz's persdsg_observed_for_personalize reads it to
+  // validate that the persdsg withdraw observer fired with an authorized
+  // hash. The legacy 9-element shape is rejected so that admin-side drift
+  // (forgetting to populate persdsg_hashes after a persdsg redeploy) fails
+  // fast and visibly at parse time rather than silently mismatching at
+  // validation time.
+  //
+  // `..rest` keeps the parser forward-compatible with future schema
+  // extensions beyond index 9.
   expect [
     treasury_fee_data,
     treasury_cred_data,
@@ -185,8 +178,9 @@ fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
     settings_cred_data,
     grace_period_data,
     subhandle_share_percent_data,
-    ..rest_data
+    ..tail_data
   ]: List<Data> = settings_data
+  expect [persdsg_hashes_data, ..]: List<Data> = tail_data
   expect treasury_fee: Int = treasury_fee_data
   expect treasury_cred: ByteArray = treasury_cred_data
   expect pz_min_fee: Int = pz_min_fee_data
@@ -196,14 +190,7 @@ fn parse_pz_settings_from_list(settings_data: Data) -> types.PzSettings {
   expect settings_cred: ByteArray = settings_cred_data
   expect grace_period: Int = grace_period_data
   expect subhandle_share_percent: Int = subhandle_share_percent_data
-  let persdsg_hashes =
-    when rest_data is {
-      [] -> []
-      [persdsg_hashes_data, ..] -> {
-        expect parsed: List<ByteArray> = persdsg_hashes_data
-        parsed
-      }
-    }
+  expect persdsg_hashes: List<ByteArray> = persdsg_hashes_data
   types.PzSettings {
     treasury_fee,
     treasury_cred,
@@ -265,7 +252,8 @@ fn load_pz_settings_for_personalize(
             settings_cred_data,
             grace_period_data,
             subhandle_share_percent_data,
-            ..rest_data
+            persdsg_hashes_data,
+            ..
           ]: List<Data> = settings_data
           expect settings_cred: ByteArray = settings_cred_data
           let credential_is_valid =
@@ -282,14 +270,7 @@ fn load_pz_settings_for_personalize(
             expect valid_contracts: List<ByteArray> = valid_contracts_data
             expect grace_period: Int = grace_period_data
             expect subhandle_share_percent: Int = subhandle_share_percent_data
-            let persdsg_hashes =
-              when rest_data is {
-                [] -> []
-                [persdsg_hashes_data, ..] -> {
-                  expect parsed: List<ByteArray> = persdsg_hashes_data
-                  parsed
-                }
-              }
+            expect persdsg_hashes: List<ByteArray> = persdsg_hashes_data
             Some(
               (
                 treasury_fee,
@@ -405,13 +386,11 @@ fn observe_redeemer_fields(observer_redeemer_data: Data) -> Option<Pair<transact
 // this on the non-reset path to delegate designer_settings validation. The
 // observer-redeemer match ensures persdsg validated against the same
 // own_ref + spend redeemer perspz is processing.
-// `persdsg_hashes` carries the multisig-governed list of approved persdsg
-// observer hashes from `pz_settings` (10th element, added 2026-05-06). When
-// the list is empty (legacy 9-element settings), perspz falls back to the
-// hardcoded `persdsg_hash` constant for back-compat. Once the multisig
-// populates `persdsg_hashes` with the active persdsg (and any in-flight
-// migration ones), persdsg can redeploy without rebuilding perspz: the
-// multisig just adds the new persdsg hash to the list.
+// `persdsg_hashes` is the multisig-governed list of approved persdsg
+// observer hashes from `pz_settings` index 9 — REQUIRED to be non-empty
+// (otherwise no withdrawal hash can match and personalize always rejects).
+// persdsg can redeploy without rebuilding perspz: the multisig just adds
+// the new persdsg hash to the list.
 fn persdsg_observed_for_personalize(
   tx: transaction.Transaction,
   own_ref: transaction.OutputReference,
@@ -423,10 +402,7 @@ fn persdsg_observed_for_personalize(
   let observer_redeemer_data: Data =
     builtin.constr_data(0, [own_ref_data, redeemer_data])
   let hash_is_approved = fn(hash: ByteArray) -> Bool {
-    when persdsg_hashes is {
-      [] -> hash == persdsg_hash
-      _ -> list.any(persdsg_hashes, fn(approved) { approved == hash })
-    }
+    list.any(persdsg_hashes, fn(approved) { approved == hash })
   }
   list.any(
     tx.redeemers,
@@ -3168,7 +3144,28 @@ fn fixture_script_output(
 
 fn fixture_reference_input_for_settings() -> transaction.Input {
   let settings = fixture_settings()
-  let settings_data: Data = settings
+  // Encode as the raw 10-element List<Data> shape that the on-chain
+  // pz_settings datum uses (matches Helios's `struct PzSettings`
+  // serialization, NOT Aiken's Constr 0 cast of `types.PzSettings`).
+  // The runtime parsers (`parse_pz_settings_from_list` and
+  // `load_pz_settings_for_personalize`) destructure this list directly.
+  let settings_data: Data =
+    builtin.list_data(
+      [
+        builtin.i_data(settings.treasury_fee),
+        builtin.b_data(settings.treasury_cred),
+        builtin.i_data(settings.pz_min_fee),
+        settings.pz_providers
+          |> list.map(fn(p) { Pair(builtin.b_data(p.1st), builtin.b_data(p.2nd)) })
+          |> builtin.map_data,
+        builtin.list_data(list.map(settings.valid_contracts, builtin.b_data)),
+        builtin.list_data(list.map(settings.admin_creds, builtin.b_data)),
+        builtin.b_data(settings.settings_cred),
+        builtin.i_data(settings.grace_period),
+        builtin.i_data(settings.subhandle_share_percent),
+        builtin.list_data(list.map(settings.persdsg_hashes, builtin.b_data)),
+      ],
+    )
   let value =
     assets.from_asset(
       constants.handle_policy_id,
@@ -3736,8 +3733,14 @@ fn fixture_persdsg_observer_redeemer_data(
   builtin.constr_data(0, [own_ref_data, redeemer_data])
 }
 
+// Fixture persdsg script hash — used only by unit tests. The deployed
+// persdsg's hash is supplied at runtime via pz_settings.persdsg_hashes;
+// see `persdsg_observed_for_personalize`.
+const fixture_persdsg_hash: ByteArray =
+  #"6627fa362e816cc3a8e941cdcc86a753de1434bae2b7e149011bb25b"
+
 fn fixture_persdsg_credential() -> address.Credential {
-  address.Script(persdsg_hash)
+  address.Script(fixture_persdsg_hash)
 }
 
 fn fixture_tx_with_persdsg_observation(
@@ -3766,7 +3769,7 @@ test persdsg_observed_for_personalize_accepts_matching_withdrawal_and_redeemer()
       fixture_persdsg_credential(),
       observer_data,
     )
-  persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
+  persdsg_observed_for_personalize(tx, own_ref, redeemer, [fixture_persdsg_hash])
 }
 
 test persdsg_observed_for_personalize_rejects_when_withdrawal_missing() {
@@ -3783,7 +3786,7 @@ test persdsg_observed_for_personalize_rejects_when_withdrawal_missing() {
       )],
       withdrawals: [],
     }
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [fixture_persdsg_hash])
 }
 
 test persdsg_observed_for_personalize_rejects_when_credential_mismatch() {
@@ -3801,7 +3804,7 @@ test persdsg_observed_for_personalize_rejects_when_credential_mismatch() {
       wrong_credential,
       observer_data,
     )
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [fixture_persdsg_hash])
 }
 
 test persdsg_observed_for_personalize_rejects_when_observer_redeemer_mismatch() {
@@ -3824,7 +3827,7 @@ test persdsg_observed_for_personalize_rejects_when_observer_redeemer_mismatch() 
       fixture_persdsg_credential(),
       mismatched_observer_data,
     )
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [fixture_persdsg_hash])
 }
 
 test dispatch_designer_settings_from_tx_short_circuits_on_reset() {
@@ -3880,5 +3883,5 @@ test persdsg_observed_for_personalize_rejects_nonzero_withdrawal() {
       fixture_persdsg_credential(),
       observer_data,
     )
-  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [])
+  !persdsg_observed_for_personalize(tx, own_ref, redeemer, [fixture_persdsg_hash])
 }
