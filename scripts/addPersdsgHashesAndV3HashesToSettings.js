@@ -41,9 +41,41 @@ import sodium from "libsodium-wrappers-sumo";
 import { buildSettingsUpdateTx } from "../settingsUpdateTx.js";
 
 const SETTINGS_HANDLE = "pz_settings";
-const PREVIEW_NATIVE_SCRIPT_CBOR_HEX =
-  "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b" +
-  "8200581cd9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d";
+const NATIVE_SCRIPT_BY_NETWORK = {
+  preview:
+    "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b" +
+    "8200581cd9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d",
+  // Preprod: 1-of-2 RequireAnyOf, signers 5b468ea6 / 548afd43
+  // (per _build_pers_settings_unsigned_preprod.mjs)
+  preprod:
+    "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b" +
+    "8200581c548afd43158ec53fcd94290c41d1b4496c0746617f0efbb974440bb4",
+  // Mainnet: 2-of-4 RequireAtLeast, 4 signers (per _build_mainnet_legacy_updates.mjs)
+  mainnet:
+    "830302848200581c0d147948e63cf418abccbc8e53f1f759b0e2375ba7cc07b351d09c9d" +
+    "8200581cfafa11964fda9a4ec829d9cc6fcc98bae73621a10b0be64cf7a91db8" +
+    "8200581c75cca35458a485e3c61d3803da366933424628e47c335a32d2cbbac2" +
+    "8200581cb5fa099804ba14c5494dc97ddc15e114043704c6ad90ac87d7d805aa",
+};
+const SIGNER_INSTRUCTIONS = {
+  preview:
+    "Multisig (1-of-2 RequireAnyOf) signers on preview:\n" +
+    "  5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b\n" +
+    "  d9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d\n" +
+    "\nEither key adds a vkey witness, then submit.",
+  preprod:
+    "Multisig (1-of-2 RequireAnyOf) signers on preprod:\n" +
+    "  5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b\n" +
+    "  548afd43158ec53fcd94290c41d1b4496c0746617f0efbb974440bb4\n" +
+    "\nEither key adds a vkey witness, then submit.",
+  mainnet:
+    "Multisig (2-of-4 RequireAtLeast) signers on mainnet:\n" +
+    "  0d147948e63cf418abccbc8e53f1f759b0e2375ba7cc07b351d09c9d\n" +
+    "  fafa11964fda9a4ec829d9cc6fcc98bae73621a10b0be64cf7a91db8\n" +
+    "  75cca35458a485e3c61d3803da366933424628e47c335a32d2cbbac2\n" +
+    "  b5fa099804ba14c5494dc97ddc15e114043704c6ad90ac87d7d805aa\n" +
+    "\nAny TWO keys add vkey witnesses, then submit.",
+};
 const PLUTUS_JSON =
   "/home/jesse/src/koralabs/handles-personalization/aiken/plutus.json";
 
@@ -108,8 +140,8 @@ const loadEnvFromFile = (path) => {
 const main = async () => {
   const args = parseArgs(process.argv.slice(2));
   const network = args.network || "preview";
-  if (network !== "preview") {
-    throw new Error(`only preview is supported by this script; got ${network}`);
+  if (!NATIVE_SCRIPT_BY_NETWORK[network]) {
+    throw new Error(`unsupported network: ${network} (supported: ${Object.keys(NATIVE_SCRIPT_BY_NETWORK).join(", ")})`);
   }
   const minting = loadEnvFromFile("/home/jesse/src/koralabs/minting.handle.me/.env");
   const blockfrostApiKey =
@@ -221,7 +253,7 @@ const main = async () => {
     network,
     settingsHandleName: SETTINGS_HANDLE,
     patchedDatumHex,
-    nativeScriptCborHex: PREVIEW_NATIVE_SCRIPT_CBOR_HEX,
+    nativeScriptCborHex: NATIVE_SCRIPT_BY_NETWORK[network],
     blockfrostApiKey,
     userAgent,
   });
@@ -232,12 +264,7 @@ const main = async () => {
   const outPath = `/tmp/addPersdsgHashes-${network}-unsigned.tx.cbor.hex`;
   writeFileSync(outPath, built.cborHex);
   console.log(`\n✓ Unsigned tx CBOR saved to ${outPath}`);
-  console.log(
-    `\nMultisig (1-of-2 RequireAnyOf) signers on preview:\n` +
-      `  5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b\n` +
-      `  d9980af92828f622d9c9f0a6e89a61da55829ac0dbd11127bc62916d\n` +
-      `\nEither key adds a vkey witness, then submit.`
-  );
+  console.log(`\n${SIGNER_INSTRUCTIONS[network]}`);
 };
 
 main().catch((e) => {
