@@ -161,7 +161,11 @@ export const buildSettingsUpdateTx = async ({
 }) => {
   if (!network) throw new Error("settings-update tx: network is required");
   if (!settingsHandleName) throw new Error("settings-update tx: settingsHandleName is required");
-  if (!patchedDatumHex) throw new Error("settings-update tx: patchedDatumHex is required");
+  // patchedDatumHex is optional: ref-script-only redeploys (e.g. the
+  // pers* SubHandle re-attach flow that spends a multisig SubHandle UTxO
+  // never carrying a datum, re-outputting with a new scriptReference and
+  // still no datum) pass it as undefined. Settings-handle updates still
+  // require a datum — callers supply it when the source UTxO had one.
   if (!nativeScriptCborHex) throw new Error("settings-update tx: nativeScriptCborHex is required");
   if (!blockfrostApiKey) throw new Error("settings-update tx: blockfrostApiKey is required");
   if (!userAgent) throw new Error("settings-update tx: userAgent is required");
@@ -189,13 +193,15 @@ export const buildSettingsUpdateTx = async ({
   // serialization time DOES round-trip raw bytes (cardano-sdk preserves the
   // original CBOR encoding via the InlineDatum representation) — this is
   // what decentralized-minting relies on too.
-  const datum = Serialization.PlutusData.fromCbor(stripHex(patchedDatumHex)).toCore();
+  const datum = patchedDatumHex
+    ? Serialization.PlutusData.fromCbor(stripHex(patchedDatumHex)).toCore()
+    : undefined;
 
   const minimumCoinQuantity = computeMinimumCoinQuantity(buildContext.protocolParameters.coinsPerUtxoByte);
   const settingsOutput = {
     address: scriptAddress,
     value: handleValue,
-    datum,
+    ...(datum ? { datum } : {}),
     ...(scriptReference ? { scriptReference } : {}),
   };
   settingsOutput.value = { ...settingsOutput.value, coins: minimumCoinQuantity(settingsOutput) };
