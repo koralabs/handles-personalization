@@ -1518,8 +1518,19 @@ fn personalize_validate(
     ) == 1
   let designer_changed =
     new_designer_data != datum.map_get(old_extra, key_designer)
+  // Helios-faithful: bg-required-assets check applies only when bg asset is
+  // CIP-68 (LBL_222/444 — has a reference token carrying creator defaults).
+  // CIP-25 collections (e.g. DiscoSolaris2722) have no on-chain reference
+  // datum, hence no defaults to enforce. pers.helios:307 explicitly returned
+  // True for the CIP-25 branch ("We can't check CIP-25 so just approve it");
+  // the Aiken port lost that semantics when `check_required_assets` started
+  // returning False on `bg_cip68_opt is None` — which is None in BOTH the
+  // CIP-25 case AND the missing-ref case. Short-circuit at the caller so we
+  // keep the existing safety check (`None -> False`) for genuinely CIP-68
+  // bg assets whose ref input is missing, while CIP-25 trivially passes.
   let required_asset_valid =
-    new_bg_asset == datum.empty_asset || check_required_assets(
+    new_bg_asset == datum.empty_asset
+      || !asset_requires_cip68_ref(new_bg_asset) || check_required_assets(
       pz_asset_output,
       bg_cip68_opt,
       indexes.required_asset,
