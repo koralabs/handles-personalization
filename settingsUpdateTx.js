@@ -158,6 +158,15 @@ export const buildSettingsUpdateTx = async ({
   // output-side ref-script bytes via requestedOutputs so per-byte fee is
   // already in the selection's computed fee.
   scriptReference = undefined,
+  // Conway charges minFeeRefScriptCoinsPerByte for BOTH output ref-scripts
+  // (covered by GreedyTxEvaluator above) AND input ref-scripts (the ref
+  // bytes attached to a UTxO being SPENT — e.g. when the perspz1@handlecontract
+  // SubHandle UTxO already carries the OLD perspz ref-script and we're
+  // about to replace it). cardano-sdk 0.46.12 doesn't include input ref-
+  // script bytes in its fee estimate, so the caller must pass the byte
+  // count of any consumed ref-script here. 0 (no input ref-script) is the
+  // default. Mirrors deploymentTx.js inputRefScriptBytes.
+  inputRefScriptBytes = 0,
 }) => {
   if (!network) throw new Error("settings-update tx: network is required");
   if (!settingsHandleName) throw new Error("settings-update tx: settingsHandleName is required");
@@ -258,6 +267,27 @@ export const buildSettingsUpdateTx = async ({
       })
     );
 
+  // Conway minFeeRefScriptCoinsPerByte for any INPUT ref-script bytes the
+  // caller declared. Tiered (25,600-byte windows, base × 1.2 per tier) per
+  // CIP-0119; for the single perspz1 redeploy (~14 KB, one tier) it reduces
+  // to flat per-byte × base. Mirrors deploymentTx.js inputRefScriptBytes
+  // handling.
+  const inputRefScriptFee = (() => {
+    if (!inputRefScriptBytes || inputRefScriptBytes <= 0) return 0n;
+    const base = Number(buildContext.protocolParameters.minFeeRefScriptCostPerByte ?? 15);
+    if (!Number.isFinite(base) || base <= 0) return 0n;
+    let remaining = inputRefScriptBytes;
+    let perByte = base;
+    let fee = 0;
+    const tier = 25_600;
+    while (remaining > 0) {
+      fee += Math.ceil(Math.min(tier, remaining) * perByte);
+      remaining = Math.max(remaining - tier, 0);
+      perByte *= 1.2;
+    }
+    return BigInt(fee);
+  })();
+
   const baseConstraints = defaultSelectionConstraints({
     protocolParameters: buildContext.protocolParameters,
     buildTx: buildForSelection,
@@ -268,7 +298,7 @@ export const buildSettingsUpdateTx = async ({
     ...baseConstraints,
     computeMinimumCost: async (selection) => {
       const result = await baseConstraints.computeMinimumCost(selection);
-      return { ...result, fee: result.fee + NATIVE_SCRIPT_FEE_SAFETY_MARGIN_LOVELACE };
+      return { ...result, fee: result.fee + NATIVE_SCRIPT_FEE_SAFETY_MARGIN_LOVELACE + inputRefScriptFee };
     },
   };
 

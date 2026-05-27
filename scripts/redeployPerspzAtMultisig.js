@@ -113,22 +113,61 @@ const main = async () => {
   const newPerspzHash = await computeV3Hash(newPerspzCbor);
   console.log(`new perspz hash: ${newPerspzHash} (${newPerspzCbor.length / 2} bytes)`);
 
-  // 2. Verify the freshly-compiled hash is NOT the currently deployed one.
-  //    (No-op redeploys waste fees + create chain churn for nothing.)
+  // 2. Verify the freshly-compiled hash is NOT the currently deployed one
+  //    AND grab the byte count of the existing ref-script for fee padding.
+  //    Use the LBL_222 owner UTxO (returned by /handles/<name>.utxo) — that's
+  //    the multisig-held UTxO carrying the Plutus reference script. The
+  //    LBL_100 reference token (/reference_token endpoint) carries the
+  //    SubHandle metadata + inline datum, NOT the ref-script bytes.
+  //    Path: api → handleData.utxo → Blockfrost /utxos → output's
+  //    reference_script_hash, then /scripts/<hash>/cbor → byte size.
   const apiHost = network === "mainnet" ? "api.handle.me" : `${network}.api.handle.me`;
-  const handleRes = await fetch(`https://${apiHost}/handles/${encodeURIComponent(PERSPZ_HANDLE)}/reference_token`);
+  const handleRes = await fetch(`https://${apiHost}/handles/${encodeURIComponent(PERSPZ_HANDLE)}`);
   if (!handleRes.ok) {
-    throw new Error(`failed to fetch ${PERSPZ_HANDLE}/reference_token: HTTP ${handleRes.status}`);
+    throw new Error(`failed to fetch ${PERSPZ_HANDLE}: HTTP ${handleRes.status}`);
   }
-  const currentRefToken = await handleRes.json();
-  const currentScriptHash = currentRefToken?.script?.validatorHash
-    ?? currentRefToken?.script?.scriptHash
-    ?? null;
+  const handleData = await handleRes.json();
+  const utxoRef = handleData?.utxo;
+  if (!utxoRef || !utxoRef.includes("#")) {
+    throw new Error(`api returned malformed handleData.utxo: ${utxoRef}`);
+  }
+  const [utxoTxHash, utxoIndexStr] = utxoRef.split("#");
+  const utxoIndex = Number.parseInt(utxoIndexStr, 10);
+  const utxosResp = await fetch(`https://cardano-${network}.blockfrost.io/api/v0/txs/${utxoTxHash}/utxos`,
+    { headers: { project_id: blockfrostApiKey } });
+  if (!utxosResp.ok) throw new Error(`Blockfrost /txs/${utxoTxHash}/utxos: HTTP ${utxosResp.status}`);
+  const utxosJson = await utxosResp.json();
+  const onChainOutput = utxosJson.outputs?.find((o) => o.output_index === utxoIndex);
+  if (!onChainOutput) throw new Error(`output ${utxoRef} not found in tx outputs`);
+  const currentScriptHash = onChainOutput.reference_script_hash ?? null;
+  if (!currentScriptHash) {
+    throw new Error(`UTxO ${utxoRef} has no reference_script_hash — nothing to redeploy`);
+  }
   if (currentScriptHash === newPerspzHash) {
     console.log(`Current ${PERSPZ_HANDLE} ref-script hash (${currentScriptHash}) matches freshly-compiled — nothing to do.`);
     return;
   }
   console.log(`current ${PERSPZ_HANDLE} ref-script hash: ${currentScriptHash} (will be replaced)`);
+
+  // 2b. Fetch the on-chain ref-script bytes so buildSettingsUpdateTx can
+  //     pad the fee for Conway's minFeeRefScriptCoinsPerByte on the input
+  //     ref-script being consumed. cardano-sdk 0.46.12's fee estimator
+  //     doesn't include input ref-script bytes; without this padding,
+  //     submission fails with "Insufficient fee" (observed previously:
+  //     shortfall ~14039 bytes × 15 lovelace/byte ≈ 210 k lovelace).
+  let inputRefScriptBytes = 0;
+  const sizeResp = await fetch(`https://cardano-${network}.blockfrost.io/api/v0/scripts/${currentScriptHash}/cbor`,
+    { headers: { project_id: blockfrostApiKey } });
+  if (sizeResp.ok) {
+    const { cbor: scriptCborHex } = await sizeResp.json();
+    if (typeof scriptCborHex === "string") {
+      inputRefScriptBytes = scriptCborHex.length / 2;
+    }
+  }
+  if (inputRefScriptBytes === 0) {
+    throw new Error(`failed to fetch existing ref-script (${currentScriptHash}) size from Blockfrost — fee padding would underflow`);
+  }
+  console.log(`input ref-script bytes (for fee padding): ${inputRefScriptBytes}`);
 
   // 3. Build the multisig tx via buildSettingsUpdateTx with no datum,
   //    just a new scriptReference. The function spends the SubHandle UTxO
@@ -148,6 +187,7 @@ const main = async () => {
     blockfrostApiKey,
     userAgent,
     scriptReference,
+    inputRefScriptBytes,
   });
   console.log(`  unsigned txId:        ${built.txId}`);
   console.log(`  estimated signed size: ${built.estimatedSignedTxSize}/${built.maxTxSize}`);
