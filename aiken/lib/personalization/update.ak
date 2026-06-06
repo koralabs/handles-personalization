@@ -662,11 +662,44 @@ fn reference_output_at(
   }
 }
 
+// DSH-303 — decentralized handle-asset quantity check. `value` holds `expected_qty` of
+// `asset_name` under EITHER the legacy policy `f0ff48bb` (always accepted — it is the original
+// $handle_policies entry, so legacy flows need no registry ref input) OR any policy listed in the
+// on-chain `$handle_policies` registry (attached as a ref input by the BFF for DeMi-policy
+// handles). This replaces pz's hardcoded f0ff48bb-only checks so DeMi handles (6c32db33) get full
+// pz support (personalize/migrate/revoke/ownership), not just burn. Backward compatible: the
+// legacy fast-path is byte-identical to the old behaviour, so existing legacy flows are unchanged.
+fn value_has_registered_handle_qty(
+  value: assets.Value,
+  asset_name: ByteArray,
+  expected_qty: Int,
+  tx: transaction.Transaction,
+) -> Bool {
+  if assets.quantity_of(value, constants.handle_policy_id, asset_name) == expected_qty {
+    True
+  } else {
+    when load_handle_policies(tx) is {
+      Some(hp) ->
+        list.any(
+          assets.policies(value),
+          fn(p) {
+            assets.quantity_of(value, p, asset_name) == expected_qty && handle_policies.policy_is_registered(
+              hp,
+              p,
+            )
+          },
+        )
+      None -> False
+    }
+  }
+}
+
 fn output_has_handle_asset(
   output: transaction.Output,
   asset_name: ByteArray,
+  tx: transaction.Transaction,
 ) -> Bool {
-  assets.quantity_of(output.value, constants.handle_policy_id, asset_name) == 1
+  value_has_registered_handle_qty(output.value, asset_name, 1, tx)
 }
 
 // Wire-up: load bg_datum.extra (the creator's defaults) and the on-chain
@@ -893,9 +926,10 @@ fn display_match(
 fn outputs_have_owner_token(
   outputs: List<transaction.Output>,
   handle: ByteArray,
+  tx: transaction.Transaction,
 ) -> Bool {
   let owner_token_name = constants.prefixed_asset_name(constants.lbl_222, handle)
-  list.any(outputs, fn(output) { output_has_handle_asset(output, owner_token_name) })
+  list.any(outputs, fn(output) { output_has_handle_asset(output, owner_token_name, tx) })
 }
 
 fn validity_start(tx: transaction.Transaction) -> Option<Int> {
@@ -1172,11 +1206,12 @@ fn personalize_validate(
   // owner_handle_present: pz_asset_output must hold the LBL_222 owner token.
   // Helios: `pz_asset_output.value.contains(Value::new(LBL_222 + name, 1))`
   let owner_handle_present =
-    assets.quantity_of(
+    value_has_registered_handle_qty(
       pz_asset_output.value,
-      constants.handle_policy_id,
       constants.prefixed_asset_name(constants.lbl_222, handle.name),
-    ) == 1
+      1,
+      tx,
+    )
 
   // resolved_ada_is_empty: new_extra.resolved_addresses must NOT contain
   // an "ada" key (asserted for non-virtual).
@@ -1559,9 +1594,8 @@ fn personalize_validate(
   // personalize_is_valid remain for unit tests; Aiken DCE drops them from
   // the perspz binary because no validator path reaches them.
   let output_has_expected_handle_token =
-    assets.quantity_of(
+    value_has_registered_handle_qty(
       contract_output.value,
-      constants.handle_policy_id,
       bytearray.concat(
         if handle.handle_type == types.HandleTypeVirtualSubhandle {
           constants.lbl_000
@@ -1570,7 +1604,9 @@ fn personalize_validate(
         },
         handle.name,
       ),
-    ) == 1
+      1,
+      tx,
+    )
   let designer_changed =
     new_designer_data != datum.map_get(old_extra, key_designer)
   // Helios-faithful: bg-required-assets check applies only when bg asset is
@@ -1808,6 +1844,7 @@ fn update_validate_from_tx(
         output_has_handle_asset(
           out,
           constants.prefixed_asset_name(constants.lbl_222, "sh_settings"),
+          tx,
         )
       None -> False
     }
@@ -1817,6 +1854,7 @@ fn update_validate_from_tx(
         output_has_handle_asset(
           out,
           constants.prefixed_asset_name(constants.lbl_001, root_handle),
+          tx,
         )
       None -> False
     }
@@ -1898,6 +1936,7 @@ fn update_validate_from_tx(
           output_has_handle_asset(
             root_output,
             constants.prefixed_asset_name(constants.lbl_222, root_handle),
+            tx,
           )
         None -> False
       }
@@ -2014,6 +2053,7 @@ pub fn dispatch_from_tx(
                                 ),
                                 handle.name,
                               ),
+                              tx,
                             ),
                             utils.is_valid_contract(
                               output,
@@ -2023,7 +2063,7 @@ pub fn dispatch_from_tx(
                             migrate.migration_signers_are_valid(
                               admin_signed,
                               owner_sig_required,
-                              outputs_have_owner_token(tx.outputs, handle.name),
+                              outputs_have_owner_token(tx.outputs, handle.name, tx),
                             ),
                           )
                         None -> False
@@ -2061,6 +2101,7 @@ pub fn dispatch_from_tx(
                             constants.lbl_222,
                             root_handle,
                           ),
+                          tx,
                         )
                       None -> False
                     }
@@ -2070,13 +2111,11 @@ pub fn dispatch_from_tx(
                     datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0,
                     root_signed,
                     expired,
-                    assets.quantity_of(
+                    value_has_registered_handle_qty(
                       tx.mint,
-                      constants.handle_policy_id,
-                      constants.prefixed_asset_name(
-                        constants.lbl_000,
-                        handle.name,
-                      ),
+                      constants.prefixed_asset_name(constants.lbl_000, handle.name),
+                      -1,
+                      tx,
                     ),
                   )
                 }
@@ -2244,10 +2283,11 @@ pub fn dispatch_other_from_tx(
                 personalize_base.handle_label_for_type(handle.handle_type),
                 handle.name,
               ),
+              tx,
             ),
             utils.is_valid_contract(output, settings.valid_contracts, current_hash),
             admin_signed,
-            !owner_sig_required || outputs_have_owner_token(tx.outputs, handle.name),
+            !owner_sig_required || outputs_have_owner_token(tx.outputs, handle.name, tx),
           }
         }
         types.Revoke { handle, root_handle, owner_index } -> {
@@ -2265,6 +2305,7 @@ pub fn dispatch_other_from_tx(
                 output_has_handle_asset(
                   root_output,
                   constants.prefixed_asset_name(constants.lbl_222, root_handle),
+                  tx,
                 )
               None -> False
             }
@@ -2274,11 +2315,12 @@ pub fn dispatch_other_from_tx(
           } else {
             let public_mint =
               datum.int_or(datum.map_get(old_virtual, key_public_mint), 0) != 0
-            ( !public_mint && root_signed || public_mint && expired ) && assets.quantity_of(
+            ( !public_mint && root_signed || public_mint && expired ) && value_has_registered_handle_qty(
               tx.mint,
-              constants.handle_policy_id,
               constants.prefixed_asset_name(constants.lbl_000, handle.name),
-            ) == -1
+              -1,
+              tx,
+            )
           }
         }
         types.Update { handle, root_handle, indexes } ->
@@ -3673,6 +3715,51 @@ test dispatch_from_tx_burn_rejects_unregistered_policy() {
     fixture_own_ref(),
     tx,
   )
+}
+
+// --- DSH-303: registered-policy handle-asset acceptance ---
+
+test registered_policy_handle_asset_accepts_demi_when_registered() {
+  let name = constants.prefixed_asset_name(constants.lbl_222, "alice")
+  let value = assets.from_asset(burn_demi_policy(), name, 1)
+  let tx =
+    fixture_tx_for_dispatch_from_tx_full(
+      False,
+      [],
+      [fixture_reference_input_for_handle_policies(registry_with_demi())],
+      assets.zero,
+      interval.after(10),
+    )
+  value_has_registered_handle_qty(value, name, 1, tx)
+}
+
+test registered_policy_handle_asset_rejects_demi_when_not_registered() {
+  let name = constants.prefixed_asset_name(constants.lbl_222, "alice")
+  let value = assets.from_asset(burn_demi_policy(), name, 1)
+  let tx =
+    fixture_tx_for_dispatch_from_tx_full(
+      False,
+      [],
+      [fixture_reference_input_for_handle_policies(registry_without_demi())],
+      assets.zero,
+      interval.after(10),
+    )
+  !value_has_registered_handle_qty(value, name, 1, tx)
+}
+
+test registered_policy_handle_asset_accepts_legacy_without_registry() {
+  // the legacy policy is always accepted — no $handle_policies ref input required (backward compat)
+  let name = constants.prefixed_asset_name(constants.lbl_222, "alice")
+  let value = assets.from_asset(constants.handle_policy_id, name, 1)
+  let tx =
+    fixture_tx_for_dispatch_from_tx_full(
+      False,
+      [],
+      [],
+      assets.zero,
+      interval.after(10),
+    )
+  value_has_registered_handle_qty(value, name, 1, tx)
 }
 
 test dispatch_from_tx_update_branch_requires_settings_tokens() {
