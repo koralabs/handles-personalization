@@ -3549,6 +3549,132 @@ test dispatch_from_tx_revoke_branch_uses_mint_burn_quantity() {
   }
 }
 
+// --- DSH-302: nft/root Burn dispatch tests ---
+
+fn burn_demi_policy() -> assets.PolicyId {
+  #"6c32db33a422e0bc2cb535bb850b5a6e9a9572222056d6ddc9cbc26e"
+}
+
+// $handle_policies registry ref input. `registry` is the on-chain shape
+// List[ Map( policy -> (first,last,sunset) ) ]; aiken upcasts it to Data at the InlineDatum call.
+fn fixture_reference_input_for_handle_policies(
+  registry: List<Pairs<assets.PolicyId, (Int, Int, Int)>>,
+) -> transaction.Input {
+  transaction.Input {
+    output_reference: transaction.OutputReference {
+      transaction_id: #"0505050505050505050505050505050505050505050505050505050505050505",
+      output_index: 0,
+    },
+    output: fixture_script_output(
+      #"cccc",
+      assets.from_asset(
+        constants.handle_policy_id,
+        constants.prefixed_asset_name(constants.lbl_100, "handle_policies"),
+        1,
+      ),
+      transaction.InlineDatum(registry),
+    ),
+  }
+}
+
+fn registry_with_demi() -> List<Pairs<assets.PolicyId, (Int, Int, Int)>> {
+  [[Pair(burn_demi_policy(), (0, 0, 0))]]
+}
+
+fn registry_without_demi() -> List<Pairs<assets.PolicyId, (Int, Int, Int)>> {
+  [[Pair(constants.handle_policy_id, (0, 0, 0))]]
+}
+
+// -1 of both the pz-held 100 ref and the owner-held 222 for `name` under `policy`.
+fn burned_nft_tokens(policy: assets.PolicyId, name: ByteArray) -> assets.Value {
+  assets.merge(
+    assets.from_asset(
+      policy,
+      constants.prefixed_asset_name(constants.lbl_100, name),
+      -1,
+    ),
+    assets.from_asset(
+      policy,
+      constants.prefixed_asset_name(constants.lbl_222, name),
+      -1,
+    ),
+  )
+}
+
+test dispatch_from_tx_burn_accepts_nft_burn_with_consent_and_registered_policy() {
+  let handle =
+    types.Handle { handle_type: types.HandleTypeNftSubhandle, name: "alice" }
+  let tx =
+    fixture_tx_for_dispatch_from_tx_full(
+      False,
+      [],
+      [
+        fixture_reference_input_for_settings(),
+        fixture_reference_input_for_handle_policies(registry_with_demi()),
+      ],
+      burned_nft_tokens(burn_demi_policy(), "alice"),
+      interval.after(10),
+    )
+  dispatch_from_tx(
+    Some(fixture_old_datum_data()),
+    types.Burn { handle, policy_id: burn_demi_policy() },
+    fixture_own_ref(),
+    tx,
+  )
+}
+
+test dispatch_from_tx_burn_rejects_without_owner_222_burn() {
+  // only the 100 is burned (no 222) -> no owner consent -> the held 100 must not release
+  let handle =
+    types.Handle { handle_type: types.HandleTypeNftSubhandle, name: "alice" }
+  let only_100 =
+    assets.from_asset(
+      burn_demi_policy(),
+      constants.prefixed_asset_name(constants.lbl_100, "alice"),
+      -1,
+    )
+  let tx =
+    fixture_tx_for_dispatch_from_tx_full(
+      False,
+      [],
+      [
+        fixture_reference_input_for_settings(),
+        fixture_reference_input_for_handle_policies(registry_with_demi()),
+      ],
+      only_100,
+      interval.after(10),
+    )
+  !dispatch_from_tx(
+    Some(fixture_old_datum_data()),
+    types.Burn { handle, policy_id: burn_demi_policy() },
+    fixture_own_ref(),
+    tx,
+  )
+}
+
+test dispatch_from_tx_burn_rejects_unregistered_policy() {
+  // both tokens burned, but the policy is NOT listed in $handle_policies -> reject
+  let handle =
+    types.Handle { handle_type: types.HandleTypeNftSubhandle, name: "alice" }
+  let tx =
+    fixture_tx_for_dispatch_from_tx_full(
+      False,
+      [],
+      [
+        fixture_reference_input_for_settings(),
+        fixture_reference_input_for_handle_policies(registry_without_demi()),
+      ],
+      burned_nft_tokens(burn_demi_policy(), "alice"),
+      interval.after(10),
+    )
+  !dispatch_from_tx(
+    Some(fixture_old_datum_data()),
+    types.Burn { handle, policy_id: burn_demi_policy() },
+    fixture_own_ref(),
+    tx,
+  )
+}
+
 test dispatch_from_tx_update_branch_requires_settings_tokens() {
   let handle =
     types.Handle {
