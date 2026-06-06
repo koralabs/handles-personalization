@@ -3326,45 +3326,62 @@ fn fixture_reference_input(
   }
 }
 
-fn fixture_subhandle_settings(
-  public_minting_enabled: Int,
-  tier_price: Int,
-) -> types.SubHandleSettings {
-  types.SubHandleSettings {
-    public_minting_enabled,
-    pz_enabled: 1,
-    tier_pricing: [[1, tier_price]],
-    default_styles: datum.empty_data,
-    save_original_address: 0,
-  }
+// NOTE: the on-chain admin/owner/subhandle settings datums are the Helios-era RAW List<Data>
+// form (PlutusData::List), NOT Aiken Constr records — the validator parses them positionally via
+// `expect [..]: List<Data> = ..` (see the parse sites around the Update branch). These fixtures
+// therefore build the list form via builtin.*_data; an Aiken `types.MainSubHandleSettings { .. }`
+// record would serialize to a Constr and crash the `unListData` cast (the bug this fixes).
+
+// SubHandleSettings as raw List<Data>: [public_minting_enabled, pz_enabled, tier_pricing,
+// default_styles, save_original_address].
+fn fixture_subhandle_settings(public_minting_enabled: Int, tier_price: Int) -> Data {
+  builtin.list_data(
+    [
+      builtin.i_data(public_minting_enabled),
+      builtin.i_data(1),
+      builtin.list_data(
+        [builtin.list_data([builtin.i_data(1), builtin.i_data(tier_price)])],
+      ),
+      builtin.b_data(""),
+      builtin.i_data(0),
+    ],
+  )
 }
 
-fn fixture_main_settings(
-  payment_address: ByteArray,
-) -> types.MainSubHandleSettings {
-  types.MainSubHandleSettings {
-    valid_contracts: [#"bbbb"],
-    admin_creds: [utils.bootstrap_admin_signer],
-    virtual_price: 4000000,
-    base_price: 0,
-    buy_down_prices: [[1, 0]],
-    payment_address,
-    expiry_duration: 600,
-    renewal_window: 300,
-  }
+// MainSubHandleSettings as raw List<Data>: [valid_contracts, admin_creds, virtual_price,
+// base_price, buy_down_prices, payment_address, expiry_duration, renewal_window].
+fn fixture_main_settings(payment_address: ByteArray) -> Data {
+  builtin.list_data(
+    [
+      builtin.list_data([builtin.b_data(#"bbbb")]),
+      builtin.list_data([builtin.b_data(utils.bootstrap_admin_signer)]),
+      builtin.i_data(4000000),
+      builtin.i_data(0),
+      builtin.list_data(
+        [builtin.list_data([builtin.i_data(1), builtin.i_data(0)])],
+      ),
+      builtin.b_data(payment_address),
+      builtin.i_data(600),
+      builtin.i_data(300),
+    ],
+  )
 }
 
-fn fixture_owner_settings(payment_address: ByteArray) -> types.OwnerSettings {
-  types.OwnerSettings {
-    nft: fixture_subhandle_settings(1, 0),
-    virtual: fixture_subhandle_settings(1, 7000000),
-    buy_down_price: 0,
-    buy_down_paid: 0,
-    buy_down_percent: 0,
-    agreed_terms: "",
-    migrate_sig_required: 0,
-    payment_address,
-  }
+// OwnerSettings as raw List<Data>: [nft, virtual, buy_down_price, buy_down_paid,
+// buy_down_percent, agreed_terms, migrate_sig_required, payment_address].
+fn fixture_owner_settings(payment_address: ByteArray) -> Data {
+  builtin.list_data(
+    [
+      fixture_subhandle_settings(1, 0),
+      fixture_subhandle_settings(1, 7000000),
+      builtin.i_data(0),
+      builtin.i_data(0),
+      builtin.i_data(0),
+      builtin.b_data(""),
+      builtin.i_data(0),
+      builtin.b_data(payment_address),
+    ],
+  )
 }
 
 test dispatch_from_tx_migrate_branch_respects_owner_sig_requirement() {
