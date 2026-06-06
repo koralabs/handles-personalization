@@ -48,6 +48,12 @@ pub type Redeemer {
   Revoke { handle: Handle, root_handle: ByteArray, owner_index: Int }
   Update { handle: Handle, root_handle: ByteArray, indexes: VirtIndexes }
   ReturnToSender
+  // DSH-301 — nft/root BURN: release pz's held 100 iff the matching 222 is also burned (owner
+  // consent) AND `policy_id` is in the on-chain `$handle_policies` registry. Virtual subs keep
+  // using Revoke. `policy_id` is the handle's actual mint policy (legacy f0ff48bb OR DeMi
+  // 6c32db33); validating it against `$handle_policies` is the decentralized fix that lets DeMi
+  // handles burn. APPENDED last to preserve the existing on-chain constructor indices.
+  Burn { handle: Handle, policy_id: ByteArray }
 }
 
 pub type ObserverRedeemer {

@@ -6,9 +6,11 @@ use aiken/primitive/bytearray
 use cardano/address
 use cardano/assets
 use cardano/transaction
+use personalization/burn
 use personalization/constants
 use personalization/datum
 use personalization/designer_settings
+use personalization/handle_policies
 use personalization/migrate
 use personalization/personalize_base
 use personalization/personalize_mpf_context
@@ -330,6 +332,59 @@ pub fn load_pz_settings(tx: transaction.Transaction) -> Option<types.PzSettings>
       }
     None -> None
   }
+}
+
+// DSH-301 — read the on-chain `$handle_policies` registry datum from its reference input. The
+// registry is the legacy handle `handle_policies`; its CIP-68 ref (100) token carries the datum.
+// Mirrors `load_pz_settings`'s reference-input scan.
+fn load_handle_policies(tx: transaction.Transaction) -> Option<Data> {
+  when
+    list.find(
+      tx.reference_inputs,
+      fn(input) {
+        assets.quantity_of(
+          input.output.value,
+          constants.handle_policy_id,
+          constants.prefixed_asset_name(constants.lbl_100, "handle_policies"),
+        ) == 1
+      },
+    )
+  is {
+    Some(input) -> output_data(input.output, tx)
+    None -> None
+  }
+}
+
+// DSH-301 — validate a nft/root Burn redeemer against the tx: the handle's policy is in
+// `$handle_policies`, and both the matching 100 (pz-held ref) and 222 (owner-held) are burned -1.
+fn burn_branch_is_valid(
+  handle: types.Handle,
+  policy_id: ByteArray,
+  tx: transaction.Transaction,
+) -> Bool {
+  let policy_registered =
+    when load_handle_policies(tx) is {
+      Some(hp) -> handle_policies.policy_is_registered(hp, policy_id)
+      None -> False
+    }
+  let ref_token_burned =
+    assets.quantity_of(
+      tx.mint,
+      policy_id,
+      constants.prefixed_asset_name(constants.lbl_100, handle.name),
+    ) == -1
+  let owner_token_burned =
+    assets.quantity_of(
+      tx.mint,
+      policy_id,
+      constants.prefixed_asset_name(constants.lbl_222, handle.name),
+    ) == -1
+  burn.burn_is_valid(
+    handle.handle_type,
+    policy_registered,
+    ref_token_burned,
+    owner_token_burned,
+  )
 }
 
 fn withdrawal_is_zero_for_credential(
@@ -2081,6 +2136,9 @@ pub fn dispatch_from_tx(
                 tx,
               )
             }
+
+            types.Burn { handle, policy_id } ->
+              burn_branch_is_valid(handle, policy_id, tx)
           }
         }
         None -> False
@@ -2233,6 +2291,8 @@ pub fn dispatch_other_from_tx(
             admin_signed,
             tx,
           )
+        types.Burn { handle, policy_id } ->
+          burn_branch_is_valid(handle, policy_id, tx)
         _ -> False
       }
     }
