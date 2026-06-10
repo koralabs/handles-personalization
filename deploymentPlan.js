@@ -148,9 +148,13 @@ export const fetchLiveDeploymentState = async ({
     }
   }
 
+  // `Accept: text/plain` makes api.handle.me return the RAW CBOR hex datum; without it the
+  // /datum endpoint returns the decoded JSON view, which decodePzSettingsDatum can't CBOR-decode
+  // ("Insufficient data"). Mirrors decentralized-minting's fetchHandleDatum. Only the datum fetch
+  // needs this — the /handles/<h> fetch above still wants JSON.
   const datumResponse = await fetchFn(
     `${baseUrl}/handles/${encodeURIComponent(COMPARABLE_SETTINGS_HANDLE)}/datum`,
-    { headers }
+    { headers: { ...headers, Accept: "text/plain" } }
   );
   if (!datumResponse.ok) {
     throw new Error(
