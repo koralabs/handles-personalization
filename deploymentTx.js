@@ -154,7 +154,17 @@ export const buildReferenceScriptDeploymentTx = async ({
     throw new Error(`You don't have $${handleName} handle`);
   }
   const handleUtxo = utxos[handleUtxoIndex];
-  const remainingUtxos = utxos.filter((_, i) => i !== handleUtxoIndex);
+  // Fund only from ada-only UTxOs. Token-carrying UTxOs at the deployer (other
+  // contract SubHandles) carry their OWN ref-scripts; if the input selector pulls
+  // one in as fee funding, Conway charges minFeeRefScriptCoinsPerByte for its bytes
+  // too — beyond the pad we computed for just this contract's consumed ref-script —
+  // and the node rejects with FeeTooSmallUTxO. Excluding them keeps the only
+  // consumed ref-script the target handle's (the one inputRefScriptBytes covers).
+  const remainingUtxos = utxos.filter(
+    (utxo, i) =>
+      i !== handleUtxoIndex &&
+      !(utxo[1].value.assets && utxo[1].value.assets.size > 0)
+  );
 
   const compiledCbor = loadProgramCborFn({ contractSlug });
   // PlutusV3 ref-scripts are double-CBOR-encoded on chain: the script-ref bytes
@@ -180,7 +190,18 @@ export const buildReferenceScriptDeploymentTx = async ({
   const minimumCoinQuantity = computeMinimumCoinQuantity(
     buildContext.protocolParameters.coinsPerUtxoByte
   );
-  handleOutput.value = { ...handleOutput.value, coins: minimumCoinQuantity(handleOutput) };
+  // Conway's minFeeRefScriptCoinsPerByte charge for the OLD ref-script on the
+  // consumed SubHandle UTxO (see the rebalance below). Pre-fund it by inflating
+  // the handle output before input selection, then move it into the fee after the
+  // body is built. This always works — the handle output is guaranteed present —
+  // unlike pulling the pad from a maybe-absent ada-only change output (a large
+  // script's min-coin can consume the entire selection, leaving no spare change).
+  const REF_SCRIPT_COINS_PER_BYTE = 17n;
+  const refScriptFeePadding = BigInt(inputRefScriptBytes) * REF_SCRIPT_COINS_PER_BYTE;
+  handleOutput.value = {
+    ...handleOutput.value,
+    coins: minimumCoinQuantity(handleOutput) + refScriptFeePadding,
+  };
 
   const requestedOutputs = [handleOutput];
 
@@ -223,40 +244,27 @@ export const buildReferenceScriptDeploymentTx = async ({
     outputs: requestedOutputs,
   });
 
-  // Conway charges minFeeRefScriptCoinsPerByte for every byte of reference
-  // script consumed by an input OR included in an output. cardano-sdk's
-  // GreedyTxEvaluator covers the OUTPUT side via the requestedOutputs ref
-  // script, but on a REDEPLOY (where the consumed SubHandle UTxO already
-  // carries a stale ref-script that we're replacing) it doesn't account
-  // for the input ref-script's bytes — so the tx fee comes back ~17 lovelace
-  // per byte short of what the ledger requires. Pad the fee for any input
-  // we're consuming that already has a ref-script attached. Param value at
-  // time of writing is 11 lovelace/byte (we use 17 to leave headroom against
-  // future PP changes); excess is pulled out of the largest ada-only change
-  // output back to the deployer so the body still balances.
-  const REF_SCRIPT_COINS_PER_BYTE = 17n;
-  const padding = BigInt(inputRefScriptBytes) * REF_SCRIPT_COINS_PER_BYTE;
-  const adjustedFee = BigInt(selection.selection.fee) + padding;
+  // Conway charges minFeeRefScriptCoinsPerByte for the OLD ref-script on the
+  // consumed SubHandle UTxO (a REDEPLOY replaces a stale ref-script), which
+  // cardano-sdk's fee estimate omits — the tx comes back ~17 lovelace/byte short
+  // of what the ledger requires. We pre-funded exactly `refScriptFeePadding` onto
+  // the handle output before selection; now move it into the fee, reducing the
+  // handle output back to its min-coin so the body still balances. Param value at
+  // time of writing is 11 lovelace/byte (we use 17 for headroom vs PP changes).
+  const adjustedFee = BigInt(selection.selection.fee) + refScriptFeePadding;
 
-  let adjustedBody = finalTxBodyWithHash.body;
-  if (padding > 0n) {
+  let adjustedBody;
+  if (refScriptFeePadding > 0n) {
     const outs = [...finalTxBodyWithHash.body.outputs];
-    let bestIdx = -1;
-    let bestCoin = 0n;
-    for (let i = 0; i < outs.length; i++) {
-      const o = outs[i];
-      const hasAssets = !!o.value?.assets && o.value.assets.size > 0;
-      if (hasAssets) continue;
-      const c = BigInt(o.value?.coins ?? 0n);
-      if (c > bestCoin) { bestCoin = c; bestIdx = i; }
+    const hi = outs.findIndex(
+      (o) => o.value?.assets && o.value.assets.has(handleAssetId)
+    );
+    if (hi < 0) {
+      throw new Error("deploymentTx: handle output not found to rebalance ref-script fee");
     }
-    if (bestIdx < 0 || bestCoin <= padding) {
-      throw new Error(`deploymentTx: no clean change output big enough to absorb +${padding} lovelace ref-script fee`);
-    }
-    const target = outs[bestIdx];
-    outs[bestIdx] = {
-      ...target,
-      value: { ...target.value, coins: BigInt(target.value.coins) - padding },
+    outs[hi] = {
+      ...outs[hi],
+      value: { ...outs[hi].value, coins: BigInt(outs[hi].value.coins) - refScriptFeePadding },
     };
     adjustedBody = { ...finalTxBodyWithHash.body, outputs: outs, fee: adjustedFee };
   } else {

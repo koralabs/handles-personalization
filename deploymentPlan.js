@@ -446,6 +446,25 @@ export const buildPersonalizationDeploymentTxArtifact = async ({
   if (!contract) {
     throw new Error("buildPersonalizationDeploymentTxArtifact: contract is required");
   }
+  // When redeploying, the tx CONSUMES the SubHandle UTxO that still carries the
+  // OLD ref script; Conway charges minFeeRefScriptCoinsPerByte for those input
+  // ref-script bytes, which cardano-sdk's fee estimate omits. Fetch the current
+  // (about-to-be-consumed) ref-script size so the builder can pad the fee — else
+  // the node rejects with FeeTooSmallUTxO. 0 (no current script) → no pad.
+  let inputRefScriptBytes = 0;
+  try {
+    const ua = (process.env.KORA_USER_AGENT || "kora-contract-deployments/1.0").trim();
+    const resp = await fetch(
+      `${handlesApiBaseUrlForNetwork(desired.network)}/handles/${encodeURIComponent(handleName)}/script`,
+      { headers: { "User-Agent": ua } }
+    );
+    if (resp.ok) {
+      const { cbor } = await resp.json();
+      if (cbor) inputRefScriptBytes = Buffer.from(stripHexPrefix(cbor), "hex").length;
+    }
+  } catch {
+    inputRefScriptBytes = 0;
+  }
   const result = await buildTxFn({
     network: desired.network,
     contractSlug: contract.contractSlug,
@@ -453,6 +472,7 @@ export const buildPersonalizationDeploymentTxArtifact = async ({
     changeAddress,
     cborUtxos,
     blockfrostApiKey,
+    inputRefScriptBytes,
   });
   if (result.estimatedSignedTxSize > result.maxTxSize) {
     throw new Error(
