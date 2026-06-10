@@ -117,7 +117,7 @@ const main = async () => {
 
     const minting = loadEnvFromFile('/home/jesse/src/koralabs/minting.handle.me/.env');
     const handlemeStatic = loadEnvFromFile('/home/jesse/src/koralabs/handle.me/static/.env.local');
-    const blockfrostApiKey = minting.BLOCKFROST_API_KEY || process.env.BLOCKFROST_API_KEY;
+    const blockfrostApiKey = process.env.BLOCKFROST_API_KEY || minting.BLOCKFROST_API_KEY;
     const mnemonic = handlemeStatic.E2E_LIVE_WALLET_MNEMONIC || process.env.E2E_LIVE_WALLET_MNEMONIC;
     if (!blockfrostApiKey) throw new Error('BLOCKFROST_API_KEY is required');
     if (!mnemonic) throw new Error('E2E_LIVE_WALLET_MNEMONIC is required');
