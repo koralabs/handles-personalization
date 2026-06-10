@@ -144,8 +144,11 @@ const main = async () => {
     throw new Error(`unsupported network: ${network} (supported: ${Object.keys(NATIVE_SCRIPT_BY_NETWORK).join(", ")})`);
   }
   const minting = loadEnvFromFile("/home/jesse/src/koralabs/minting.handle.me/.env");
+  // Prefer the explicit flag / env var over minting.handle.me/.env, which may point
+  // at a different network (e.g. .env=preprod while building a preview tx) — a
+  // mismatched key silently 403s against the target network's blockfrost host.
   const blockfrostApiKey =
-    (args["blockfrost-api-key"] || minting.BLOCKFROST_API_KEY || process.env.BLOCKFROST_API_KEY || "").trim();
+    (args["blockfrost-api-key"] || process.env.BLOCKFROST_API_KEY || minting.BLOCKFROST_API_KEY || "").trim();
   if (!blockfrostApiKey) throw new Error("BLOCKFROST_API_KEY is required");
   const userAgent = "kora-cutover/1.0";
 

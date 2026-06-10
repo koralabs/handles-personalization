@@ -78,11 +78,13 @@ const mapBlockfrostProtocolParameters = (response) => ({
 });
 
 export const getBlockfrostBuildContext = async (network, apiKey, { fetchFn = fetch } = {}) => {
-  const [_latestBlock, _genesis, epochParameters] = await Promise.all([
-    fetchBlockfrostJson("/blocks/latest", apiKey, network, fetchFn),
-    fetchBlockfrostJson("/genesis", apiKey, network, fetchFn),
-    fetchBlockfrostJson("/epochs/latest/parameters", apiKey, network, fetchFn),
-  ]);
+  // Serialize these (not Promise.all): on a heavily-used key, 3 concurrent
+  // requests trip blockfrost's burst rate limit and 403 even when the same
+  // requests succeed one at a time. The first two are network sanity checks;
+  // only the epoch parameters feed the build context.
+  await fetchBlockfrostJson("/blocks/latest", apiKey, network, fetchFn);
+  await fetchBlockfrostJson("/genesis", apiKey, network, fetchFn);
+  const epochParameters = await fetchBlockfrostJson("/epochs/latest/parameters", apiKey, network, fetchFn);
   return {
     protocolParameters: mapBlockfrostProtocolParameters(epochParameters),
     // Settings-update txs are built offline and signed manually — no expiry needed.
