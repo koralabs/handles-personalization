@@ -1,6 +1,6 @@
 name = "koralabs/handles-personalization"
 version = "0.0.0"
-compiler = "v1.1.21"
+compiler = "v1.1.22"
 plutus = "v3"
 license = "MIT"
 description = "Aiken contracts for handles-personalization"

@@ -28,7 +28,7 @@ jobs:
       timeout_minutes: 15
       kora_user_agent: ${{ vars.KORA_USER_AGENT }}
       setup_command: |
-        curl -LsSf https://install.aiken-lang.org | bash -s -- -v v1.1.21
+        curl -LsSf https://install.aiken-lang.org | bash -s -- -v v1.1.22
         echo "$HOME/.aiken/bin" >> "$GITHUB_PATH"
       install_command: npm ci
       planner_command: node scripts/generateDeploymentPlan.js
