@@ -345,7 +345,10 @@ fn load_handle_policies(tx: transaction.Transaction) -> Option<Data> {
         assets.quantity_of(
           input.output.value,
           constants.handle_policy_id,
-          constants.prefixed_asset_name(constants.lbl_100, "handle_policies"),
+          // The $handle_policies registry datum lives on the 222 (owner) token,
+          // not the CIP-68 100 reference token (which carries standard handle
+          // metadata) — read it where it actually is.
+          constants.prefixed_asset_name(constants.lbl_222, "handle_policies"),
         ) == 1
       },
     )
@@ -3611,7 +3614,7 @@ fn fixture_reference_input_for_handle_policies(
       #"cccc",
       assets.from_asset(
         constants.handle_policy_id,
-        constants.prefixed_asset_name(constants.lbl_100, "handle_policies"),
+        constants.prefixed_asset_name(constants.lbl_222, "handle_policies"),
         1,
       ),
       transaction.InlineDatum(registry),
