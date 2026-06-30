@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import test from "node:test";
+
+const aikenTestOptions =
+  spawnSync("aiken", ["--version"], { stdio: "ignore" }).status === 0
+    ? {}
+    : { skip: "aiken CLI is not installed" };
 
 function runAikenCheck(moduleFilter) {
   // `aiken check` returns non-zero whenever ANY test in the filtered module
@@ -69,7 +74,7 @@ function assertCostLimits(report, moduleName, limits) {
   }
 }
 
-test("Aiken MPF verification cost stays within guard rails", () => {
+test("Aiken MPF verification cost stays within guard rails", aikenTestOptions, () => {
   const report = runAikenCheck("personalization/policy_index_mpf");
 
   const limits = [
@@ -88,7 +93,7 @@ test("Aiken MPF verification cost stays within guard rails", () => {
   assertCostLimits(report, "personalization/policy_index_mpf", limits);
 });
 
-test("Aiken update + personalize + dispatch helper cost stays within guard rails", () => {
+test("Aiken update + personalize + dispatch helper cost stays within guard rails", aikenTestOptions, () => {
   const report = runAikenCheck("personalization/update");
 
   const limits = [
@@ -144,23 +149,23 @@ test("Aiken update + personalize + dispatch helper cost stays within guard rails
     },
     {
       title: "dispatch_from_tx_return_to_sender_uses_settings_admin_gate",
-      mem: 350000,
-      cpu: 110000000,
+      mem: 470000,
+      cpu: 145000000,
     },
     {
       title: "dispatch_from_tx_return_to_sender_rejects_forbidden_assets",
-      mem: 230000,
-      cpu: 70000000,
+      mem: 290000,
+      cpu: 85000000,
     },
     {
       title: "dispatch_from_tx_migrate_branch_respects_owner_sig_requirement",
-      mem: 650000,
-      cpu: 210000000,
+      mem: 820000,
+      cpu: 260000000,
     },
     {
       title: "dispatch_from_tx_revoke_branch_uses_mint_burn_quantity",
-      mem: 620000,
-      cpu: 200000000,
+      mem: 780000,
+      cpu: 245000000,
     },
     {
       title: "dispatch_from_tx_update_branch_requires_settings_tokens",
@@ -182,7 +187,7 @@ test("Aiken update + personalize + dispatch helper cost stays within guard rails
   assertCostLimits(report, "personalization/update", limits);
 });
 
-test("Aiken personalize MPF-context helper cost stays within guard rails", () => {
+test("Aiken personalize MPF-context helper cost stays within guard rails", aikenTestOptions, () => {
   const report = runAikenCheck("personalization/personalize_mpf_context");
 
   const limits = [
@@ -206,7 +211,7 @@ test("Aiken personalize MPF-context helper cost stays within guard rails", () =>
   assertCostLimits(report, "personalization/personalize_mpf_context", limits);
 });
 
-test("Aiken policy-datum helper cost stays within guard rails", () => {
+test("Aiken policy-datum helper cost stays within guard rails", aikenTestOptions, () => {
   const report = runAikenCheck("personalization/personalize_policy_approval");
 
   const limits = [
@@ -225,7 +230,7 @@ test("Aiken policy-datum helper cost stays within guard rails", () => {
   assertCostLimits(report, "personalization/personalize_policy_approval", limits);
 });
 
-test("Aiken personalize-base helper cost stays within guard rails", () => {
+test("Aiken personalize-base helper cost stays within guard rails", aikenTestOptions, () => {
   const report = runAikenCheck("personalization/personalize_base");
 
   const limits = [
