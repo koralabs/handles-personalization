@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +11,11 @@ import {
 } from "../compileHelpers.js";
 
 const compilePath = path.resolve("./compileAiken.js");
+
+const aikenTestOptions =
+  spawnSync("aiken", ["--version"], { stdio: "ignore" }).status === 0
+    ? {}
+    : { skip: "aiken CLI is not installed" };
 
 const runCompileModule = async (suffix) => {
   await import(`${pathToFileURL(compilePath).href}?case=${suffix}`);
@@ -55,7 +61,7 @@ test("PERSONALIZATION_VALIDATOR_SLUGS includes the 4 expected validators", () =>
   ]);
 });
 
-test("compileAiken.js emits per-validator artifacts for all 4 validators", async () => {
+test("compileAiken.js emits per-validator artifacts for all 4 validators", aikenTestOptions, async () => {
   const artifactPaths = getAikenArtifactPaths();
   await runCompileModule("aiken");
 
@@ -137,6 +143,10 @@ test("personalization is wired as persprx (spend) + 3 withdraw observers (perspz
     path.resolve("./aiken/validators/persprx.ak"),
     "utf8"
   );
+  const proxyCheckSource = readFileSync(
+    path.resolve("./aiken/lib/personalization/proxy_check.ak"),
+    "utf8"
+  );
   const perspzSource = readFileSync(
     path.resolve("./aiken/validators/perspz.ak"),
     "utf8"
@@ -158,10 +168,10 @@ test("personalization is wired as persprx (spend) + 3 withdraw observers (perspz
     "utf8"
   );
 
-  // persprx is a spend validator that delegates to observer_withdrawal_is_valid_data.
+  // persprx is a spend validator that delegates to the proxy check helper.
   assert.ok(
-    persprxSource.includes("update.observer_withdrawal_is_valid_data("),
-    "persprx must delegate to update.observer_withdrawal_is_valid_data"
+    persprxSource.includes("proxy_check.proxy_spend_is_valid("),
+    "persprx must delegate to proxy_check.proxy_spend_is_valid"
   );
   assert.ok(
     !persprxSource.includes("withdraw("),
@@ -170,34 +180,35 @@ test("personalization is wired as persprx (spend) + 3 withdraw observers (perspz
 
   // perspz is a withdraw observer for the Personalize redeemer.
   assert.ok(
-    perspzSource.includes("update.validate_observer_personalize("),
-    "perspz must call update.validate_observer_personalize"
+    perspzSource.includes("update.validate_observer_personalize_data("),
+    "perspz must call update.validate_observer_personalize_data"
   );
   assert.ok(!perspzSource.includes("spend("), "perspz must not declare a spend handler");
 
   // perslfc is a withdraw observer for the lifecycle redeemers.
   assert.ok(
-    perslfcSource.includes("update.validate_observer_other("),
-    "perslfc must call update.validate_observer_other"
+    perslfcSource.includes("update.validate_observer_other_data("),
+    "perslfc must call update.validate_observer_other_data"
   );
   assert.ok(!perslfcSource.includes("spend("), "perslfc must not declare a spend handler");
 
   // persdsg is a withdraw observer for designer_settings validation.
   assert.ok(
-    persdsgSource.includes("update.validate_observer_designer_settings("),
-    "persdsg must call update.validate_observer_designer_settings"
+    persdsgSource.includes("update.validate_observer_designer_settings_data("),
+    "persdsg must call update.validate_observer_designer_settings_data"
   );
   assert.ok(!persdsgSource.includes("spend("), "persdsg must not declare a spend handler");
 
-  // Type-level wiring + perspz's persdsg gate.
+  // Type-level wiring + proxy/perspz observer-redeemer matching + persdsg gate.
   assert.ok(typesSource.includes("pub type ObserverRedeemer"));
+  assert.ok(proxyCheckSource.includes("entry.2nd == observer_redeemer"));
   assert.ok(updateSource.includes("entry.2nd == observer_redeemer_data"));
   assert.ok(
     updateSource.includes("persdsg_observed_for_personalize"),
     "perspz must check persdsg observed for non-reset Personalize"
   );
   assert.ok(
-    /const persdsg_hash:\s*ByteArray/.test(updateSource),
-    "update.ak must hardcode persdsg_hash"
+    /persdsg_hashes:\s*List<ByteArray>/.test(updateSource),
+    "update.ak must carry runtime-approved persdsg hashes"
   );
 });

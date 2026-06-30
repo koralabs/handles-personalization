@@ -11,6 +11,13 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const V3_SCRIPT_HANDLES = [
+  "persdsg1@handlecontract",
+  "perslfc1@handlecontract",
+  "persprx1@handlecontract",
+  "perspz1@handlecontract",
+];
+
 test("loads the preview desired deployment YAML fixture into the normalized shape", async () => {
   // Feature: desired deployment state stores decoded comparable personalization settings plus assigned Handles for each contract.
   // Failure mode: planner/runtime code would diff against raw CBOR blobs or lose the live handle bindings needed for deployment tracking.
@@ -40,7 +47,7 @@ test("loads the preview desired deployment YAML fixture into the normalized shap
   assert.equal(persprxContract.build.target, "aiken/validators/persprx.ak");
   assert.equal(perspzContract.build.target, "aiken/validators/perspz.ak");
   assert.deepEqual(state.assignedHandles.settings, ["pers@handle_settings", "pers_bg@handle_settings", "pers_pfp@handle_settings"]);
-  assert.deepEqual(state.assignedHandles.scripts, ["pz_contract_06"]);
+  assert.deepEqual(state.assignedHandles.scripts, V3_SCRIPT_HANDLES);
   assert.equal(state.settings.values["pers@handle_settings"].treasury_fee, 1500000);
   assert.equal(state.settings.values["pers@handle_settings"].settings_cred, "688edc94904c5286ac5cc0ada61b9c847a8d23018829832e0e95b111");
   assert.equal(state.settings.values["pers@handle_settings"].pz_providers["4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1"], "195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66");
@@ -61,8 +68,8 @@ test("loads the preprod and mainnet desired deployment YAML fixtures", async () 
   assert.equal(mainnet.network, "mainnet");
   assert.equal(preprod.contracts.length, 4);
   assert.equal(mainnet.contracts.length, 4);
-  assert.equal(preprod.assignedHandles.scripts[0], "pz_contract_06");
-  assert.equal(mainnet.assignedHandles.scripts[0], "pz_contract_04");
+  assert.deepEqual(preprod.assignedHandles.scripts, V3_SCRIPT_HANDLES);
+  assert.deepEqual(mainnet.assignedHandles.scripts, [...V3_SCRIPT_HANDLES, "pz_contract_04"]);
   assert.equal(preprod.settings.values["pers@handle_settings"].settings_cred, "e0a2120c0968393f54e9fda8e277ed61e322ff0581713f62335b2b4c");
   assert.equal(mainnet.settings.values["pers@handle_settings"].settings_cred, "7e3a48aff0ddfadec229d13fe4ec544ff3cc4f044629d4e31e8359f0");
 });
