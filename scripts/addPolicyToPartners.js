@@ -10,10 +10,9 @@
 //          --display-name "Test Boat (full creator-defaults)" \
 //          --image "ipfs://QmSkgqaCapgw99Y2oAZ72tj9iGRb89DzM7kJPetvsj7NND"
 
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand } from "@aws-sdk/lib-dynamodb";
 
-import { computeRootsFromEntries } from "../helpers/dynamoPartnersRoots.js";
+import { computeRootsFromEntries, makePartnersDynamoClient } from "../helpers/dynamoPartnersRoots.js";
 
 const parseArgs = (argv) => {
   const args = {};
@@ -49,7 +48,7 @@ const main = async () => {
     throw new Error(`bad --category: ${category}`);
   }
 
-  const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  const client = makePartnersDynamoClient(network);
 
   console.log(`Inserting POLICY#${category} row for ${policyId} into ${TABLE_NAME}`);
   await client.send(

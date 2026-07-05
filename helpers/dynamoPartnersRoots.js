@@ -40,6 +40,33 @@ const ROOTS_SK = "STATE";
 
 const partnersTableForNetwork = (network) => `${PARTNERS_TABLE_BASE}_${network}`;
 
+// preprod + preview moved OFF AWS DynamoDB to ScyllaDB (Alternator, DynamoDB-
+// compatible API). The deployed BFF reads Scylla via AWS_ENDPOINT_URL_DYNAMODB
+// (box: http://172.17.0.1:8000). Dev tooling run WITHOUT that override silently
+// hits the deprecated AWS us-east-1 table, which has drifted from Scylla — that
+// mismatch is what broke preprod scope 03 (on-chain synced from dead AWS, BFF
+// proves from Scylla). Fail LOUD instead of silently reading the wrong store.
+// (mainnet is not asserted here — verify separately whether it has moved.)
+const SCYLLA_NETWORKS = new Set(["preprod", "preview"]);
+export const makePartnersDynamoClient = (network, dynamoClient) => {
+  if (dynamoClient) return dynamoClient;
+  if (
+    SCYLLA_NETWORKS.has(network) &&
+    !process.env.AWS_ENDPOINT_URL_DYNAMODB &&
+    !process.env.AWS_ENDPOINT_URL
+  ) {
+    throw new Error(
+      `partners_${network} is on ScyllaDB, not AWS — set AWS_ENDPOINT_URL_DYNAMODB to the ` +
+        `Scylla Alternator endpoint before reading/writing (otherwise you silently hit the ` +
+        `deprecated AWS us-east-1 table and compute the WRONG root). From a dev machine:\n` +
+        `  ssh -f -N -L 8899:172.17.0.1:8000 kora-sf\n` +
+        `  AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8899 AWS_REGION=us-east-1 <cmd>\n` +
+        `Or read the deployed view via GET https://${network}.bff.handle.me/partners.`
+    );
+  }
+  return DynamoDBDocumentClient.from(new DynamoDBClient({}));
+};
+
 const validate32ByteHex = (label, value) => {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) {
     throw new Error(`${label} must be a 32-byte hex string, got: ${typeof value === "string" ? value : typeof value}`);
@@ -136,7 +163,7 @@ const scanCategoryEntries = async (client, tableName, category) => {
 // Reads the cached roots row. Returns the row or null.
 export const getCachedRoots = async ({ network, dynamoClient } = {}) => {
   if (!network) throw new Error("getCachedRoots: network is required");
-  const client = dynamoClient ?? DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  const client = makePartnersDynamoClient(network, dynamoClient);
   const tableName = partnersTableForNetwork(network);
   const result = await client.send(
     new GetCommand({
@@ -160,7 +187,7 @@ export const getCachedRoots = async ({ network, dynamoClient } = {}) => {
 // cutover time when the cached __ROOTS__ row hasn't been seeded yet.
 export const computeRootsFromEntries = async ({ network, dynamoClient } = {}) => {
   if (!network) throw new Error("computeRootsFromEntries: network is required");
-  const client = dynamoClient ?? DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  const client = makePartnersDynamoClient(network, dynamoClient);
   const tableName = partnersTableForNetwork(network);
 
   const [bgRows, pfpRows] = await Promise.all([
@@ -193,7 +220,7 @@ export const computeRootsFromEntries = async ({ network, dynamoClient } = {}) =>
 // { bg_root, pfp_root } as 32-byte hex.
 export const fetchPartnersTrieRoots = async ({ network, dynamoClient } = {}) => {
   if (!network) throw new Error("fetchPartnersTrieRoots: network is required");
-  const client = dynamoClient ?? DynamoDBDocumentClient.from(new DynamoDBClient({}));
+  const client = makePartnersDynamoClient(network, dynamoClient);
   const cached = await getCachedRoots({ network, dynamoClient: client });
   if (cached) return { ...cached, source: "cached" };
   const computed = await computeRootsFromEntries({ network, dynamoClient: client });
