@@ -165,7 +165,11 @@ const main = async () => {
             );
             if (!r.ok) return false;
             const j = await r.json();
-            return j.active === true;
+            // Blockfrost `registered` is the registration state; `active` stays
+            // false for script reward accounts that never delegate, so testing
+            // `active` would wrongly re-register (node rejects the duplicate
+            // reg_cert). Proven on preprod/preview: registered:true, active:false.
+            return j.registered === true;
         } catch {
             return false;
         }

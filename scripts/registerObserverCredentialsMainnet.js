@@ -7,8 +7,13 @@
 // tx from POLICY_KEY derivation 1 (mainnet minting wallet d1) — d12
 // (kora-team admin) is also viable but d1 has a deeper balance.
 //
-// perslfc is NOT registered here because mainnet's current personalize
-// flow doesn't use perslfc (no log-fund mode). Add it back if/when needed.
+// perslfc IS included by default: from the V3-split generation onward it is
+// the withdraw observer for Migrate/Revoke/Update/ReturnToSender
+// (aiken/validators/perslfc.ak), and it is registered on preprod (tx
+// 9416925f…) and preview. An earlier revision skipped it ("no log-fund
+// mode") back when mainnet's old pers flow never withdrew through it —
+// that skip is exactly how mainnet ended up with perslfc unregistered, so
+// the default now covers all three; use --observers to narrow explicitly.
 //
 // Usage:
 //   node scripts/registerObserverCredentialsMainnet.js \
@@ -16,7 +21,7 @@
 //        [--policy-key <bech32 xprv>]   (or POLICY_KEY env, read from
 //                                       minting.handle.me/.env by default)
 //        [--funding-derivation <n>]     (default 1)
-//        [--observers perspz,persdsg]   (default perspz,persdsg)
+//        [--observers perspz,persdsg,perslfc]   (default all three)
 //
 // Pre-flight checks: skips already-registered credentials, refuses to
 // proceed if local plutus.json hashes don't match what the failing
@@ -99,7 +104,7 @@ const main = async () => {
     const derivation = Number.parseInt(args['funding-derivation'] || '1', 10);
     const collateralDerivation = Number.parseInt(args['collateral-derivation'] || '2', 10);
 
-    const observersWanted = (args.observers || 'perspz,persdsg')
+    const observersWanted = (args.observers || 'perspz,persdsg,perslfc')
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
@@ -147,7 +152,11 @@ const main = async () => {
             { headers: { project_id: blockfrostApiKey } });
         if (!r.ok) return false;
         const j = await r.json();
-        return j.active === true;
+        // Blockfrost `registered` is the registration state; `active` stays
+        // false for script reward accounts that never delegate, so testing
+        // `active` would wrongly re-register (node rejects the duplicate
+        // reg_cert). Proven on mainnet perspz/persdsg: registered:true, active:false.
+        return j.registered === true;
     };
     const toRegister = [];
     for (const o of observers) {
