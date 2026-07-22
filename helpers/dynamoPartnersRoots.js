@@ -40,14 +40,17 @@ const ROOTS_SK = "STATE";
 
 const partnersTableForNetwork = (network) => `${PARTNERS_TABLE_BASE}_${network}`;
 
-// preprod + preview moved OFF AWS DynamoDB to ScyllaDB (Alternator, DynamoDB-
+// ALL THREE networks moved OFF AWS DynamoDB to ScyllaDB (Alternator, DynamoDB-
 // compatible API). The deployed BFF reads Scylla via AWS_ENDPOINT_URL_DYNAMODB
 // (box: http://172.17.0.1:8000). Dev tooling run WITHOUT that override silently
-// hits the deprecated AWS us-east-1 table, which has drifted from Scylla — that
+// hits the deprecated AWS us-east-1 table, which drifts from Scylla — that
 // mismatch is what broke preprod scope 03 (on-chain synced from dead AWS, BFF
 // proves from Scylla). Fail LOUD instead of silently reading the wrong store.
-// (mainnet is not asserted here — verify separately whether it has moved.)
-const SCYLLA_NETWORKS = new Set(["preprod", "preview"]);
+// mainnet verified 2026-07-22: deployed mainnet BFF reads Scylla (box fn env
+// AWS_ENDPOINT_URL_DYNAMODB), and partners_mainnet was content-EQUAL across
+// both stores (271 rows, identical canonical sha) at verification time — the
+// guard is what keeps tooling honest once they diverge.
+const SCYLLA_NETWORKS = new Set(["preprod", "preview", "mainnet"]);
 export const makePartnersDynamoClient = (network, dynamoClient) => {
   if (dynamoClient) return dynamoClient;
   if (
