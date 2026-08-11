@@ -39,6 +39,163 @@ EMPTY=
             )
             self.assertEqual(MODULE.load_env_file(Path(tmpdir) / 'missing.env'), {})
 
+    def test_load_user_agent_uses_first_configured_source_then_environment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / 'handles-personalization'
+            workspace = Path(tmpdir)
+            kora_bot = workspace / 'kora-bot'
+            root.mkdir()
+            kora_bot.mkdir()
+            (root / '.env').write_text('KORA_USER_AGENT=repo-env\n')
+            (root / '.env.local').write_text('KORA_USER_AGENT=repo-local\n')
+            (kora_bot / '.env.local').write_text('KORA_USER_AGENT=bot-local\n')
+
+            with patch.object(MODULE, 'ROOT', root), patch.object(
+                MODULE, 'WORKSPACE_ROOT', workspace
+            ), patch.dict(
+                MODULE.os.environ, {'KORA_USER_AGENT': 'process'}, clear=False
+            ):
+                self.assertEqual(MODULE.load_user_agent(), 'repo-local')
+
+            (root / '.env.local').unlink()
+            (root / '.env').unlink()
+            (kora_bot / '.env.local').unlink()
+            with patch.object(MODULE, 'ROOT', root), patch.object(
+                MODULE, 'WORKSPACE_ROOT', workspace
+            ), patch.dict(MODULE.os.environ, {'KORA_USER_AGENT': 'process'}, clear=True):
+                self.assertEqual(MODULE.load_user_agent(), 'process')
+
+            with patch.object(MODULE, 'ROOT', root), patch.object(
+                MODULE, 'WORKSPACE_ROOT', workspace
+            ), patch.dict(MODULE.os.environ, {}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, 'KORA_USER_AGENT not found'):
+                    MODULE.load_user_agent()
+
+    def test_fetch_json_posts_encoded_payload_and_user_agent(self):
+        seen = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"ok": true}'
+
+        def fake_urlopen(req, timeout):
+            seen['url'] = req.full_url
+            seen['method'] = req.get_method()
+            seen['headers'] = dict(req.header_items())
+            seen['data'] = req.data
+            seen['timeout'] = timeout
+            return FakeResponse()
+
+        with patch.object(MODULE, 'urlopen', side_effect=fake_urlopen):
+            self.assertEqual(
+                MODULE.fetch_json(
+                    'https://example.test/api',
+                    'ua',
+                    method='POST',
+                    payload={'a': 1},
+                ),
+                {'ok': True},
+            )
+
+        self.assertEqual(seen['url'], 'https://example.test/api')
+        self.assertEqual(seen['method'], 'POST')
+        self.assertEqual(seen['headers']['User-agent'], 'ua')
+        self.assertEqual(seen['headers']['Content-type'], 'application/json')
+        self.assertEqual(json.loads(seen['data'].decode()), {'a': 1})
+        self.assertEqual(seen['timeout'], 30)
+
+    def test_build_handle_row_normalizes_resolved_address_shapes(self):
+        handle_data = {
+            'utxo': 'tx#0',
+            'holder_type': 'Script',
+            'has_datum': True,
+            'payment_key_hash': 'pkh',
+            'resolved_addresses': {'ada': 'addr_test'},
+        }
+        with patch.object(
+            MODULE, 'fetch_handle', return_value={'exists': True, 'data': handle_data}
+        ), patch.object(MODULE, 'fetch_script_cbor', return_value='5901'), patch.object(
+            MODULE, 'validator_hash_from_cbor', return_value='vh'
+        ), patch.object(
+            MODULE, 'fetch_validator_handles', return_value=['pers1@handlecontract']
+        ):
+            row = MODULE.build_handle_row('pers1@handlecontract', 1, 'preview', 'ua', {})
+
+        self.assertEqual(row['resolved_address'], 'addr_test')
+        self.assertEqual(row['validator_hash'], 'vh')
+        self.assertEqual(row['validator_handle_count'], 1)
+        self.assertTrue(row['validator_live'])
+
+        handle_data['resolved_addresses'] = ['addr1', 'addr2']
+        with patch.object(
+            MODULE, 'fetch_handle', return_value={'exists': True, 'data': handle_data}
+        ), patch.object(MODULE, 'fetch_script_cbor', return_value=None), patch.object(
+            MODULE, 'validator_hash_from_cbor', return_value=None
+        ), patch.object(
+            MODULE, 'fetch_validator_handles', return_value=[]
+        ):
+            row = MODULE.build_handle_row('pers2@handlecontract', 2, 'preview', 'ua', {})
+
+        self.assertEqual(row['resolved_address'], ['addr1', 'addr2'])
+        self.assertFalse(row['validator_live'])
+
+    def test_build_static_legacy_row_marks_missing_handle_static_only(self):
+        entry = {
+            'handle': 'pz_contract_04',
+            'validator_hash': 'vh4',
+            'cbor': 'cbor4',
+            'datum_cbor': 'datum4',
+            'static_address': 'latest',
+            'latest': True,
+        }
+        with patch.object(
+            MODULE, 'fetch_handle', return_value={'exists': False, 'data': None}
+        ), patch.object(
+            MODULE, 'fetch_validator_handles', return_value=['pz_contract_04']
+        ):
+            row = MODULE.build_static_legacy_row(entry, 5, 'mainnet', 'ua', {})
+
+        self.assertTrue(row['static_only'])
+        self.assertEqual(row['script_cbor'], 'cbor4')
+        self.assertEqual(row['datum_cbor'], 'datum4')
+        self.assertEqual(row['static_address'], 'latest')
+        self.assertTrue(row['latest_in_static_list'])
+        self.assertTrue(row['validator_live'])
+
+    def test_build_desired_reassignment_order_handles_latest_legacy_source(self):
+        live_versions = [
+            {
+                'legacy_handle': 'pz_contract',
+                'representative_handle': 'pers1@handlecontract',
+                'representative_kind': 'family',
+                'representative_utxo': 'pers1#0',
+            },
+            {
+                'legacy_handle': 'pz_contract_1',
+                'representative_handle': 'pz_contract_1',
+                'representative_kind': 'legacy',
+                'representative_utxo': 'legacy#0',
+            },
+        ]
+
+        self.assertEqual(
+            MODULE.build_desired_reassignment_order(live_versions, 'pers', 'handlecontract'),
+            [
+                {
+                    'source_handle': 'pz_contract_1',
+                    'source_utxo': 'legacy#0',
+                    'target_handle': 'pers2@handlecontract',
+                    'reason': 'move latest live personalization contract to the highest handlecontract ordinal',
+                },
+            ],
+        )
+
     def test_fetch_handle_and_script_cbor_treat_404_as_absent(self):
         handle_error = HTTPError(
             'https://preview.api.handle.me/handles/pers1@handlecontract',
