@@ -347,6 +347,21 @@ const main = async () => {
         }
     };
 
+    // 8a. --dry-run: write the UNSIGNED tx cbor + stop. No key is loaded past this point,
+    //     nothing is signed, nothing is submitted. Used for pre-trigger artifact review.
+    if (args['dry-run'] !== undefined || args.dryRun !== undefined) {
+        const unsignedCborHex = transactionToCbor(unsignedTx);
+        const outPath = args.out || `/tmp/register-observers-mainnet-unsigned-${Date.now()}.cbor.hex`;
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(outPath, unsignedCborHex);
+        console.log(`DRY RUN — unsigned tx written: ${outPath}`);
+        console.log(`Tx hash (unsigned body): ${String(unsignedTx.id)}`);
+        console.log(`Fee:     ${selection.selection.fee} lovelace`);
+        console.log(`Registers: ${toRegister.map((o) => o.name).join(', ')}`);
+        console.log(`Total cost (fee + ${toRegister.length}×${stakeKeyDeposit} deposit): ${Number(selection.selection.fee) + Number(stakeKeyDeposit) * toRegister.length} lovelace`);
+        return;
+    }
+
     // 8. Sign with d1 (and dC if different) — StrictaHQ key → raw Ed25519
     //    signature of the tx hash. Add a vkey witness per required signer.
     const txHashHex = String(unsignedTx.id);
