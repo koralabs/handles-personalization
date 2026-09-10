@@ -18,9 +18,10 @@ const baseSettings = {
   settings_cred: HEX_28("88"),
   grace_period: 3600000,
   subhandle_share_percent: 50,
+  persdsg_hashes: [HEX_28("99")],
 };
 
-// Encode a settings object into the live on-chain shape: a 9-field CBOR list
+// Encode a settings object into the canonical on-chain shape: a 10-field CBOR list
 // with bytestrings/integers/maps/lists for the corresponding slots.
 const encodeAsLiveDatum = (s) => {
   const buf = (h) => Buffer.from(h, "hex");
@@ -34,6 +35,7 @@ const encodeAsLiveDatum = (s) => {
     buf(s.settings_cred),
     BigInt(s.grace_period),
     BigInt(s.subhandle_share_percent),
+    s.persdsg_hashes.map(buf),
   ];
   return cbor.encode(fields).toString("hex");
 };
@@ -58,7 +60,7 @@ test("appends a hash to valid_contracts and re-encodes only that field", () => {
   assert.match(changeLog[0], /^valid_contracts: 2 -> 3/);
 
   const decoded = decodeFields(newDatumHex);
-  assert.equal(decoded.length, 9);
+  assert.equal(decoded.length, 10);
   assert.equal(decoded[4].length, 3);
   assert.equal(Buffer.from(decoded[4][2]).toString("hex"), HEX_28("99"));
   // Other fields untouched.
@@ -109,9 +111,9 @@ test("patches the settings_cred byte string and reports old vs new", () => {
   assert.equal(Buffer.from(decoded[6]).toString("hex"), HEX_28("ee"));
 });
 
-test("rejects a datum that is not a 9-element list", () => {
+test("rejects a datum that is not a 9- or 10-element list", () => {
   const garbage = cbor.encode([1, 2, 3]).toString("hex");
-  assert.throws(() => buildPatchedSettingsDatum(garbage, baseSettings), /9-element list/);
+  assert.throws(() => buildPatchedSettingsDatum(garbage, baseSettings), /9- or 10-element list/);
 });
 
 test("emits multiple change-log entries when several fields differ", () => {

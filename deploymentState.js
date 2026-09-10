@@ -193,6 +193,7 @@ const parsePzSettings = (value, sourceLabel) => ({
   settings_cred: requireString(value, "settings_cred", sourceLabel),
   grace_period: requireNumber(value, "grace_period", sourceLabel),
   subhandle_share_percent: requireNumber(value, "subhandle_share_percent", sourceLabel),
+  persdsg_hashes: requireStringArrayAllowEmpty(value, "persdsg_hashes", sourceLabel),
 });
 
 const requireObject = (value, key, sourceLabel) => {

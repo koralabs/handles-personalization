@@ -87,9 +87,14 @@ settings:
         - fd65087a76a7d57a90714d279247beb6c2c99e9790f899a3153f2d2c  # persdsg previous
         - e30bd311f2ea85dc112d7c88eee99d710dd651d816de098c74aa5d94  # perspz current
         - 1fcfe6fd763e2f268625a8b70841a319df08a140adb09602f1e6dcae  # persdsg current
-        - a700056e20b6b99fca36d3f21afd65ca521ae0ddc0db4e3ad7c5cb21  # perslfc current
+        - a700056e20b6b99fca36d3f21afd65ca521ae0ddc0db4e3ad7c5cb21  # perslfc previous
+        - 7a04600f22a7101eaad5fdb86d0a91c78bf5c8eb29e86799bda830ed  # namespaced persprx
+        - 5298e0e10ca0d3b90be2a8022f60954dfb7c48856f4f5c01f6dad0a6  # namespaced perspz
+        - 51530e22383d924a8e6955d3c63f5622d079eb7cbd6794242c457230  # namespaced perslfc
       admin_creds:
         - 4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1
       settings_cred: d0496ab7c9be3c9947676328dbac37dcb39d0f0586a22f4ee9c49494
       grace_period: 3600000
       subhandle_share_percent: 50
+      persdsg_hashes:
+        - 1fcfe6fd763e2f268625a8b70841a319df08a140adb09602f1e6dcae

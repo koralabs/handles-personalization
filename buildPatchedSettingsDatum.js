@@ -1,6 +1,6 @@
 // Patches the existing pz_settings inline datum with values from a desired
 // state YAML. Unchanged fields keep their decoded buffers verbatim; only
-// the differing fields are mutated. The whole 9-field list is then
+// the differing fields are mutated. The resulting 10-field list is then
 // re-encoded as canonical CBOR and returned as a hex string.
 //
 // This mirrors the pattern in scripts/build_pz_settings_cred_refresh.js
@@ -20,6 +20,7 @@ const FIELD_NAMES = [
   "settings_cred",
   "grace_period",
   "subhandle_share_percent",
+  "persdsg_hashes",
 ];
 
 const toBuf = (hex) => Buffer.from(stripHex(hex), "hex");
@@ -60,8 +61,8 @@ const listEqual = (currentList, desiredList) => {
 
 export const buildPatchedSettingsDatum = (currentDatumHex, desiredPzSettings) => {
   const decoded = cbor.decodeFirstSync(Buffer.from(stripHex(currentDatumHex), "hex"));
-  if (!Array.isArray(decoded) || decoded.length !== 9) {
-    throw new Error(`pz_settings datum is not a 9-element list (got ${Array.isArray(decoded) ? decoded.length : typeof decoded})`);
+  if (!Array.isArray(decoded) || (decoded.length !== 9 && decoded.length !== 10)) {
+    throw new Error(`personalization settings datum is not a 9- or 10-element list (got ${Array.isArray(decoded) ? decoded.length : typeof decoded})`);
   }
   const fields = [...decoded];
   const changeLog = [];
@@ -109,6 +110,11 @@ export const buildPatchedSettingsDatum = (currentDatumHex, desiredPzSettings) =>
   if (!numEq(desiredPzSettings.subhandle_share_percent, fields[8])) {
     changeLog.push(`subhandle_share_percent: ${fields[8]} -> ${desiredPzSettings.subhandle_share_percent}`);
     fields[8] = BigInt(desiredPzSettings.subhandle_share_percent);
+  }
+
+  if (!listEqual(fields[9], desiredPzSettings.persdsg_hashes)) {
+    changeLog.push(`persdsg_hashes: ${fields[9]?.length ?? 0} -> ${desiredPzSettings.persdsg_hashes.length}`);
+    fields[9] = desiredPzSettings.persdsg_hashes.map(toBuf);
   }
 
   // No-op short-circuit: the live datum often uses indefinite-length CBOR

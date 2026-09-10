@@ -2,9 +2,8 @@
 //
 // Build an unsigned multisig settings-update tx that simultaneously:
 //
-//   1. Adds the three new V3 contract hashes (perspz, perslfc, persdsg
-//      — persprx is hash-stable and stays at 7cf10558...) to
-//      `pz_settings.valid_contracts` (list at idx 4).
+//   1. Adds the current V3 contract hashes to
+//      `pers@handle_settings.valid_contracts` (list at idx 4).
 //
 //   2. Appends a 10th list element `persdsg_hashes` containing the new
 //      persdsg hash. This is the new Phase-1 field perspz reads at
@@ -12,16 +11,10 @@
 //      update lands, future persdsg redeploys can be approved by just
 //      appending to this list — no perspz rebuild required.
 //
-// Backward compat: settings was 9-elem; perspz on chain expects 9-elem
-// (strict). After this update, settings is 10-elem; the OLD perspz
-// (192e06be) will refuse to parse it. Sequence the deploy:
-//
-//   a. Run scripts/deployContractRefScripts.js first to redeploy
-//      perspz/perslfc/persdsg ref-scripts. This makes the NEW perspz
-//      (7c99516a) available to the BFF via /scripts.
-//   b. Run THIS script to produce the unsigned multisig settings tx.
-//   c. Multisig signs + submits. At that moment OLD perspz becomes
-//      unusable (10-elem settings), but BFF is already on NEW perspz.
+// This updates only the canonical settings handle. Legacy `pz_settings`
+// remains available solely as migration authority for LBL_100 tokens still
+// locked at an older proxy; it is not the runtime authority for the new
+// contracts.
 //
 // Usage:
 //   node scripts/addPersdsgHashesAndV3HashesToSettings.js --network preview \
@@ -40,7 +33,7 @@ import sodium from "libsodium-wrappers-sumo";
 
 import { buildSettingsUpdateTx } from "../settingsUpdateTx.js";
 
-const SETTINGS_HANDLE = "pz_settings";
+const SETTINGS_HANDLE = "pers@handle_settings";
 const NATIVE_SCRIPT_BY_NETWORK = {
   preview:
     "8202828200581c5b468ea6affe46ae95b2f39e8aaf9141c17f1beb7f575ba818cf1a8b" +
@@ -170,7 +163,7 @@ const main = async () => {
   console.log(`perslfc V3 hash : ${persLfcHash.toString("hex")}`);
   console.log(`persdsg V3 hash : ${persDsgHash.toString("hex")}`);
 
-  // 2. Fetch current pz_settings datum
+  // 2. Fetch the canonical personalization settings datum
   console.log(`Fetching ${SETTINGS_HANDLE} datum...`);
   const datumHex = await fetchHandleDatumHex(SETTINGS_HANDLE, network, userAgent);
   console.log(`current datum length: ${datumHex.length / 2} bytes`);
@@ -212,16 +205,7 @@ const main = async () => {
   //    (instead of comparing against a hardcoded constant). Keep both the
   //    deployed-prior persdsg hash AND the new one in the list so any
   //    in-flight tx still using the old perspz/persdsg path also resolves.
-  const desiredPersdsgHashes = [];
-  // Currently-deployed persdsg (resolved from api /scripts).
-  const currentDeployedPersdsg = "6627fa362e816cc3a8e941cdcc86a753de1434bae2b7e149011bb25b";
-  if (!desiredPersdsgHashes.find((b) => b.toString("hex") === currentDeployedPersdsg)) {
-    desiredPersdsgHashes.push(Buffer.from(currentDeployedPersdsg, "hex"));
-  }
-  // New persdsg from this build.
-  if (!desiredPersdsgHashes.find((b) => b.toString("hex") === persDsgHash.toString("hex"))) {
-    desiredPersdsgHashes.push(persDsgHash);
-  }
+  const desiredPersdsgHashes = [persDsgHash];
 
   if (decoded.length === 9) {
     decoded.push(desiredPersdsgHashes);
@@ -264,7 +248,7 @@ const main = async () => {
   console.log(`  estimated signed size: ${built.estimatedSignedTxSize}/${built.maxTxSize}`);
 
   // 6. Save unsigned cbor for multisig signing
-  const outPath = `/tmp/addPersdsgHashes-${network}-unsigned.tx.cbor.hex`;
+  const outPath = args.out || `/tmp/addPersdsgHashes-${network}-unsigned.tx.cbor.hex`;
   writeFileSync(outPath, built.cborHex);
   console.log(`\n✓ Unsigned tx CBOR saved to ${outPath}`);
   console.log(`\n${SIGNER_INSTRUCTIONS[network]}`);

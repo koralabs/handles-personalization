@@ -54,15 +54,15 @@ export const renderTransactionOrderMarkdown = (transactionOrder) =>
     ? transactionOrder.map((fileName) => `- \`${fileName}\``)
     : ["- Planner can emit `tx-NN.cbor` artifacts when the deployer wallet inputs are supplied."];
 
-// Decode the on-chain pz_settings datum (a 9-element CBOR list) into the
+// Decode the canonical personalization settings datum (a 10-element CBOR list) into the
 // named YAML shape. Uses the `cbor` lib directly so this works against either
 // definite (`89...`) or indefinite (`9f...ff`) length encodings — both forms
 // appear in the wild depending on how the datum was last produced.
 export const decodePzSettingsDatum = (datumHex) => {
   const fields = cbor.decodeFirstSync(Buffer.from(stripHexPrefix(datumHex), "hex"));
-  if (!Array.isArray(fields) || fields.length !== 9) {
+  if (!Array.isArray(fields) || fields.length !== 10) {
     throw new Error(
-      `pz_settings datum must decode to a 9-element list, got ${Array.isArray(fields) ? fields.length : typeof fields}`
+      `personalization settings datum must decode to a 10-element list, got ${Array.isArray(fields) ? fields.length : typeof fields}`
     );
   }
   return {
@@ -86,6 +86,9 @@ export const decodePzSettingsDatum = (datumHex) => {
     settings_cred: toHexFromCbor(fields[6], "settings_cred"),
     grace_period: toNumberFromCbor(fields[7], "grace_period"),
     subhandle_share_percent: toNumberFromCbor(fields[8], "subhandle_share_percent"),
+    persdsg_hashes: toListFromCbor(fields[9], "persdsg_hashes").map((field) =>
+      toHexFromCbor(field, "persdsg_hashes item")
+    ),
   };
 };
 

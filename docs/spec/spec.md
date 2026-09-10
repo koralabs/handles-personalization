@@ -15,7 +15,7 @@
 ## Shared Validation Helpers
 
 ### `load_pz_settings`
-- Locates `PZ_HANDLE` (`LBL_222 + "pz_settings"`) in reference inputs.
+- Locates the canonical personalization settings asset (`LBL_222 + "pers@handle_settings"`) in reference inputs.
 - Parses `PzSettings` datum.
 - Requires settings UTxO credential equals `settings_cred` validator hash.
 

@@ -72,12 +72,14 @@ const desiredState = {
         settings_cred: "300b1c7993d1e2f33007ca24a00c977d9b187d57e77e0b8fc6b344b8",
         grace_period: 3600000,
         subhandle_share_percent: 50,
+        persdsg_hashes: ["1fcfe6fd763e2f268625a8b70841a319df08a140adb09602f1e6dcae"],
       },
     },
   },
 };
 
-const previewDatum = "9f1a0016e360581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d661a0016e360a2581ceb0a80e0dc6bc3cd5e95c249e02b0fe23f05ec039e754368a6f0e223581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66581c4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d669f581c3ac54dace81eb69b2c974a1db2b89f2529fbf4da97c482decb32b6a5ff9f581c151a82d0669a20bd77de1296eee5ef1259ce98ecd81bd7121825f9ebff581c300b1c7993d1e2f33007ca24a00c977d9b187d57e77e0b8fc6b344b81a0036ee801832ff";
+const previewDatum9 = "9f1a0016e360581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d661a0016e360a2581ceb0a80e0dc6bc3cd5e95c249e02b0fe23f05ec039e754368a6f0e223581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66581c4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1581c195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d669f581c3ac54dace81eb69b2c974a1db2b89f2529fbf4da97c482decb32b6a5ff9f581c151a82d0669a20bd77de1296eee5ef1259ce98ecd81bd7121825f9ebff581c300b1c7993d1e2f33007ca24a00c977d9b187d57e77e0b8fc6b344b81a0036ee801832ff";
+const previewDatum = `${previewDatum9.slice(0, -2)}9f581c1fcfe6fd763e2f268625a8b70841a319df08a140adb09602f1e6dcaeffff`;
 
 test("expected script hashes are read from per-validator compileAiken artifacts", () => {
   // Feature: deployment planning derives expected hashes from repo-native compile artifacts, one per validator slug.

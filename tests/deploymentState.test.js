@@ -51,7 +51,8 @@ test("loads the preview desired deployment YAML fixture into the normalized shap
   assert.equal(state.settings.values["pers@handle_settings"].treasury_fee, 1500000);
   assert.equal(state.settings.values["pers@handle_settings"].settings_cred, "688edc94904c5286ac5cc0ada61b9c847a8d23018829832e0e95b111");
   assert.equal(state.settings.values["pers@handle_settings"].pz_providers["4da965a049dfd15ed1ee19fba6e2974a0b79fc416dd1796a1f97f5e1"], "195bde3deacb613b7e9eb6280b14db4e353e475e96d19f3f7a5e2d66");
-  assert.equal(state.settings.values["pers@handle_settings"].valid_contracts.at(-1), "8585b4892cec81880ed30d7e80fb0ffbe15c5224b76d2cc4e3dd040d");
+  assert.equal(state.settings.values["pers@handle_settings"].valid_contracts.at(-1), "1fcfe6fd763e2f268625a8b70841a319df08a140adb09602f1e6dcae");
+  assert.deepEqual(state.settings.values["pers@handle_settings"].persdsg_hashes, ["1fcfe6fd763e2f268625a8b70841a319df08a140adb09602f1e6dcae"]);
 });
 
 test("loads the preprod and mainnet desired deployment YAML fixtures", async () => {
@@ -71,7 +72,7 @@ test("loads the preprod and mainnet desired deployment YAML fixtures", async () 
   assert.deepEqual(preprod.assignedHandles.scripts, V3_SCRIPT_HANDLES);
   assert.deepEqual(mainnet.assignedHandles.scripts, [...V3_SCRIPT_HANDLES, "pz_contract_04"]);
   assert.equal(preprod.settings.values["pers@handle_settings"].settings_cred, "e0a2120c0968393f54e9fda8e277ed61e322ff0581713f62335b2b4c");
-  assert.equal(mainnet.settings.values["pers@handle_settings"].settings_cred, "7e3a48aff0ddfadec229d13fe4ec544ff3cc4f044629d4e31e8359f0");
+  assert.equal(mainnet.settings.values["pers@handle_settings"].settings_cred, "d0496ab7c9be3c9947676328dbac37dcb39d0f0586a22f4ee9c49494");
 });
 
 test("rejects observed-only live fields inside desired deployment YAML", () => {

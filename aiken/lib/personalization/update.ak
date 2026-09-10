@@ -88,9 +88,9 @@ const key_designer: ByteArray = "designer"
 
 const key_name: ByteArray = "name"
 
-const key_policy_ids_bg: ByteArray = "bg_policy_ids"
+const key_policy_ids_bg: ByteArray = "pers_bg@handle_settings"
 
-const key_policy_ids_pfp: ByteArray = "pfp_policy_ids"
+const key_policy_ids_pfp: ByteArray = "pers_pfp@handle_settings"
 
 const key_bg_proof: ByteArray = "__bg_proof"
 

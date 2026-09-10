@@ -27,14 +27,9 @@ import { submitTx } from "../helpers/cardano-sdk/submitTx.js";
 import { fetchPartnersTrieRoots } from "../helpers/dynamoPartnersRoots.js";
 import { Serialization } from "../helpers/cardano-sdk/index.js";
 
-// The perspz contract reads the policy-index root from the on-chain
-// `bg_policy_ids` / `pfp_policy_ids` handle (222 token whose name suffix
-// `load_policy_index_root` checks) — NOT `pers_bg@handle_settings`. Earlier
-// this script pointed at `pers_bg@handle_settings`, so syncing it never
-// updated the root perspz actually loads (approvals_are_valid stayed False
-// against a stale root). Target the handle the contract reads, and support
-// both bg and pfp via --category.
-const SETTINGS_HANDLE_FOR_CATEGORY = (category) => `${category}_policy_ids`;
+// The canonical V3 contracts read policy-index roots from namespaced
+// personalization settings handles.
+const SETTINGS_HANDLE_FOR_CATEGORY = (category) => `pers_${category}@handle_settings`;
 
 // Per-network multisig native script CBORs. Source of truth:
 //   preview : adahandle-deployments preview config (RequireAnyOf 1-of-2)

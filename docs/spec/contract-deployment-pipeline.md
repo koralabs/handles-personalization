@@ -39,16 +39,16 @@ subhandle_strategy:
   format: contract_slug_ordinal
 assigned_handles:
   settings:
-    - pz_settings
-    - bg_policy_ids
-    - pfp_policy_ids
+    - pers@handle_settings
+    - pers_bg@handle_settings
+    - pers_pfp@handle_settings
   scripts:
     - pz_contract_06
 ignored_settings: []
 settings:
   type: personalization_settings
   values:
-    pz_settings:
+    pers@handle_settings:
       # decoded comparable PzSettings fields only
 ```
 
@@ -76,8 +76,8 @@ Observed-only fields that must not be committed into desired-state YAML:
 - `last_deployed_tx_hash`
 
 Normalization rules for this repo:
-- `pz_settings` is stored as decoded named fields, not raw CBOR.
-- `bg_policy_ids` and `pfp_policy_ids` still appear in `assigned_handles.settings`, but they are not part of the comparable desired settings payload.
+- `pers@handle_settings` is stored as decoded named fields, not raw CBOR.
+- `pers_bg@handle_settings` and `pers_pfp@handle_settings` appear in `assigned_handles.settings`, but their MPF roots are synchronized separately.
 - `deployment_handle_slug` must be 10 characters or fewer and must not contain separators.
 
 ## Drift Detection
@@ -85,7 +85,7 @@ Deployment automation should:
 - build the contract and derive the expected script hash,
 - load desired YAML from this repo,
 - read live chain state for the contract settings UTxO,
-- normalize the live `pz_settings` CBOR into the same YAML shape,
+- normalize the live `pers@handle_settings` CBOR into the same YAML shape,
 - classify drift as `script_hash_only`, `settings_only`, or `script_hash_and_settings`.
 
 No deployment artifact should be created when desired and live state already match.

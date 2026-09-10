@@ -1,7 +1,7 @@
 // Proxy spend check — FROZEN MODULE
 //
 // Pinned persprx hash (production build, no verbose traces):
-//   7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3
+//   7a04600f22a7101eaad5fdb86d0a91c78bf5c8eb29e86799bda830ed
 //
 // `scripts/check-persprx-hash-stable.js` reads `aiken/plutus.json` and
 // asserts the build's persprx.hash matches the pinned value above. Any
@@ -25,7 +25,7 @@
 //     lives in `update.ak` and is delegated to via the withdraw-observer
 //     pattern (perspz / perslfc / persdsg). Those validators ARE
 //     swappable — multisig adds a new observer hash to
-//     `pz_settings.valid_contracts` and the old hash gets dropped.
+//     `pers@handle_settings.valid_contracts` and the old hash gets dropped.
 //
 //   - Designer-settings validation lives in `designer_settings.ak`,
 //     reachable through persdsg only.
@@ -38,12 +38,12 @@
 // Stability guardrails this module deliberately uses:
 //
 //   1. No imports from any other personalization/* module. Constants
-//      are duplicated inline (handle policy id, pz_settings asset name)
+//      are duplicated inline (handle policy id, personalization settings asset name)
 //      so that changes to constants.ak / datum.ak / update.ak / types.ak
 //      cannot bubble in here.
 //
-//   2. The pz_settings datum is parsed with a `..` rest pattern so
-//      future field additions to pz_settings (after `settings_cred`)
+//   2. The personalization settings datum is parsed with a `..` rest pattern so
+//      future field additions after `settings_cred`
 //      do not change persprx's UPLC. The fields persprx actually reads
 //      — `valid_contracts` (idx 4) and `settings_cred` (idx 6) — are
 //      load-bearing; a re-ordering of the leading fields WOULD break
@@ -56,7 +56,7 @@
 //      re-deploying every observer AND migrating every handle.
 //
 //   4. Inline-datum-only. The proxy refuses to chase a datum hash. The
-//      multisig writes pz_settings as inline datum; refusing the hash
+//      multisig writes personalization settings as inline datum; refusing the hash
 //      path means we don't transit `transaction.find_datum`, removing
 //      another future-evolution risk.
 
@@ -73,19 +73,19 @@ use cardano/transaction.{InlineDatum, OutputReference, Transaction}
 const handle_policy_id: ByteArray =
   #"f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a"
 
-// "000de140" (LBL_222) ++ "pz_settings" — the LBL_222 user-token of
-// the pz_settings handle.
+// "000de140" (LBL_222) ++ "pers@handle_settings" — the LBL_222
+// user-token of the canonical personalization settings handle.
 const pz_handle_asset_name: ByteArray =
-  #"000de140707a5f73657474696e6773"
+  #"000de140706572734068616e646c655f73657474696e6773"
 
-// Resolve `pz_settings.valid_contracts` from the tx, defending against
+// Resolve `pers@handle_settings.valid_contracts` from the tx, defending against
 // a forged settings UTxO by checking that the input's payment
 // credential matches the `settings_cred` field of its own datum
 // (multisig is the only writer that produces a UTxO satisfying both).
 //
 // Returns None when:
-//   - no reference input carries the pz_settings LBL_222 user token
-//   - the pz_settings input doesn't use an inline datum
+//   - no reference input carries the canonical settings LBL_222 user token
+//   - the settings input doesn't use an inline datum
 //   - the input's payment credential isn't a script, or doesn't match
 //     the `settings_cred` field
 //   - the datum doesn't decode as a 7-or-more-element List<Data> with

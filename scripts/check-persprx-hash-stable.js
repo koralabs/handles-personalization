@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const PERSPRX_HASH = "7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3";
+const PERSPRX_HASH = "7a04600f22a7101eaad5fdb86d0a91c78bf5c8eb29e86799bda830ed";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const blueprintPath = path.join(repoRoot, "aiken", "plutus.json");

@@ -128,9 +128,9 @@ pub fn approval_status_for_asset(
   }
 }
 
-const key_policy_ids_bg: ByteArray = "bg_policy_ids"
+const key_policy_ids_bg: ByteArray = "pers_bg@handle_settings"
 
-const key_policy_ids_pfp: ByteArray = "pfp_policy_ids"
+const key_policy_ids_pfp: ByteArray = "pers_pfp@handle_settings"
 
 // ----- tests -----
 
@@ -225,6 +225,23 @@ test load_policy_index_root_enforces_expected_token_suffix() {
         fixture_reference_input_for_wrong_token(
           #"0101010101010101010101010101010101010101010101010101010101010101",
           0,
+        ),
+      ],
+    )
+
+  load_policy_index_root(0, key_policy_ids_bg, settings.pz_providers, settings.settings_cred, tx) == None
+}
+
+test load_policy_index_root_rejects_legacy_policy_handle_suffix() {
+  let settings = fixture_settings()
+  let tx =
+    fixture_tx(
+      [
+        fixture_reference_input_for_root(
+          #"0404040404040404040404040404040404040404040404040404040404040404",
+          0,
+          "bg_policy_ids",
+          fixture_root(),
         ),
       ],
     )
