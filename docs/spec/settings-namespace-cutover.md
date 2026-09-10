@@ -43,7 +43,7 @@ Legacy `pz_settings` is therefore retained only as authority for an input alread
 9. Deploy the BFF and minting service that use canonical settings; the BFF adds legacy `pz_settings` only to migration transactions.
 10. Verify a normal personalize build and an old-proxy migration build.
 
-Transactions are chained through the preceding transaction's deterministic ADA-only change output and must be signed and submitted in manifest order.
+Transactions are chained through the preceding transaction's deterministic ADA-only change output and must be signed and submitted in manifest order. Preview/preprod reference handles are derivation-12 key-controlled. The existing mainnet reference handles remain controlled by the settings native script, so mainnet transactions 05–07 carry that native-script witness and require the operator multisig threshold.
 
 ## Required verification
 

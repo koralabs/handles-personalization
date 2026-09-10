@@ -166,9 +166,9 @@ export const buildSettingsUpdateTx = async ({
   // count of any consumed ref-script here. 0 (no input ref-script) is the
   // default. Mirrors deploymentTx.js inputRefScriptBytes.
   inputRefScriptBytes = 0,
-  // Contract reference handles live at the derivation-12 key address, while
-  // settings handles live at the native-script address. Ref-script redeploys
-  // therefore need one vkey witness and no native-script witness.
+  // Preview/preprod contract reference handles live at derivation 12. The
+  // existing mainnet reference handles still live at the native-script address,
+  // so callers must select the witness authority that controls the consumed UTxO.
   includeNativeScriptWitness = true,
   vkeyWitnessCount = 2,
 }) => {

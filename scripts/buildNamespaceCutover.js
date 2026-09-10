@@ -31,6 +31,11 @@ export const LEGACY_PROXY_MIGRATION_HASH = Buffer.from(
   "hex",
 );
 
+export const referenceHandleWitnessConfig = (network) =>
+  network === "mainnet"
+    ? { includeNativeScriptWitness: true, vkeyWitnessCount: 2 }
+    : { includeNativeScriptWitness: false, vkeyWitnessCount: 1 };
+
 const CONTRACTS = [
   { slug: "perspz", handle: "perspz1@handlecontract", title: "perspz.perspz.withdraw" },
   { slug: "perslfc", handle: "perslfc1@handlecontract", title: "perslfc.perslfc.withdraw" },
@@ -216,8 +221,10 @@ const main = async () => {
     await buildStep({ number: 3, name: "canonical-pfp-root", description: "Copy the live authorized PFP root to pers_pfp@handle_settings", handle: "pers_pfp@handle_settings", datumHex: canonicalPfpRoot });
     await buildStep({ number: 4, name: "legacy-migration-bridge", description: "Authorize the namespaced V3 contracts in legacy pz_settings solely for migration of old proxy UTxOs", handle: "pz_settings", datumHex: legacyBridgeSettings });
 
-    // Contract reference handles are controlled by the derivation-12 deployer,
-    // not the settings multisig. Never carry multisig change into this chain.
+    // Reference-handle authority differs by network. Preview/preprod were moved
+    // to derivation 12 during rehearsal; mainnet's existing reference handles
+    // remain at the settings native-script address. Never carry transaction 04's
+    // change across the authority boundary on the test networks.
     projectedChange = null;
   }
 
@@ -231,8 +238,7 @@ const main = async () => {
       handle: contract.handle,
       scriptReference: { __type: "plutus", bytes: validator.compiledCode, version: 2 },
       inputRefScriptBytes: await fetchInputRefScriptBytes(network, apiKey, contract.handle),
-      includeNativeScriptWitness: false,
-      vkeyWitnessCount: 1,
+      ...referenceHandleWitnessConfig(network),
     });
     number += 1;
   }

@@ -5,6 +5,7 @@ import cbor from "cbor";
 import {
   LEGACY_PROXY_MIGRATION_HASH,
   patchSettings,
+  referenceHandleWitnessConfig,
 } from "../scripts/buildNamespaceCutover.js";
 
 const hash = (byte) => Buffer.alloc(28, byte);
@@ -13,6 +14,20 @@ const datum = (fields = 9) => {
   if (fields === 10) value.push([hash(5)]);
   return Buffer.from(cbor.encode(value)).toString("hex");
 };
+
+test("namespace cutover uses the authority that controls each network's reference handles", () => {
+  // User-visible invariant: generated transactions are signable by the actual
+  // current owner instead of carrying a missing or extraneous script witness.
+  assert.deepEqual(referenceHandleWitnessConfig("mainnet"), {
+    includeNativeScriptWitness: true,
+    vkeyWitnessCount: 2,
+  });
+  assert.deepEqual(referenceHandleWitnessConfig("preprod"), {
+    includeNativeScriptWitness: false,
+    vkeyWitnessCount: 1,
+  });
+  assert.notDeepEqual(referenceHandleWitnessConfig("mainnet"), referenceHandleWitnessConfig("preview"));
+});
 
 test("namespace cutover preserves settings fields while authorizing every new contract", () => {
   // Invariant: the cutover may only extend valid_contracts and persdsg_hashes.
