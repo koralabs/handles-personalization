@@ -101,7 +101,7 @@ const resolveSettingsHandleUtxo = async ({
   return [txIn, txOut];
 };
 
-const buildUnsignedTxForFee = ({ selection, requestedOutputs, validityInterval, nativeScript }) => {
+const buildUnsignedTxForFee = ({ selection, requestedOutputs, validityInterval, nativeScript, vkeyWitnessCount }) => {
   const bodyWithHash = createTransactionInternals({
     inputSelection: selection,
     validityInterval,
@@ -111,7 +111,7 @@ const buildUnsignedTxForFee = ({ selection, requestedOutputs, validityInterval, 
     id: transactionHashFromCore({ body: bodyWithHash.body }),
     body: bodyWithHash.body,
     witness: {
-      signatures: buildPlaceholderSignatures(2),
+      signatures: buildPlaceholderSignatures(vkeyWitnessCount),
       ...(nativeScript ? { scripts: [nativeScript] } : {}),
     },
   };
@@ -166,6 +166,11 @@ export const buildSettingsUpdateTx = async ({
   // count of any consumed ref-script here. 0 (no input ref-script) is the
   // default. Mirrors deploymentTx.js inputRefScriptBytes.
   inputRefScriptBytes = 0,
+  // Contract reference handles live at the derivation-12 key address, while
+  // settings handles live at the native-script address. Ref-script redeploys
+  // therefore need one vkey witness and no native-script witness.
+  includeNativeScriptWitness = true,
+  vkeyWitnessCount = 2,
 }) => {
   if (!network) throw new Error("settings-update tx: network is required");
   if (!settingsHandleName) throw new Error("settings-update tx: settingsHandleName is required");
@@ -215,7 +220,9 @@ export const buildSettingsUpdateTx = async ({
   settingsOutput.value = { ...settingsOutput.value, coins: minimumCoinQuantity(settingsOutput) };
 
   const requestedOutputs = [settingsOutput];
-  const nativeScript = parseNativeScript(nativeScriptCborHex);
+  const nativeScript = includeNativeScriptWitness
+    ? parseNativeScript(nativeScriptCborHex)
+    : undefined;
 
   const allScriptUtxos = await fetchBlockfrostUtxos(
     scriptAddress,
@@ -263,6 +270,7 @@ export const buildSettingsUpdateTx = async ({
         requestedOutputs,
         validityInterval: buildContext.validityInterval,
         nativeScript,
+        vkeyWitnessCount,
       })
     );
 
@@ -327,13 +335,13 @@ export const buildSettingsUpdateTx = async ({
     body: { ...finalTxBodyWithHash.body, fee: selection.selection.fee },
     witness: {
       signatures: new Map(),
-      scripts: [nativeScript],
+      ...(nativeScript ? { scripts: [nativeScript] } : {}),
     },
   };
 
   const estimationTx = {
     ...unsignedTx,
-    witness: { ...unsignedTx.witness, signatures: buildPlaceholderSignatures(2) },
+    witness: { ...unsignedTx.witness, signatures: buildPlaceholderSignatures(vkeyWitnessCount) },
   };
   const estimatedSignedTxSize = Serialization.Transaction.fromCore(estimationTx).toCbor().length / 2;
 

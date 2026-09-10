@@ -284,6 +284,44 @@ test("builds an unsigned settings-update tx with native script witness", async (
   );
 });
 
+test("builds a key-controlled reference-handle update without an extraneous native script", async () => {
+  // Invariant: derivation-12 reference handles require only its vkey witness.
+  // Failure caught: the node rejects a supplied settings multisig script as ExtraneousScriptWitnessesUTXOW.
+  const settingsHandleName = "perspz1@handlecontract";
+  const mockFetch = buildMockFetch({ liveDatumHex: null, settingsHandleName });
+  const result = await withMockedFetch(mockFetch, () =>
+    buildSettingsUpdateTx({
+      network: "preview",
+      settingsHandleName,
+      nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+      blockfrostApiKey: "preview-test-key",
+      userAgent: "kora-test/1.0",
+      includeNativeScriptWitness: false,
+      vkeyWitnessCount: 1,
+    })
+  );
+
+  const tx = Serialization.Transaction.fromCbor(result.cborHex).toCore();
+  assert.equal(tx.witness.scripts?.length ?? 0, 0, "key-controlled update has no native script witness");
+  assert.equal(tx.witness.signatures?.size ?? 0, 0, "artifact remains unsigned");
+  assert.ok(
+    result.estimatedSignedTxSize > result.cborBytes.length,
+    "fee estimate reserves the deployer vkey witness"
+  );
+
+  // Negative control: the default multisig path does include the native script.
+  const multisig = await withMockedFetch(mockFetch, () =>
+    buildSettingsUpdateTx({
+      network: "preview",
+      settingsHandleName,
+      nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+      blockfrostApiKey: "preview-test-key",
+      userAgent: "kora-test/1.0",
+    })
+  );
+  assert.equal(Serialization.Transaction.fromCbor(multisig.cborHex).toCore().witness.scripts?.length, 1);
+});
+
 test("charges consumed reference-script bytes and sizes both multisig witnesses", async () => {
   // Invariant: replacing a ref script charges the old input ref-script bytes.
   // Failure caught: Eternl/node code 3122 reported an 82,515-lovelace shortfall

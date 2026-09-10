@@ -126,6 +126,7 @@ const main = async () => {
   const network = args.network;
   const apiKey = args["blockfrost-api-key"] || process.env.BLOCKFROST_API_KEY;
   const outDir = args["out-dir"];
+  const referenceScriptsOnly = args["reference-scripts-only"] === "true";
   if (!NATIVE_SCRIPT_BY_NETWORK[network] || !apiKey || !outDir) {
     throw new Error("usage: --network preview|preprod|mainnet --out-dir <dir> --blockfrost-api-key <key>");
   }
@@ -143,23 +144,26 @@ const main = async () => {
   );
   const hashes = Object.fromEntries(Object.entries(validators).map(([slug, value]) => [slug, value.hashBytes.toString("hex")]));
 
-  const canonicalSettings = patchSettings(
-    await fetchDatumHex(network, "pers@handle_settings"),
-    Object.values(validators).map((value) => value.hashBytes),
-    validators.persdsg.hashBytes,
-  );
-  const legacyBridgeSettings = patchSettings(
-    await fetchDatumHex(network, "pz_settings"),
-    Object.values(validators).map((value) => value.hashBytes),
-    validators.persdsg.hashBytes,
-  );
-  const canonicalBgRoot = await fetchDatumHex(network, "bg_policy_ids");
-  const canonicalPfpRoot = await fetchDatumHex(network, "pfp_policy_ids");
-
   let projectedChange = null;
   const consumed = new Set();
-  const manifest = { network, generatedAt: new Date().toISOString(), hashes, transactions: [] };
-  const buildStep = async ({ number, name, description, handle, datumHex, scriptReference, inputRefScriptBytes = 0 }) => {
+  const manifest = {
+    network,
+    generatedAt: new Date().toISOString(),
+    mode: referenceScriptsOnly ? "reference-scripts-only" : "full",
+    hashes,
+    transactions: [],
+  };
+  const buildStep = async ({
+    number,
+    name,
+    description,
+    handle,
+    datumHex,
+    scriptReference,
+    inputRefScriptBytes = 0,
+    includeNativeScriptWitness = true,
+    vkeyWitnessCount = 2,
+  }) => {
     const built = await buildSettingsUpdateTx({
       network,
       settingsHandleName: handle,
@@ -171,6 +175,8 @@ const main = async () => {
       excludeFromRemainingUtxos: [...consumed],
       scriptReference,
       inputRefScriptBytes,
+      includeNativeScriptWitness,
+      vkeyWitnessCount,
     });
     for (const input of built.consumedInputs) consumed.add(input);
     projectedChange = built.changeUtxo;
@@ -178,10 +184,29 @@ const main = async () => {
     manifest.transactions.push(writeArtifact(outDir, number, name, description, built));
   };
 
-  await buildStep({ number: 1, name: "canonical-settings", description: "Activate canonical pers@handle_settings for namespaced V3 contracts", handle: "pers@handle_settings", datumHex: canonicalSettings });
-  await buildStep({ number: 2, name: "canonical-bg-root", description: "Copy the live authorized BG MPF root to pers_bg@handle_settings", handle: "pers_bg@handle_settings", datumHex: canonicalBgRoot });
-  await buildStep({ number: 3, name: "canonical-pfp-root", description: "Copy the live authorized PFP MPF root to pers_pfp@handle_settings", handle: "pers_pfp@handle_settings", datumHex: canonicalPfpRoot });
-  await buildStep({ number: 4, name: "legacy-migration-bridge", description: "Authorize the namespaced V3 contracts in legacy pz_settings solely for migration of old proxy UTxOs", handle: "pz_settings", datumHex: legacyBridgeSettings });
+  if (!referenceScriptsOnly) {
+    const canonicalSettings = patchSettings(
+      await fetchDatumHex(network, "pers@handle_settings"),
+      Object.values(validators).map((value) => value.hashBytes),
+      validators.persdsg.hashBytes,
+    );
+    const legacyBridgeSettings = patchSettings(
+      await fetchDatumHex(network, "pz_settings"),
+      Object.values(validators).map((value) => value.hashBytes),
+      validators.persdsg.hashBytes,
+    );
+    const canonicalBgRoot = await fetchDatumHex(network, "bg_policy_ids");
+    const canonicalPfpRoot = await fetchDatumHex(network, "pfp_policy_ids");
+
+    await buildStep({ number: 1, name: "canonical-settings", description: "Activate canonical pers@handle_settings for namespaced V3 contracts", handle: "pers@handle_settings", datumHex: canonicalSettings });
+    await buildStep({ number: 2, name: "canonical-bg-root", description: "Copy the live authorized BG MPF root to pers_bg@handle_settings", handle: "pers_bg@handle_settings", datumHex: canonicalBgRoot });
+    await buildStep({ number: 3, name: "canonical-pfp-root", description: "Copy the live authorized PFP root to pers_pfp@handle_settings", handle: "pers_pfp@handle_settings", datumHex: canonicalPfpRoot });
+    await buildStep({ number: 4, name: "legacy-migration-bridge", description: "Authorize the namespaced V3 contracts in legacy pz_settings solely for migration of old proxy UTxOs", handle: "pz_settings", datumHex: legacyBridgeSettings });
+
+    // Contract reference handles are controlled by the derivation-12 deployer,
+    // not the settings multisig. Never carry multisig change into this chain.
+    projectedChange = null;
+  }
 
   let number = 5;
   for (const contract of CONTRACTS) {
@@ -193,6 +218,8 @@ const main = async () => {
       handle: contract.handle,
       scriptReference: { __type: "plutus", bytes: validator.compiledCode, version: 2 },
       inputRefScriptBytes: await fetchInputRefScriptBytes(network, apiKey, contract.handle),
+      includeNativeScriptWitness: false,
+      vkeyWitnessCount: 1,
     });
     number += 1;
   }
