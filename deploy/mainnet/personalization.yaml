@@ -82,7 +82,7 @@ settings:
         - 503d94a31d3e6c3592323962a263273e2557c749f35e36e5a2d69011
         - 4cd9e0bd6c1639f6c61d46288bc2094112cefa216ff501d75ccdea41
         - acbb75f1996b1f50a4a8719307695b6e280c6c3db0d50207c390b6dd
-        - 7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3  # persprx current
+        - 7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3  # legacy persprx migration source
         - 23a2ef442a7c27260d20d6eaef37c5479468c4d7dab76ded6f01fa4c  # perslfc previous
         - fd65087a76a7d57a90714d279247beb6c2c99e9790f899a3153f2d2c  # persdsg previous
         - e30bd311f2ea85dc112d7c88eee99d710dd651d816de098c74aa5d94  # perspz current

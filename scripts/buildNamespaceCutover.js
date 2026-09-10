@@ -26,6 +26,11 @@ const NATIVE_SCRIPT_BY_NETWORK = {
     "8200581cb5fa099804ba14c5494dc97ddc15e114043704c6ad90ac87d7d805aa",
 };
 
+export const LEGACY_PROXY_MIGRATION_HASH = Buffer.from(
+  "7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3",
+  "hex",
+);
+
 const CONTRACTS = [
   { slug: "perspz", handle: "perspz1@handlecontract", title: "perspz.perspz.withdraw" },
   { slug: "perslfc", handle: "perslfc1@handlecontract", title: "perslfc.perslfc.withdraw" },
@@ -185,14 +190,22 @@ const main = async () => {
   };
 
   if (!referenceScriptsOnly) {
+    // Both settings authorities must authorize the frozen old proxy while
+    // LBL_100 outputs remain there. The old proxy consults legacy pz_settings,
+    // while the current perslfc migration observer consults canonical settings
+    // and requires the source validator hash to be authorized too.
+    const migrationContractHashes = [
+      ...Object.values(validators).map((value) => value.hashBytes),
+      LEGACY_PROXY_MIGRATION_HASH,
+    ];
     const canonicalSettings = patchSettings(
       await fetchDatumHex(network, "pers@handle_settings"),
-      Object.values(validators).map((value) => value.hashBytes),
+      migrationContractHashes,
       validators.persdsg.hashBytes,
     );
     const legacyBridgeSettings = patchSettings(
       await fetchDatumHex(network, "pz_settings"),
-      Object.values(validators).map((value) => value.hashBytes),
+      migrationContractHashes,
       validators.persdsg.hashBytes,
     );
     const canonicalBgRoot = await fetchDatumHex(network, "bg_policy_ids");

@@ -50,7 +50,7 @@ Transactions are chained through the preceding transaction's deterministic ADA-o
 For each network:
 
 - Canonical settings have ten fields.
-- Canonical `valid_contracts` contains `7a04600f…`, `5298e0e1…`, `51530e22…`, and `1fcfe6fd…`.
+- Canonical `valid_contracts` contains migration source `7cf10558…` plus `7a04600f…`, `5298e0e1…`, `51530e22…`, and `1fcfe6fd…`. The legacy source is required temporarily because the current `perslfc` observer validates both the source and destination proxy hashes against canonical settings during migration.
 - Canonical `persdsg_hashes` contains `1fcfe6fd…`.
 - Canonical BG/PFP roots equal the roots used by the deployed BFF proof source.
 - API script hashes equal the compiled hashes.

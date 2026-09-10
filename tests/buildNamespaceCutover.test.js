@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import cbor from "cbor";
 
-import { patchSettings } from "../scripts/buildNamespaceCutover.js";
+import {
+  LEGACY_PROXY_MIGRATION_HASH,
+  patchSettings,
+} from "../scripts/buildNamespaceCutover.js";
 
 const hash = (byte) => Buffer.alloc(28, byte);
 const datum = (fields = 9) => {
@@ -22,6 +25,23 @@ test("namespace cutover preserves settings fields while authorizing every new co
   for (const index of [0, 1, 2, 3, 5, 6, 7, 8]) assert.deepEqual(patched[index], original[index]);
   assert.deepEqual(patched[4], [hash(2), hash(6), hash(7)]);
   assert.deepEqual(patched[9], [hash(5), hash(8)]);
+});
+
+test("namespace cutover can authorize the legacy proxy in canonical settings for migration", () => {
+  // User-visible invariant: an LBL_100 at the frozen proxy can migrate through
+  // the current perslfc observer after the namespace cutover.
+  // Failure caught: canonical settings authorize only the destination proxy,
+  // so perslfc rejects because its source-validator hash is not authorized.
+  const currentProxy = hash(6);
+  const patched = cbor.decodeFirstSync(
+    Buffer.from(
+      patchSettings(datum(10), [currentProxy, LEGACY_PROXY_MIGRATION_HASH], hash(8)),
+      "hex",
+    ),
+  );
+
+  assert.deepEqual(patched[4], [hash(2), currentProxy, LEGACY_PROXY_MIGRATION_HASH]);
+  assert.notDeepEqual(patched[4], [hash(2), currentProxy]);
 });
 
 test("namespace cutover upgrades a legacy nine-field copy to the required ten-field schema", () => {

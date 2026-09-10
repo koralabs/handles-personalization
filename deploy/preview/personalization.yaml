@@ -90,6 +90,7 @@ settings:
         - 5807ab5e9de854bbbb301b42e29057604fdb3c7cf567d3c6177c6ece
         - 43051b091516485d6c824f949a250645c18c81ba7a03f2f68c8351e1
         - 8585b4892cec81880ed30d7e80fb0ffbe15c5224b76d2cc4e3dd040d
+        - 7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3  # legacy persprx migration source
         - 7a04600f22a7101eaad5fdb86d0a91c78bf5c8eb29e86799bda830ed  # namespaced persprx
         - 5298e0e10ca0d3b90be2a8022f60954dfb7c48856f4f5c01f6dad0a6  # namespaced perspz
         - 51530e22383d924a8e6955d3c63f5622d079eb7cbd6794242c457230  # namespaced perslfc
