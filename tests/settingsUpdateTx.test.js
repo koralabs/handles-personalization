@@ -284,19 +284,13 @@ test("builds an unsigned settings-update tx with native script witness", async (
   );
 });
 
-test("reserves fee margin for an output reference script and two multisig witnesses", async () => {
-  // Invariant: attaching a ref script must reserve its omitted serialized-size
-  // fee before balancing. Failure caught: Eternl/node code 3122 after both
-  // signatures were collected because the provided fee was 82,515 lovelace low.
+test("charges consumed reference-script bytes and sizes both multisig witnesses", async () => {
+  // Invariant: replacing a ref script charges the old input ref-script bytes.
+  // Failure caught: Eternl/node code 3122 reported an 82,515-lovelace shortfall
+  // after both signatures because the caller passed zero consumed bytes.
   const settingsHandleName = "persdsg1@handlecontract";
   const mockFetch = buildMockFetch({ liveDatumHex: null, settingsHandleName });
-  const scriptReference = {
-    __type: "plutus",
-    bytes: `5903e8${"00".repeat(1000)}`,
-    version: 2,
-  };
-
-  const [withoutRef, withRef] = await withMockedFetch(mockFetch, () =>
+  const [withoutInputRef, withInputRef] = await withMockedFetch(mockFetch, () =>
     Promise.all([
       buildSettingsUpdateTx({
         network: "preview",
@@ -311,28 +305,22 @@ test("reserves fee margin for an output reference script and two multisig witnes
         nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
         blockfrostApiKey: "preview-test-key",
         userAgent: "kora-test/1.0",
-        scriptReference,
+               inputRefScriptBytes: 1000,
       }),
     ])
   );
 
-  const withoutRefTx = Serialization.Transaction.fromCbor(withoutRef.cborHex).toCore();
-  const withRefTx = Serialization.Transaction.fromCbor(withRef.cborHex).toCore();
-  const serializedRefBytes = Serialization.Script.fromCore(scriptReference).toCbor().length / 2;
-  const requiredMargin = (BigInt(Math.ceil(serializedRefBytes)) * 44n * 13n) / 10n;
+  const baseTx = Serialization.Transaction.fromCbor(withoutInputRef.cborHex).toCore();
+  const chargedTx = Serialization.Transaction.fromCbor(withInputRef.cborHex).toCore();
+  assert.equal(chargedTx.body.fee - baseTx.body.fee, 15_000n);
   assert.ok(
-    withRefTx.body.fee - withoutRefTx.body.fee >= requiredMargin,
-    `expected at least ${requiredMargin} lovelace ref-script margin`
+    withInputRef.estimatedSignedTxSize - withInputRef.cborBytes.length > 200,
+    "signed-size estimate includes both 2-of-4 vkey witnesses"
   );
-  assert.equal(withRef.estimatedSignedTxSize - withRef.cborBytes.length > 200, true,
-    "signed-size estimate includes both 2-of-4 vkey witnesses");
 
-  // Negative control: the prior builder only added the 2,000-lovelace native
-  // script buffer and therefore could not satisfy this margin assertion.
-  assert.ok(requiredMargin > NATIVE_SCRIPT_FEE_SAFETY_MARGIN_LOVELACE_FOR_TEST);
+  // Negative control: zero input bytes produces no 15,000-lovelace charge.
+  assert.notEqual(baseTx.body.fee, chargedTx.body.fee);
 });
-
-const NATIVE_SCRIPT_FEE_SAFETY_MARGIN_LOVELACE_FOR_TEST = 2000n;
 
 test("rejects when no clean funding UTxOs exist at the script address", async () => {
   const liveDatumHex = buildLiveDatumHex();

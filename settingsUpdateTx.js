@@ -23,9 +23,9 @@ const HANDLE_POLICY_ID = "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb
 const PREFIX_222 = "000de140";
 
 // cardano-sdk's defaultSelectionConstraints.computeMinimumCost undershoots the
-// node's computed min fee for native scripts and does not fully size output
-// reference scripts. Apply both margins inside coin selection so inputs =
-// outputs + fee remains intact. Mirrors decentralized-minting/deploymentTx.ts.
+// node's computed min fee by ~4 bytes (~176 lovelace) when the witness set
+// contains a native script. Applying the bump inside coin selection keeps
+// inputs = outputs + fee intact.
 const NATIVE_SCRIPT_FEE_SAFETY_MARGIN_LOVELACE = 2000n;
 
 const handlesApiBaseUrlForNetwork = (network) => {
@@ -287,14 +287,6 @@ export const buildSettingsUpdateTx = async ({
     return BigInt(fee);
   })();
 
-  const outputRefScriptBytes = requestedOutputs.reduce((sum, output) => {
-    if (!output.scriptReference) return sum;
-    return sum + Serialization.Script.fromCore(output.scriptReference).toCbor().length / 2;
-  }, 0);
-  const minFeeCoefficient = BigInt(buildContext.protocolParameters.minFeeCoefficient ?? 44);
-  const outputRefScriptFeeMargin =
-    (BigInt(Math.ceil(outputRefScriptBytes)) * minFeeCoefficient * 13n) / 10n;
-
   const baseConstraints = defaultSelectionConstraints({
     protocolParameters: buildContext.protocolParameters,
     buildTx: buildForSelection,
@@ -310,8 +302,7 @@ export const buildSettingsUpdateTx = async ({
         fee:
           result.fee +
           NATIVE_SCRIPT_FEE_SAFETY_MARGIN_LOVELACE +
-          inputRefScriptFee +
-          outputRefScriptFeeMargin,
+          inputRefScriptFee,
       };
     },
   };

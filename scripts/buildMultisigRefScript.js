@@ -25,6 +25,31 @@ if (!validator?.compiledCode) throw new Error(`compiled validator missing: ${CON
 await sodium.ready;
 const expectedHash = Buffer.from(sodium.crypto_generichash(28, Buffer.concat([Buffer.from([3]), Buffer.from(validator.compiledCode, 'hex')]))).toString('hex');
 const scriptReference = { __type: 'plutus', bytes: validator.compiledCode, version: 2 };
+
+const handleResponse = await fetch(
+  `https://api.handle.me/handles/${encodeURIComponent(CONTRACTS[slug].handle)}`,
+  { headers: { 'User-Agent': process.env.KORA_USER_AGENT || 'kora-contract-deployments/1.0' } }
+);
+if (!handleResponse.ok) throw new Error(`handle lookup failed: HTTP ${handleResponse.status}`);
+const [currentTxId, currentIndexText] = (await handleResponse.json()).utxo.split('#');
+const currentUtxoResponse = await fetch(
+  `https://cardano-mainnet.blockfrost.io/api/v0/txs/${currentTxId}/utxos`,
+  { headers: { project_id: key } }
+);
+if (!currentUtxoResponse.ok) throw new Error(`current UTxO lookup failed: HTTP ${currentUtxoResponse.status}`);
+const currentOutput = (await currentUtxoResponse.json()).outputs.find(
+  (output) => output.output_index === Number(currentIndexText)
+);
+let inputRefScriptBytes = 0;
+if (currentOutput?.reference_script_hash) {
+  const oldScriptResponse = await fetch(
+    `https://cardano-mainnet.blockfrost.io/api/v0/scripts/${currentOutput.reference_script_hash}/cbor`,
+    { headers: { project_id: key } }
+  );
+  if (!oldScriptResponse.ok) throw new Error(`old ref-script lookup failed: HTTP ${oldScriptResponse.status}`);
+  inputRefScriptBytes = (await oldScriptResponse.json()).cbor.length / 2;
+}
+
 const built = await buildSettingsUpdateTx({
   network: 'mainnet',
   settingsHandleName: CONTRACTS[slug].handle,
@@ -32,6 +57,7 @@ const built = await buildSettingsUpdateTx({
   blockfrostApiKey: key,
   userAgent: process.env.KORA_USER_AGENT || 'kora-contract-deployments/1.0',
   scriptReference,
+  inputRefScriptBytes,
   patchedDatumHex: undefined
 });
 const out = args.out || `/tmp/${slug}-mainnet-ref-unsigned.cbor.hex`;
