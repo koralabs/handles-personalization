@@ -39,8 +39,9 @@ Legacy `pz_settings` is therefore retained only as authority for an input alread
 5. Deploy the namespaced `perspz` reference script.
 6. Deploy the namespaced `perslfc` reference script.
 7. Deploy the namespaced `persprx` reference script.
-8. Deploy the BFF that uses canonical settings and adds legacy `pz_settings` only to migration transactions.
-9. Verify a normal personalize build and an old-proxy migration build.
+8. Register the new `perspz` and `perslfc` observer script credentials, using the newly deployed reference scripts. Skip unchanged `persdsg` only when its exact hash is already registered.
+9. Deploy the BFF and minting service that use canonical settings; the BFF adds legacy `pz_settings` only to migration transactions.
+10. Verify a normal personalize build and an old-proxy migration build.
 
 Transactions are chained through the preceding transaction's deterministic ADA-only change output and must be signed and submitted in manifest order.
 
@@ -53,6 +54,7 @@ For each network:
 - Canonical `persdsg_hashes` contains `1fcfe6fd…`.
 - Canonical BG/PFP roots equal the roots used by the deployed BFF proof source.
 - API script hashes equal the compiled hashes.
+- The exact `perspz`, `perslfc`, and `persdsg` observer script hashes used by the BFF are registered stake credentials.
 - A normal personalization build includes canonical settings references and excludes legacy settings.
 - A migration build includes both canonical `pers@handle_settings` and legacy `pz_settings` references.
 - The guarded mainnet smoke reaches wallet signing but signs and submits nothing.
