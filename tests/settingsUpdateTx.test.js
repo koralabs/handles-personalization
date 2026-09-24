@@ -109,10 +109,21 @@ const GENESIS_RESPONSE = {
   update_quorum: 5,
 };
 
-const buildMockFetch = ({ liveDatumHex, settingsHandleName }) => {
+const buildMockFetch = ({ liveDatumHex, settingsHandleName, referenceScriptHash = null, lockedAssetUtxos = 0, credentialQueries = [] }) => {
   const handleAssetUnitHex = handleAssetUnit(settingsHandleName);
   return async (url) => {
     const u = String(url);
+    if (u.includes("/addresses/script1")) {
+      credentialQueries.push(u);
+      const items = Array.from({ length: lockedAssetUtxos }, (_, i) => ({
+        tx_hash: "3".repeat(64),
+        output_index: i,
+        amount: [{ unit: "lovelace", quantity: "2000000" }, { unit: `${HANDLE_POLICY_ID}000643b0${Buffer.from(`h${i}`).toString("hex")}`, quantity: "1" }],
+      }));
+      return items.length
+        ? new Response(JSON.stringify(items), { status: 200, headers: { "Content-Type": "application/json" } })
+        : new Response(JSON.stringify({ status_code: 404 }), { status: 404 });
+    }
     if (u.includes(`handles/${encodeURIComponent(settingsHandleName)}`) && !u.includes("/datum")) {
       return new Response(
         JSON.stringify({
@@ -136,7 +147,7 @@ const buildMockFetch = ({ liveDatumHex, settingsHandleName }) => {
               ],
               inline_datum: liveDatumHex,
               data_hash: null,
-              reference_script_hash: null,
+              reference_script_hash: referenceScriptHash,
             },
           ],
         }),
@@ -460,4 +471,45 @@ test("rejects when required arguments are missing", async () => {
     }),
     /nativeScriptCborHex is required/
   );
+});
+
+// A contract reference handle may carry new script bytes only when nothing is locked under its
+// current script. Mainnet persprx1 was swapped while 281 LBL_100s sat at 7cf105…, dropping that
+// version from /scripts. Removing the guard in buildSettingsUpdateTx makes the first test build.
+const OLD_SCRIPT_HASH = "7cf105586f77934a524c9e78f8879a33460104f9578e9ac927f577e3";
+const NEW_SCRIPT = { __type: "plutus", bytes: "4e4d01000033222220051200120011", version: 2 };
+
+test("refuses to replace a contract handle's reference script while assets are locked under it", async () => {
+  const credentialQueries = [];
+  const mockFetch = buildMockFetch({ liveDatumHex: null, settingsHandleName: "persprx1@handlecontract", referenceScriptHash: OLD_SCRIPT_HASH, lockedAssetUtxos: 3, credentialQueries });
+  await assert.rejects(
+    withMockedFetch(mockFetch, () => buildSettingsUpdateTx({
+      network: "mainnet", settingsHandleName: "persprx1@handlecontract", nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+      blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT,
+    })),
+    /refusing to replace persprx1@handlecontract's reference script 7cf105.*3 asset UTxO\(s\) are still locked/
+  );
+  assert.equal(credentialQueries.length, 1);
+  assert.match(credentialQueries[0], /\/addresses\/script10ncs2kr0w7f555jvneu03pu6xdrqzp8e278f4jf874m7x8wd99q\/utxos/);
+});
+
+test("reuses a contract handle for new script bytes when nothing is locked under the old script", async () => {
+  const mockFetch = buildMockFetch({ liveDatumHex: null, settingsHandleName: "persprx1@handlecontract", referenceScriptHash: OLD_SCRIPT_HASH, lockedAssetUtxos: 0 });
+  const result = await withMockedFetch(mockFetch, () => buildSettingsUpdateTx({
+    network: "preview", settingsHandleName: "persprx1@handlecontract", nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+    blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT, inputRefScriptBytes: 1000,
+  }));
+  const out = Serialization.Transaction.fromCbor(result.cborHex).toCore().body.outputs.find((o) => o.value.assets?.size);
+  assert.equal(Serialization.Script.fromCore(out.scriptReference).hash(), Serialization.Script.fromCore(NEW_SCRIPT).hash());
+});
+
+test("re-outputting the same reference script never needs the locked-asset check", async () => {
+  const credentialQueries = [];
+  const sameHash = Serialization.Script.fromCore(NEW_SCRIPT).hash();
+  const mockFetch = buildMockFetch({ liveDatumHex: null, settingsHandleName: "persprx1@handlecontract", referenceScriptHash: sameHash, lockedAssetUtxos: 5, credentialQueries });
+  await withMockedFetch(mockFetch, () => buildSettingsUpdateTx({
+    network: "preview", settingsHandleName: "persprx1@handlecontract", nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+    blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT, inputRefScriptBytes: 1000,
+  }));
+  assert.equal(credentialQueries.length, 0);
 });

@@ -92,6 +92,7 @@ const main = async () => {
       namespace: desired.subhandleStrategy.namespace,
       currentSubhandle: liveContract.currentSubhandle || null,
       userAgent,
+      blockfrostApiKey: blockfrostApiKey || null,
     });
   }
 
