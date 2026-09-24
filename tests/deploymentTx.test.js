@@ -98,6 +98,9 @@ const buildCborUtxo = ({
 
 const buildBlockfrostMockFetch = ({ lockedAssetUtxos = 0 } = {}) => async (url) => {
   const u = String(url);
+  if (u.endsWith("/scripts")) {
+    return new Response("{}", { status: 200 });
+  }
   if (u.includes("/addresses/script1")) {
     const items = Array.from({ length: lockedAssetUtxos }, (_, i) => ({
       tx_hash: "9".repeat(64),
