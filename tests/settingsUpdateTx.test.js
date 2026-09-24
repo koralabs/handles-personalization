@@ -109,10 +109,13 @@ const GENESIS_RESPONSE = {
   update_quorum: 5,
 };
 
-const buildMockFetch = ({ liveDatumHex, settingsHandleName, referenceScriptHash = null, lockedAssetUtxos = 0, credentialQueries = [] }) => {
+const buildMockFetch = ({ liveDatumHex, settingsHandleName, referenceScriptHash = null, lockedAssetUtxos = 0, credentialQueries = [], registry = {} }) => {
   const handleAssetUnitHex = handleAssetUnit(settingsHandleName);
   return async (url) => {
     const u = String(url);
+    if (u.endsWith("/scripts")) {
+      return new Response(JSON.stringify(registry), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/addresses/script1")) {
       credentialQueries.push(u);
       const items = Array.from({ length: lockedAssetUtxos }, (_, i) => ({
@@ -512,4 +515,25 @@ test("re-outputting the same reference script never needs the locked-asset check
     blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT, inputRefScriptBytes: 1000,
   }));
   assert.equal(credentialQueries.length, 0);
+});
+
+test("moves a contract handle off a script with locked assets once another contract handle carries that script", async () => {
+  // The mainnet repair: persprx2 takes over 7a04600f… first, then persprx1 returns to 7cf105…. Locked
+  // handles under 7a04600f… keep a registered script, so the move is allowed. Without the registry
+  // check in contractHandleGuard.js this rejects.
+  const registry = { addr1: { handle: "persprx2@handlecontract", validatorHash: OLD_SCRIPT_HASH } };
+  const mockFetch = buildMockFetch({ liveDatumHex: null, settingsHandleName: "persprx1@handlecontract", referenceScriptHash: OLD_SCRIPT_HASH, lockedAssetUtxos: 4, registry });
+  const result = await withMockedFetch(mockFetch, () => buildSettingsUpdateTx({
+    network: "mainnet", settingsHandleName: "persprx1@handlecontract", nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+    blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT, inputRefScriptBytes: 1000,
+  }));
+  assert.ok(result.cborHex.length > 0);
+
+  // Negative control: the only carrier of the old script is the handle being moved itself.
+  const selfOnly = buildMockFetch({ liveDatumHex: null, settingsHandleName: "persprx1@handlecontract", referenceScriptHash: OLD_SCRIPT_HASH, lockedAssetUtxos: 4,
+    registry: { addr1: { handle: "persprx1@handlecontract", validatorHash: OLD_SCRIPT_HASH } } });
+  await assert.rejects(withMockedFetch(selfOnly, () => buildSettingsUpdateTx({
+    network: "mainnet", settingsHandleName: "persprx1@handlecontract", nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+    blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT, inputRefScriptBytes: 1000,
+  })), /still locked under it/);
 });

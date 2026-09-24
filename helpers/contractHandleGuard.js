@@ -22,12 +22,23 @@ export const countAssetUtxosAtScript = async ({ scriptHash, network, blockfrostA
 };
 
 // A contract handle may be reused for new script bytes only when nothing is locked under the script
-// it currently carries. Otherwise that version drops out of the /scripts registry and every handle
+// it currently carries, or another @handlecontract handle still carries (registers) that script. Otherwise that version drops out of the /scripts registry and every handle
 // locked there loses its resolvable reference script (mainnet persprx1, 2026-09-10: 281 LBL_100s).
+const handlesApiBase = (network) =>
+  network === "mainnet" ? "https://api.handle.me" : `https://${network}.api.handle.me`;
+
+// Another @handlecontract handle still carrying `scriptHash` keeps it in the /scripts registry.
+const otherHandleCarriesScript = async ({ scriptHash, handleName, network, fetchFn = fetch }) => {
+  const response = await fetchFn(`${handlesApiBase(network)}/scripts`, { headers: { "User-Agent": "kora-deploy/1.0" } });
+  if (!response.ok) throw new Error(`api /scripts fetch: HTTP ${response.status}`);
+  const scripts = await response.json();
+  return Object.values(scripts).some((entry) => entry.validatorHash === scriptHash && entry.handle !== handleName);
+};
+
 export const assertContractHandleReplaceable = async ({ handleName, currentScriptHash, nextScriptHash, network, blockfrostApiKey }) => {
   if (!currentScriptHash || currentScriptHash === nextScriptHash) return;
   const locked = await countAssetUtxosAtScript({ scriptHash: currentScriptHash, network, blockfrostApiKey });
-  if (locked > 0) {
+  if (locked > 0 && !(await otherHandleCarriesScript({ scriptHash: currentScriptHash, handleName, network }))) {
     throw new Error(
       `refusing to replace ${handleName}'s reference script ${currentScriptHash}: ${locked} asset UTxO(s) are still locked under it. ` +
       "Deploy the new script to the next <slug><ordinal>@handlecontract (see adahandle-deployments/common/discover_subhandles.py) instead."
