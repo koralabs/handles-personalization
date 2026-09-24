@@ -80,6 +80,7 @@ const buildCborUtxo = ({
   lovelace,
   assetUnit,
   assetQuantity = 1,
+  scriptReference,
 }) => {
   let assets;
   if (assetUnit) {
@@ -91,12 +92,20 @@ const buildCborUtxo = ({
   }
   return Serialization.TransactionUnspentOutput.fromCore([
     { txId: txHash, index, address },
-    { address, value: { coins: BigInt(lovelace), ...(assets ? { assets } : {}) } },
+    { address, value: { coins: BigInt(lovelace), ...(assets ? { assets } : {}) }, ...(scriptReference ? { scriptReference } : {}) },
   ]).toCbor();
 };
 
-const buildBlockfrostMockFetch = () => async (url) => {
+const buildBlockfrostMockFetch = ({ lockedAssetUtxos = 0 } = {}) => async (url) => {
   const u = String(url);
+  if (u.includes("/addresses/script1")) {
+    const items = Array.from({ length: lockedAssetUtxos }, (_, i) => ({
+      tx_hash: "9".repeat(64),
+      output_index: i,
+      amount: [{ unit: "lovelace", quantity: "2000000" }, { unit: `${HANDLE_POLICY_ID}000643b0${Buffer.from(`h${i}`).toString("hex")}`, quantity: "1" }],
+    }));
+    return items.length ? new Response(JSON.stringify(items), { status: 200 }) : new Response("{}", { status: 404 });
+  }
   if (u.endsWith("/blocks/latest")) {
     return new Response(JSON.stringify(LATEST_BLOCK_RESPONSE), { status: 200 });
   }
@@ -224,4 +233,30 @@ test("reference-script deployment tx validates required arguments", async () => 
     }),
     /non-empty cborUtxos is required/
   );
+});
+
+// Same invariant as buildSettingsUpdateTx: the deployer path must not strand handles locked under the
+// handle's current reference script. Removing the assertContractHandleReplaceable call fails test 1.
+const OLD_REF_SCRIPT = { __type: "plutus", bytes: "4e4d01000033222220051200120011", version: 2 };
+
+const deployOverExistingScript = (lockedAssetUtxos) => {
+  const handleName = "persprx1@handlecontract";
+  const handleUtxoCbor = buildCborUtxo({ txHash: "1".repeat(64), index: 0, address: DEPLOYER_ADDRESS, lovelace: 20_000_000, assetUnit: handleAssetUnit(handleName), scriptReference: OLD_REF_SCRIPT });
+  const fundingUtxoCbor = buildCborUtxo({ txHash: "2".repeat(64), index: 0, address: DEPLOYER_ADDRESS, lovelace: 30_000_000 });
+  return withMockedFetch(buildBlockfrostMockFetch({ lockedAssetUtxos }), () =>
+    buildReferenceScriptDeploymentTx({
+      network: "mainnet", contractSlug: "persprx", handleName, changeAddress: DEPLOYER_ADDRESS,
+      cborUtxos: [handleUtxoCbor, fundingUtxoCbor], blockfrostApiKey: "k", loadProgramCborFn: () => "4100", inputRefScriptBytes: 15,
+    })
+  );
+};
+
+test("reference-script deployment refuses to replace a script that still has assets locked under it", async () => {
+  await assert.rejects(deployOverExistingScript(2), /refusing to replace persprx1@handlecontract's reference script .*2 asset UTxO\(s\) are still locked/);
+});
+
+test("reference-script deployment reuses the handle when nothing is locked under its current script", async () => {
+  const result = await deployOverExistingScript(0);
+  const out = Serialization.Transaction.fromCbor(result.cborHex).toCore().body.outputs.find((o) => o.value.assets?.size);
+  assert.equal(out.scriptReference.bytes, "4100");
 });

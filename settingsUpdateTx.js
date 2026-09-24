@@ -9,6 +9,7 @@ import {
 } from "@cardano-sdk/tx-construction";
 
 import { fetchBlockfrostUtxos, fetchBlockfrostTxOutput } from "./helpers/cardano-sdk/blockfrostUtxo.js";
+import { assertContractHandleReplaceable } from "./helpers/contractHandleGuard.js";
 import { getBlockfrostBuildContext } from "./helpers/cardano-sdk/blockfrostContext.js";
 import {
   asPaymentAddress,
@@ -98,7 +99,7 @@ const resolveSettingsHandleUtxo = async ({
       ? { datum: Serialization.PlutusData.fromCbor(output.inline_datum).toCore() }
       : {}),
   };
-  return [txIn, txOut];
+  return { utxo: [txIn, txOut], referenceScriptHash: output.reference_script_hash ?? null };
 };
 
 const buildUnsignedTxForFee = ({ selection, requestedOutputs, validityInterval, nativeScript, vkeyWitnessCount }) => {
@@ -185,11 +186,19 @@ export const buildSettingsUpdateTx = async ({
 
   const buildContext = await getBlockfrostBuildContext(network, blockfrostApiKey);
 
-  const handleUtxo = await resolveSettingsHandleUtxo({
+  const { utxo: handleUtxo, referenceScriptHash: currentScriptHash } = await resolveSettingsHandleUtxo({
     network,
     handleName: settingsHandleName,
     blockfrostApiKey,
     userAgent,
+  });
+
+  await assertContractHandleReplaceable({
+    handleName: settingsHandleName,
+    currentScriptHash,
+    nextScriptHash: scriptReference ? Serialization.Script.fromCore(scriptReference).hash() : null,
+    network,
+    blockfrostApiKey,
   });
   const scriptAddress = handleUtxo[1].address;
 

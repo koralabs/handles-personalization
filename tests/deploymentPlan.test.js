@@ -394,3 +394,30 @@ test("settings update artifact rejects missing live raw datum hex", () => {
     /pzSettingsDatumHex/
   );
 });
+
+test("discoverNextContractSubhandle forwards the current SubHandle and Blockfrost key", async () => {
+  // Invariant: the helper can only reuse a current SubHandle after checking chain state, which needs the key.
+  // Failure caught: without forwarding, every script-hash redeploy with a live SubHandle aborts in the helper.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "discover-stub-"));
+  const stubPath = path.join(tmpDir, "discover_subhandles.py");
+  fs.writeFileSync(
+    stubPath,
+    "#!/usr/bin/env python3\nimport sys\na = sys.argv\n" +
+      "print(a[a.index('--current-subhandle')+1] + '|' + a[a.index('--blockfrost-api-key')+1])\n",
+    { mode: 0o755 }
+  );
+  const origPath = process.env.DISCOVER_SUBHANDLES_PATH;
+  process.env.DISCOVER_SUBHANDLES_PATH = stubPath;
+  try {
+    const out = await discoverNextContractSubhandle({
+      network: "mainnet",
+      deploymentHandleSlug: "persprx",
+      currentSubhandle: "persprx1@handlecontract",
+      blockfrostApiKey: "bf-key",
+    });
+    assert.equal(out, "persprx1@handlecontract|bf-key");
+  } finally {
+    process.env.DISCOVER_SUBHANDLES_PATH = origPath;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

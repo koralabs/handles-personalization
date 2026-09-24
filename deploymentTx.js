@@ -12,6 +12,7 @@ import {
 
 import { getAikenArtifactPaths } from "./compileHelpers.js";
 import { getBlockfrostBuildContext } from "./helpers/cardano-sdk/blockfrostContext.js";
+import { assertContractHandleReplaceable } from "./helpers/contractHandleGuard.js";
 import {
   asPaymentAddress,
   buildPlaceholderSignatures,
@@ -180,6 +181,14 @@ export const buildReferenceScriptDeploymentTx = async ({
     bytes: stripHex(compiledCbor),
     version: 2, // cardano-sdk PlutusLanguageVersion: 0=V1, 1=V2, 2=V3
   };
+
+  await assertContractHandleReplaceable({
+    handleName,
+    currentScriptHash: handleUtxo[1].scriptReference ? Serialization.Script.fromCore(handleUtxo[1].scriptReference).hash() : null,
+    nextScriptHash: Serialization.Script.fromCore(scriptReference).hash(),
+    network,
+    blockfrostApiKey,
+  });
 
   const handleValue = { coins: 0n, assets: new Map([[handleAssetId, 1n]]) };
   const handleOutput = {

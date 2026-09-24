@@ -213,6 +213,8 @@ export const discoverNextContractSubhandle = async ({
   namespace = "handlecontract",
   currentSubhandle = null,
   userAgent = "kora-deploy/1.0",
+  // Required with currentSubhandle: the helper reuses it only when nothing is locked under its script.
+  blockfrostApiKey = null,
 }) => {
   const scriptPath = resolveDiscoverSubhandlesScript();
   const args = [
@@ -224,6 +226,9 @@ export const discoverNextContractSubhandle = async ({
   ];
   if (currentSubhandle) {
     args.push("--current-subhandle", currentSubhandle);
+  }
+  if (blockfrostApiKey) {
+    args.push("--blockfrost-api-key", blockfrostApiKey);
   }
   const { stdout } = await execFileP("python3", args, { encoding: "utf8" });
   const result = stdout.trim();
