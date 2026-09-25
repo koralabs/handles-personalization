@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Build ONE unsigned personalization reference-script deployment at the mainnet
-// 2-of-4 handlecontract address. No signing or submission. Run sequentially after
+// Build ONE unsigned personalization reference-script deployment at the handlecontract
+// multisig address (mainnet 2-of-4 by default; --network preview|preprod for testnets). No signing or submission. Run sequentially after
 // the preceding deployment confirms so the clean funding change is current.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
@@ -20,8 +20,12 @@ const args = Object.fromEntries(process.argv.slice(2).flatMap((v,i,a)=>v.startsW
 const slug = args.contract;
 const fromChain = Boolean(args['script-hash']);
 if (fromChain ? !args.handle : !CONTRACTS[slug]) {
-  throw new Error('usage: --contract persdsg|perspz|perslfc|persprx | --handle <handle> --script-hash <hex>; plus --native-script-cbor-file <path> [--out <path>]');
+  throw new Error('usage: --contract persdsg|perspz|perslfc|persprx | --handle <handle> --script-hash <hex>; plus --native-script-cbor-file <path> [--network mainnet|preprod|preview] [--out <path>]');
 }
+const network = args.network || 'mainnet';
+if (!['mainnet', 'preprod', 'preview'].includes(network)) throw new Error(`unknown --network ${network}`);
+const blockfrostBase = `https://cardano-${network}.blockfrost.io/api/v0`;
+const handlesApiBase = network === 'mainnet' ? 'https://api.handle.me' : `https://${network}.api.handle.me`;
 const key = process.env.BLOCKFROST_API_KEY;
 if (!key) throw new Error('BLOCKFROST_API_KEY required');
 const nativeScriptCborHex = readFileSync(args['native-script-cbor-file'], 'utf8').trim();
@@ -29,7 +33,7 @@ await sodium.ready;
 const v3Hash = (hex) => Buffer.from(sodium.crypto_generichash(28, Buffer.concat([Buffer.from([3]), Buffer.from(hex, 'hex')]))).toString('hex');
 let compiledCode;
 if (fromChain) {
-  const response = await fetch(`https://cardano-mainnet.blockfrost.io/api/v0/scripts/${args['script-hash']}/cbor`, { headers: { project_id: key } });
+  const response = await fetch(`${blockfrostBase}/scripts/${args['script-hash']}/cbor`, { headers: { project_id: key } });
   if (!response.ok) throw new Error(`script ${args['script-hash']} lookup failed: HTTP ${response.status}`);
   compiledCode = (await response.json()).cbor;
   if (v3Hash(compiledCode) !== args['script-hash']) {
@@ -46,13 +50,13 @@ const expectedHash = v3Hash(compiledCode);
 const scriptReference = { __type: 'plutus', bytes: compiledCode, version: 2 };
 
 const handleResponse = await fetch(
-  `https://api.handle.me/handles/${encodeURIComponent(handleName)}`,
+  `${handlesApiBase}/handles/${encodeURIComponent(handleName)}`,
   { headers: { 'User-Agent': process.env.KORA_USER_AGENT || 'kora-contract-deployments/1.0' } }
 );
 if (!handleResponse.ok) throw new Error(`handle lookup failed: HTTP ${handleResponse.status}`);
 const [currentTxId, currentIndexText] = (await handleResponse.json()).utxo.split('#');
 const currentUtxoResponse = await fetch(
-  `https://cardano-mainnet.blockfrost.io/api/v0/txs/${currentTxId}/utxos`,
+  `${blockfrostBase}/txs/${currentTxId}/utxos`,
   { headers: { project_id: key } }
 );
 if (!currentUtxoResponse.ok) throw new Error(`current UTxO lookup failed: HTTP ${currentUtxoResponse.status}`);
@@ -62,7 +66,7 @@ const currentOutput = (await currentUtxoResponse.json()).outputs.find(
 let inputRefScriptBytes = 0;
 if (currentOutput?.reference_script_hash) {
   const oldScriptResponse = await fetch(
-    `https://cardano-mainnet.blockfrost.io/api/v0/scripts/${currentOutput.reference_script_hash}/cbor`,
+    `${blockfrostBase}/scripts/${currentOutput.reference_script_hash}/cbor`,
     { headers: { project_id: key } }
   );
   if (!oldScriptResponse.ok) throw new Error(`old ref-script lookup failed: HTTP ${oldScriptResponse.status}`);
@@ -70,7 +74,7 @@ if (currentOutput?.reference_script_hash) {
 }
 
 const built = await buildSettingsUpdateTx({
-  network: 'mainnet',
+  network,
   settingsHandleName: handleName,
   nativeScriptCborHex,
   blockfrostApiKey: key,
@@ -79,6 +83,6 @@ const built = await buildSettingsUpdateTx({
   inputRefScriptBytes,
   patchedDatumHex: undefined
 });
-const out = args.out || `/tmp/${(slug ?? handleName).replace(/@.*/, '')}-mainnet-ref-unsigned.cbor.hex`;
+const out = args.out || `/tmp/${(slug ?? handleName).replace(/@.*/, '')}-${network}-ref-unsigned.cbor.hex`;
 writeFileSync(out, built.cborHex);
 console.log(JSON.stringify({ slug, handle: handleName, expectedHash, txId: built.txId, estimatedSignedTxSize: built.estimatedSignedTxSize, consumedInputs: [...built.consumedInputs], out }, null, 2));
