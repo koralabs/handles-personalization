@@ -30,14 +30,22 @@ const key = process.env.BLOCKFROST_API_KEY;
 if (!key) throw new Error('BLOCKFROST_API_KEY required');
 const nativeScriptCborHex = readFileSync(args['native-script-cbor-file'], 'utf8').trim();
 await sodium.ready;
-const v3Hash = (hex) => Buffer.from(sodium.crypto_generichash(28, Buffer.concat([Buffer.from([3]), Buffer.from(hex, 'hex')]))).toString('hex');
+// Script hash = blake2b-224(language tag || bytes); tag 2 = PlutusV2, 3 = PlutusV3.
+const LANGUAGE_TAG = { plutusV2: 2, plutusV3: 3 };
+const scriptHash = (hex, tag) => Buffer.from(sodium.crypto_generichash(28, Buffer.concat([Buffer.from([tag]), Buffer.from(hex, 'hex')]))).toString('hex');
+let languageTag = LANGUAGE_TAG.plutusV3;
 let compiledCode;
 if (fromChain) {
   const response = await fetch(`${blockfrostBase}/scripts/${args['script-hash']}/cbor`, { headers: { project_id: key } });
   if (!response.ok) throw new Error(`script ${args['script-hash']} lookup failed: HTTP ${response.status}`);
   compiledCode = (await response.json()).cbor;
-  if (v3Hash(compiledCode) !== args['script-hash']) {
-    throw new Error(`fetched script bytes hash to ${v3Hash(compiledCode)}, not ${args['script-hash']}; refusing`);
+  const infoResponse = await fetch(`${blockfrostBase}/scripts/${args['script-hash']}`, { headers: { project_id: key } });
+  if (!infoResponse.ok) throw new Error(`script ${args['script-hash']} info lookup failed: HTTP ${infoResponse.status}`);
+  const { type } = await infoResponse.json();
+  languageTag = LANGUAGE_TAG[type];
+  if (!languageTag) throw new Error(`unsupported script type ${type}`);
+  if (scriptHash(compiledCode, languageTag) !== args['script-hash']) {
+    throw new Error(`fetched ${type} bytes hash to ${scriptHash(compiledCode, languageTag)}, not ${args['script-hash']}; refusing`);
   }
 } else {
   const blueprint = JSON.parse(readFileSync(new URL('../aiken/plutus.json', import.meta.url), 'utf8'));
@@ -46,8 +54,9 @@ if (fromChain) {
   compiledCode = validator.compiledCode;
 }
 const handleName = fromChain ? args.handle : CONTRACTS[slug].handle;
-const expectedHash = v3Hash(compiledCode);
-const scriptReference = { __type: 'plutus', bytes: compiledCode, version: 2 };
+const expectedHash = scriptHash(compiledCode, languageTag);
+// cardano-sdk PlutusLanguageVersion: V1=0, V2=1, V3=2 (language tag - 1).
+const scriptReference = { __type: 'plutus', bytes: compiledCode, version: languageTag - 1 };
 
 const handleResponse = await fetch(
   `${handlesApiBase}/handles/${encodeURIComponent(handleName)}`,
