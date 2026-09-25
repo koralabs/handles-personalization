@@ -35,8 +35,11 @@ const otherHandleCarriesScript = async ({ scriptHash, handleName, network, fetch
   return Object.values(scripts).some((entry) => entry.validatorHash === scriptHash && entry.handle !== handleName);
 };
 
-export const assertContractHandleReplaceable = async ({ handleName, currentScriptHash, nextScriptHash, network, blockfrostApiKey }) => {
+// chainedCarrierScriptHashes: scripts an earlier tx in the same signed batch attaches to another contract
+// handle (read from that tx's CBOR) — registered once the batch lands, before this tx can.
+export const assertContractHandleReplaceable = async ({ handleName, currentScriptHash, nextScriptHash, network, blockfrostApiKey, chainedCarrierScriptHashes = [] }) => {
   if (!currentScriptHash || currentScriptHash === nextScriptHash) return;
+  if (chainedCarrierScriptHashes.includes(currentScriptHash)) return;
   const locked = await countAssetUtxosAtScript({ scriptHash: currentScriptHash, network, blockfrostApiKey });
   if (locked > 0 && !(await otherHandleCarriesScript({ scriptHash: currentScriptHash, handleName, network }))) {
     throw new Error(

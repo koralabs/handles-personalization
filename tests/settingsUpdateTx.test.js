@@ -537,3 +537,18 @@ test("moves a contract handle off a script with locked assets once another contr
     blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT, inputRefScriptBytes: 1000,
   })), /still locked under it/);
 });
+
+test("moves a contract handle off a script with locked assets when an earlier tx in the same batch attaches it elsewhere", async () => {
+  // Batch signing: persprx2 <- 7a04600f… (tx A) and persprx1 <- 7cf105… (tx B, chained on A) are
+  // built before either lands, so the registry can't show persprx2 yet; tx A's CBOR is the evidence.
+  const build = (chainedCarrierScriptHashes) => withMockedFetch(
+    buildMockFetch({ liveDatumHex: null, settingsHandleName: "persprx1@handlecontract", referenceScriptHash: OLD_SCRIPT_HASH, lockedAssetUtxos: 4, registry: {} }),
+    () => buildSettingsUpdateTx({
+      network: "mainnet", settingsHandleName: "persprx1@handlecontract", nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+      blockfrostApiKey: "k", userAgent: "kora-test/1.0", scriptReference: NEW_SCRIPT, inputRefScriptBytes: 1000, chainedCarrierScriptHashes,
+    })
+  );
+  assert.ok((await build([OLD_SCRIPT_HASH])).cborHex.length > 0);
+  // Negative control: the batch attaches some OTHER script — the locked version would be orphaned.
+  await assert.rejects(build(["00".repeat(28)]), /still locked under it/);
+});
