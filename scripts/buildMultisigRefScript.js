@@ -7,6 +7,7 @@ import { Buffer } from 'node:buffer';
 import sodium from 'libsodium-wrappers-sumo';
 import { buildSettingsUpdateTx } from '../settingsUpdateTx.js';
 import { Serialization } from '../helpers/cardano-sdk/index.js';
+import { bech32 } from 'bech32';
 
 const CONTRACTS = {
   persdsg: { handle: 'persdsg1@handlecontract', title: 'persdsg.persdsg.withdraw' },
@@ -83,6 +84,11 @@ if (currentOutput?.reference_script_hash) {
   inputRefScriptBytes = (await oldScriptResponse.json()).cbor.length / 2;
 }
 
+// Testnet contract handles can sit at a POLICY_KEY derivation (enterprise KEY address) instead of the
+// multisig: witness with that key (1 vkey), no native script. Address header type 6 = key enterprise.
+const headerType = (address) => bech32.fromWords(bech32.decode(address, 200).words)[0] >> 4;
+const keyOwned = [0, 2, 4, 6].includes(headerType(currentOutput.address));
+
 // --after <unsigned tx hex>: chain this tx on an earlier, not-yet-submitted batch tx (both signed together).
 // Funds from that tx's ada-only change at the multisig, never re-selects its inputs, and treats the
 // scripts it attaches to contract handles as registered (so the replace guard sees the whole batch).
@@ -93,6 +99,7 @@ if (args.after) {
   const body = prior.toCore().body;
   const multisigAddress = currentOutput?.address;
   chained = {
+    // Only a handle at the same (multisig) address can spend the prior tx's change.
     additionalPreSelectedUtxos: body.outputs
       .map((output, index) => [{ txId: priorId, index, address: output.address }, output])
       .filter(([, output]) => output.address === multisigAddress && !(output.value.assets?.size) && !output.scriptReference),
@@ -101,12 +108,13 @@ if (args.after) {
       .filter((output) => output.scriptReference && output.value.assets?.size)
       .map((output) => Serialization.Script.fromCore(output.scriptReference).hash())
   };
-  if (!chained.additionalPreSelectedUtxos.length) throw new Error(`--after tx ${priorId} has no ada-only change at ${multisigAddress}`);
+  if (!chained.additionalPreSelectedUtxos.length && !keyOwned) throw new Error(`--after tx ${priorId} has no ada-only change at ${multisigAddress}`);
   console.error(`chaining on ${priorId}: funding ${chained.additionalPreSelectedUtxos.map(([i]) => `${i.txId.slice(0, 8)}#${i.index}`).join(',')}, carriers ${chained.chainedCarrierScriptHashes.join(',')}`);
 }
 
 const built = await buildSettingsUpdateTx({
   ...chained,
+  ...(keyOwned ? { includeNativeScriptWitness: false, vkeyWitnessCount: 1 } : {}),
   network,
   settingsHandleName: handleName,
   nativeScriptCborHex,
