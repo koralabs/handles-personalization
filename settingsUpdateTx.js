@@ -167,6 +167,9 @@ export const buildSettingsUpdateTx = async ({
   // count of any consumed ref-script here. 0 (no input ref-script) is the
   // default. Mirrors deploymentTx.js inputRefScriptBytes.
   inputRefScriptBytes = 0,
+  // Script hashes attached to OTHER contract handles by an earlier tx in the same chained batch
+  // (see contractHandleGuard.js). Only meaningful together with additionalPreSelectedUtxos.
+  chainedCarrierScriptHashes = [],
   // Preview/preprod contract reference handles live at derivation 12. The
   // existing mainnet reference handles still live at the native-script address,
   // so callers must select the witness authority that controls the consumed UTxO.
@@ -199,6 +202,7 @@ export const buildSettingsUpdateTx = async ({
     nextScriptHash: scriptReference ? Serialization.Script.fromCore(scriptReference).hash() : null,
     network,
     blockfrostApiKey,
+    chainedCarrierScriptHashes,
   });
   const scriptAddress = handleUtxo[1].address;
 

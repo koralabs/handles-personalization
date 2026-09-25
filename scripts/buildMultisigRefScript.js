@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import sodium from 'libsodium-wrappers-sumo';
 import { buildSettingsUpdateTx } from '../settingsUpdateTx.js';
+import { Serialization } from '../helpers/cardano-sdk/index.js';
 
 const CONTRACTS = {
   persdsg: { handle: 'persdsg1@handlecontract', title: 'persdsg.persdsg.withdraw' },
@@ -82,7 +83,30 @@ if (currentOutput?.reference_script_hash) {
   inputRefScriptBytes = (await oldScriptResponse.json()).cbor.length / 2;
 }
 
+// --after <unsigned tx hex>: chain this tx on an earlier, not-yet-submitted batch tx (both signed together).
+// Funds from that tx's ada-only change at the multisig, never re-selects its inputs, and treats the
+// scripts it attaches to contract handles as registered (so the replace guard sees the whole batch).
+let chained = { additionalPreSelectedUtxos: [], excludeFromRemainingUtxos: [], chainedCarrierScriptHashes: [] };
+if (args.after) {
+  const prior = Serialization.Transaction.fromCbor(readFileSync(args.after, 'utf8').trim());
+  const priorId = prior.getId();
+  const body = prior.toCore().body;
+  const multisigAddress = currentOutput?.address;
+  chained = {
+    additionalPreSelectedUtxos: body.outputs
+      .map((output, index) => [{ txId: priorId, index, address: output.address }, output])
+      .filter(([, output]) => output.address === multisigAddress && !(output.value.assets?.size) && !output.scriptReference),
+    excludeFromRemainingUtxos: body.inputs.map((input) => `${input.txId}#${input.index}`),
+    chainedCarrierScriptHashes: body.outputs
+      .filter((output) => output.scriptReference && output.value.assets?.size)
+      .map((output) => Serialization.Script.fromCore(output.scriptReference).hash())
+  };
+  if (!chained.additionalPreSelectedUtxos.length) throw new Error(`--after tx ${priorId} has no ada-only change at ${multisigAddress}`);
+  console.error(`chaining on ${priorId}: funding ${chained.additionalPreSelectedUtxos.map(([i]) => `${i.txId.slice(0, 8)}#${i.index}`).join(',')}, carriers ${chained.chainedCarrierScriptHashes.join(',')}`);
+}
+
 const built = await buildSettingsUpdateTx({
+  ...chained,
   network,
   settingsHandleName: handleName,
   nativeScriptCborHex,
