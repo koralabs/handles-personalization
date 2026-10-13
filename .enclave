@@ -1,0 +1,39 @@
+# handles-personalization enclave manifest (proposal, ecosystem-ownership-plan row 5.2).
+#
+# Changes to these paths merging into master need operator approval
+# (K.O.R.A.'s merge_pr cards them). Everything else merges freely.
+# Format: one path per line; trailing "/" = directory prefix. "#" = comment.
+# Why each entry is here: CANONICAL_CONTRACT.md. This file is enclaved itself.
+
+.enclave
+CANONICAL_CONTRACT.md
+
+# C1-C4 validators: persprx (frozen spend proxy), perspz, perslfc, persdsg
+aiken/validators/
+aiken/lib/
+aiken/aiken.toml
+aiken/aiken.lock
+pers.helios
+compileAiken.js
+compileHelpers.js
+
+# C5 desired on-chain state: pers*@handle_settings datums, script CBOR, policy roots
+deploy/
+buildPatchedSettingsDatum.js
+settingsUpdateTx.js
+settingsAttachTx.js
+helpers/dynamoPartnersRoots.js
+mpfProofAdapter.js
+persdsgWithdrawal.js
+
+# Tx building, signing, submit, and the contract-handle guard
+helpers/cardano-sdk/
+helpers/contractHandleGuard.js
+deploymentPlan.js
+deploymentState.js
+deploymentTx.js
+scripts/generateDeploymentPlan.js
+scripts/check-persprx-hash-stable.js
+
+# Deploy path
+.github/workflows/

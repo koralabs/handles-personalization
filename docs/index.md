@@ -19,3 +19,6 @@
 - [Aiken Cost Baseline](./spec/aiken-cost-baseline.md)
 - [Aiken Compiler Constraints](./spec/aiken-compiler-constraints.md)
 - [Aiken Migration Playbook](./spec/aiken-migration-playbook.md)
+
+## Canonical contract
+- [Canonical contract (must-never-violate rules)](../CANONICAL_CONTRACT.md)
