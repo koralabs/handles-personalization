@@ -7,6 +7,10 @@ test.js
 *.uplc
 *.txt
 **.env
+/tmp/
+__pycache__/
+.pytest_cache/
+
 # K.O.R.A executor logs
 .kora/executor-logs/
 tasks/tmp
