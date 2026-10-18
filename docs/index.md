@@ -7,6 +7,7 @@
 - [Runtime Flows](./product/runtime-flows.md)
 
 ## Spec
+- [Test Network Boundary](./spec/test-network-boundary.md)
 - [Spec Index](./spec/index.md)
 - [Technical Spec](./spec/spec.md)
 - [Data Models](./spec/data-models.md)
