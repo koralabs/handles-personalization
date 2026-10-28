@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test, { after, before } from "node:test";
 
 import cbor from "cbor";
 
@@ -9,6 +12,38 @@ import {
     readPersdsgHashFromArtifacts,
     readPersdsgStakeAddressFromArtifacts,
 } from "../persdsgWithdrawal.js";
+import { getAikenArtifactPaths } from "../compileHelpers.js";
+import { Cardano } from "../helpers/cardano-sdk/index.js";
+
+// The readers default to ./contract, which only exists after `npm run compile`
+// (gitignored). Tests must not depend on another test file having compiled it,
+// so each run writes its own artifact directory in compileAiken's layout and
+// runs from there; compileAiken.test.js separately proves the compiler writes it.
+const fixtureHash = "ab".repeat(28);
+const stakeAddress = (networkId) =>
+    Cardano.RewardAddress.fromCredentials(networkId, {
+        type: Cardano.CredentialType.ScriptHash,
+        hash: fixtureHash,
+    })
+        .toAddress()
+        .toBech32();
+const originalCwd = process.cwd();
+let fixtureRoot;
+
+before(() => {
+    fixtureRoot = mkdtempSync(path.join(tmpdir(), "persdsg-artifacts-"));
+    const paths = getAikenArtifactPaths(path.join(fixtureRoot, "contract")).perValidator("persdsg");
+    mkdirSync(path.join(fixtureRoot, "contract"));
+    writeFileSync(paths.hash, `${fixtureHash}\n`);
+    writeFileSync(paths.stakeAddrTestnet, `${stakeAddress(0)}\n`);
+    writeFileSync(paths.stakeAddrMainnet, `${stakeAddress(1)}\n`);
+    process.chdir(fixtureRoot);
+});
+
+after(() => {
+    process.chdir(originalCwd);
+    rmSync(fixtureRoot, { recursive: true, force: true });
+});
 
 // A throwaway perspz redeemer payload — CBOR for `Constr 0 [...]`. Mirrors
 // the shape of `types.Redeemer.Personalize { handle, root_handle, indexes,
@@ -106,6 +141,14 @@ test("persdsgWithdrawalEntry returns credential hash + 0 lovelace + redeemer", (
 
     // Hash must match the on-disk artifact (compileAiken's source of truth).
     assert.equal(entry.withdrawalCredentialHash, readPersdsgHashFromArtifacts());
+    assert.equal(entry.withdrawalCredentialHash, fixtureHash);
+});
+
+test("readPersdsgHashFromArtifacts rejects a hash artifact that is not 28 bytes", () => {
+    const dir = path.join(fixtureRoot, "short");
+    mkdirSync(dir);
+    writeFileSync(getAikenArtifactPaths(dir).perValidator("persdsg").hash, "abcd\n");
+    assert.throws(() => readPersdsgHashFromArtifacts(dir), /is not 28 bytes \(got 2\)/);
 });
 
 test("persdsgWithdrawalEntry validates hash override", () => {
@@ -123,6 +166,8 @@ test("persdsgWithdrawalEntry validates hash override", () => {
 test("readPersdsgStakeAddressFromArtifacts returns valid bech32", () => {
     const testnet = readPersdsgStakeAddressFromArtifacts("testnet");
     const mainnet = readPersdsgStakeAddressFromArtifacts("mainnet");
+    assert.equal(testnet, stakeAddress(0));
+    assert.equal(mainnet, stakeAddress(1));
     assert.ok(testnet.startsWith("stake_test1"));
     assert.ok(mainnet.startsWith("stake1"));
 });
