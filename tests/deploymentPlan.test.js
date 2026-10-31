@@ -421,3 +421,48 @@ test("discoverNextContractSubhandle forwards the current SubHandle and Blockfros
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+// Feature: the live-state fetch refuses to plan from a partial or wrong answer and reads the right network's API.
+// Failure mode: a swallowed HTTP error would make drift look like "no change", or a wrong host would plan against another network.
+const liveServer = ({ scriptStatus = 200, handleStatus = 200, datumStatus = 200 } = {}) => {
+  const requests = [];
+  const fetchFn = async (url) => {
+    const text = String(url);
+    requests.push(text);
+    if (text.includes("/scripts?")) return scriptStatus === 200 ? new Response(JSON.stringify({ scriptHash: "ab".repeat(28) }), { status: 200 }) : new Response("", { status: scriptStatus });
+    if (text.includes("/datum")) return new Response(datumStatus === 200 ? previewDatum : "", { status: datumStatus });
+    return new Response(JSON.stringify({ utxo: "tx#0" }), { status: handleStatus });
+  };
+  return { requests, fetchFn };
+};
+const fetchLive = (network, server) => fetchLiveDeploymentState({ network, desired: desiredState, userAgent: "t", fetchFn: server.fetchFn });
+
+test("a 404 for a contract's live script means not deployed, any other script error aborts planning", async () => {
+  const missing = await fetchLive("preview", liveServer({ scriptStatus: 404 }));
+  assert.equal(missing.contracts.persprx.currentScriptHash, null);
+  assert.equal(missing.contracts.persprx.currentSubhandle, null);
+  await assert.rejects(fetchLive("preview", liveServer({ scriptStatus: 500 })), /failed to load live script for persprx \(type=pz\): HTTP 500/);
+  // scriptHash is accepted when validatorHash is absent
+  const ok = await fetchLive("preview", liveServer());
+  assert.equal(ok.contracts.persprx.currentScriptHash, "ab".repeat(28));
+});
+
+test("a failing settings-handle or datum lookup aborts planning with the handle named", async () => {
+  await assert.rejects(fetchLive("preview", liveServer({ handleStatus: 503 })), /failed to load handle pers@handle_settings: HTTP 503/);
+  await assert.rejects(fetchLive("preview", liveServer({ datumStatus: 404 })), /failed to load datum for pers@handle_settings: HTTP 404/);
+});
+
+test("each network reads its own Handle API host", async () => {
+  const hosts = {};
+  for (const network of ["preview", "preprod", "mainnet"]) {
+    const server = liveServer();
+    await fetchLive(network, server);
+    hosts[network] = new URL(server.requests[0]).host;
+  }
+  assert.deepEqual(hosts, { preview: "preview.api.handle.me", preprod: "preprod.api.handle.me", mainnet: "api.handle.me" });
+});
+
+test("decodePzSettingsDatum rejects a datum that is not a 10-element list", () => {
+  assert.throws(() => decodePzSettingsDatum(cbor.encode([1, 2, 3]).toString("hex")), /must decode to a 10-element list, got 3/);
+  assert.throws(() => decodePzSettingsDatum(cbor.encode(7).toString("hex")), /got number/);
+});

@@ -138,3 +138,35 @@ test("handles a 0x-prefixed hex string the way the YAML stores them", () => {
   const decoded = decodeFields(newDatumHex);
   assert.equal(Buffer.from(decoded[6]).toString("hex"), HEX_28("ee"));
 });
+
+// Invariant: every settings field is patched on its own: exactly one change-log entry names it and no other slot of the datum changes.
+// Negative control: removing any field's branch in buildPatchedSettingsDatum makes that case return an empty change log.
+const FIELD_CASES = [
+  ["treasury_fee", 0, 2_000_000],
+  ["treasury_cred", 1, HEX_28("ab")],
+  ["pz_min_fee", 2, 2_500_000],
+  ["admin_creds", 5, [HEX_28("77"), HEX_28("78")]],
+  ["subhandle_share_percent", 8, 60],
+  ["persdsg_hashes", 9, []],
+];
+for (const [name, slot, value] of FIELD_CASES) {
+  test(`patches only ${name} (slot ${slot}) when it alone differs`, () => {
+    const live = encodeAsLiveDatum(baseSettings);
+    const { newDatumHex, changeLog } = buildPatchedSettingsDatum(live, { ...baseSettings, [name]: value });
+    assert.equal(changeLog.length, 1);
+    assert.ok(changeLog[0].startsWith(`${name}:`), changeLog[0]);
+    const before = decodeFields(live);
+    const after = decodeFields(newDatumHex);
+    for (let i = 0; i < before.length; i++) {
+      const same = Buffer.compare(cbor.encode(before[i]), cbor.encode(after[i])) === 0;
+      assert.equal(same, i !== slot, `slot ${i}`);
+    }
+  });
+}
+
+test("accepts a 9-field legacy datum and adds persdsg_hashes", () => {
+  const legacy = cbor.encode(decodeFields(encodeAsLiveDatum(baseSettings)).slice(0, 9)).toString("hex");
+  const { newDatumHex, changeLog } = buildPatchedSettingsDatum(legacy, baseSettings);
+  assert.deepEqual(changeLog, ["persdsg_hashes: 0 -> 1"]);
+  assert.equal(decodeFields(newDatumHex).length, 10);
+});
