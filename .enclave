@@ -1,0 +1,31 @@
+# handles-personalization enclave: files whose change needs operator approval before merging to a protected branch.
+# Active when merged at the repo root (read by kora-bot merge_pr). Exact repo-root-relative paths, no wildcards.
+# Scope (operator decision 2, 2026-10-13): exact on-chain Aiken/Helios source, plus this manifest and CANONICAL_CONTRACT.md.
+# Tests, npm/JS/TS, builders, config, generated artifacts and workflows follow normal agent review.
+# Limit: path-only matching cannot tell embedded Aiken test blocks from production code in a listed file.
+# Why each path: CANONICAL_CONTRACT.md.
+
+.enclave
+CANONICAL_CONTRACT.md
+aiken/lib/personalization/burn.ak
+aiken/lib/personalization/constants.ak
+aiken/lib/personalization/datum.ak
+aiken/lib/personalization/designer_settings.ak
+aiken/lib/personalization/handle_policies.ak
+aiken/lib/personalization/migrate.ak
+aiken/lib/personalization/personalize_base.ak
+aiken/lib/personalization/personalize_mpf_context.ak
+aiken/lib/personalization/personalize_policy_approval.ak
+aiken/lib/personalization/policy_index_mpf.ak
+aiken/lib/personalization/policy_index_types.ak
+aiken/lib/personalization/proxy_check.ak
+aiken/lib/personalization/return_to_sender.ak
+aiken/lib/personalization/revoke.ak
+aiken/lib/personalization/types.ak
+aiken/lib/personalization/update.ak
+aiken/lib/personalization/utils.ak
+aiken/validators/persdsg.ak
+aiken/validators/perslfc.ak
+aiken/validators/persprx.ak
+aiken/validators/perspz.ak
+pers.helios
