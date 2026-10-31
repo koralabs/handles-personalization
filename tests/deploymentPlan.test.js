@@ -9,6 +9,7 @@ import cbor from "cbor";
 import {
   buildPersonalizationDeploymentTxArtifact,
   buildPersonalizationSettingsUpdateArtifact,
+  buildPersonalizationSettingsUpdateTxArtifact,
   buildExpectedScriptHashes,
   buildPersonalizationDeploymentPlan,
   decodePzSettingsDatum,
@@ -465,4 +466,67 @@ test("each network reads its own Handle API host", async () => {
 test("decodePzSettingsDatum rejects a datum that is not a 10-element list", () => {
   assert.throws(() => decodePzSettingsDatum(cbor.encode([1, 2, 3]).toString("hex")), /must decode to a 10-element list, got 3/);
   assert.throws(() => decodePzSettingsDatum(cbor.encode(7).toString("hex")), /got number/);
+});
+
+test("settings update tx artifact builds a tx only when the datum drifts, and rejects a YAML without the settings handle", async () => {
+  // Feature: settings drift yields a settings-update tx for the patched datum; no drift yields no tx; a YAML missing the settings handle is refused.
+  // Failure mode: a no-op run would build a pointless tx, drift would build none, or a bad YAML would patch with undefined values.
+  const live = { pzSettingsDatumHex: previewDatum, currentSettingsUtxoRefs: { "pers@handle_settings": "abcd#0" } };
+  const calls = [];
+  const buildSettingsUpdateTxFn = async (args) => { calls.push(args); return { cborHex: "84" }; };
+
+  const none = await buildPersonalizationSettingsUpdateTxArtifact({ live, desired: desiredState, buildSettingsUpdateTxFn });
+  assert.equal(none.txArtifact, null);
+  assert.deepEqual(calls, []);
+
+  const drifted = {
+    ...desiredState,
+    settings: { ...desiredState.settings, values: { "pers@handle_settings": {
+      ...desiredState.settings.values["pers@handle_settings"],
+      valid_contracts: [...desiredState.settings.values["pers@handle_settings"].valid_contracts, "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff"],
+    } } },
+  };
+  const out = await buildPersonalizationSettingsUpdateTxArtifact({
+    live, desired: drifted, nativeScriptCborHex: "beef", blockfrostApiKey: "k", userAgent: "ua", buildSettingsUpdateTxFn,
+  });
+  assert.deepEqual(out.txArtifact, { cborHex: "84" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].network, "preview");
+  assert.equal(calls[0].settingsHandleName, "pers@handle_settings");
+  assert.equal(calls[0].patchedDatumHex, out.settingsArtifact.newDatumHex);
+  assert.equal(calls[0].nativeScriptCborHex, "beef");
+
+  assert.throws(
+    () => buildPersonalizationSettingsUpdateArtifact({ live, desired: { ...desiredState, settings: { values: {} } } }),
+    /pers@handle_settings.*missing/
+  );
+});
+
+test("deployment tx artifact pads the fee with the current ref-script size, and requires a contract", async () => {
+  // Feature: redeploys pass the size of the ref script about to be consumed to the builder; no existing script (404) means no padding.
+  // Failure mode: Conway's ref-script fee would be underestimated and the node would reject the tx with FeeTooSmallUTxO.
+  const realFetch = globalThis.fetch;
+  const seen = [];
+  const run = async (resp) => {
+    globalThis.fetch = async (url) => { seen.push(String(url)); return resp; };
+    let got;
+    await buildPersonalizationDeploymentTxArtifact({
+      desired: desiredState,
+      contract: desiredState.contracts.find((c) => c.contractSlug === "persprx"),
+      handleName: "persprx7@handlecontract",
+      buildTxFn: async (a) => { got = a; return { estimatedSignedTxSize: 1, maxTxSize: 2 }; },
+    });
+    return got.inputRefScriptBytes;
+  };
+  try {
+    assert.equal(await run({ ok: true, json: async () => ({ cbor: "0x" + "ab".repeat(10) }) }), 10);
+    assert.match(seen[0], /\/handles\/persprx7%40handlecontract\/script$/);
+    assert.equal(await run({ ok: false }), 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  await assert.rejects(
+    buildPersonalizationDeploymentTxArtifact({ desired: desiredState, handleName: "x" }),
+    /contract is required/
+  );
 });
