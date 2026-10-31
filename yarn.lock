@@ -48,7 +48,7 @@
     "@smithy/util-utf8" "^2.0.0"
     tslib "^2.6.2"
 
-"@aws-sdk/client-dynamodb@^3.1003.0", "@aws-sdk/client-dynamodb@^3.1038.0":
+"@aws-sdk/client-dynamodb@^3.1038.0":
   version "3.1038.0"
   resolved "https://registry.npmjs.org/@aws-sdk/client-dynamodb/-/client-dynamodb-3.1038.0.tgz"
   integrity sha512-avw92N9zBKbU0QxXlag8XqVOwZH2doJuWOLO5eCC2DthBy5DufOv5KY5HTlYhNU4KUxzif+c/npNesqVfs2dSw==
@@ -1231,6 +1231,13 @@ bignumber.js@^9.1.1:
   resolved "https://registry.npmjs.org/bignumber.js/-/bignumber.js-9.3.1.tgz"
   integrity sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==
 
+bindings@^1.2.1:
+  version "1.5.0"
+  resolved "https://registry.npmjs.org/bindings/-/bindings-1.5.0.tgz"
+  integrity sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==
+  dependencies:
+    file-uri-to-path "1.0.0"
+
 bip39@^3.0.4:
   version "3.1.0"
   resolved "https://registry.npmjs.org/bip39/-/bip39-3.1.0.tgz"
@@ -1336,6 +1343,15 @@ cbor@^9.0.2:
   integrity sha512-JPypkxsB10s9QOWwa6zwPzqE1Md3vqpPc+cai4sAecuCsRyAtAl/pMyhPlMbT/xtPnm2dznJZYRLui57qiRhaQ==
   dependencies:
     nofilter "^3.1.0"
+
+chacha-native@^2.0.0:
+  version "2.0.3"
+  resolved "https://registry.npmjs.org/chacha-native/-/chacha-native-2.0.3.tgz"
+  integrity sha512-93h+osfjhR2sMHAaapTLlL/COoBPEZ6upicPBQ4GfUyadoMb8t9/M0PKK8kC+F+DEA/Oy3Kg9w3HzY3J1foP3g==
+  dependencies:
+    bindings "^1.2.1"
+    inherits "^2.0.1"
+    nan "^2.4.0"
 
 chacha@^2.1.0:
   version "2.1.0"
@@ -1475,6 +1491,11 @@ fast-xml-parser@5.7.2:
     fast-xml-builder "^1.1.5"
     path-expression-matcher "^1.5.0"
     strnum "^2.2.3"
+
+file-uri-to-path@1.0.0:
+  version "1.0.0"
+  resolved "https://registry.npmjs.org/file-uri-to-path/-/file-uri-to-path-1.0.0.tgz"
+  integrity sha512-0Zt+s3L7Vf1biwWZ29aARiVYLx7iMGnEUl9x33fbB/j3jR81u/O2LbqK+Bm1CDSNDKVtJ/YjwY7TUd5SkeLQLw==
 
 for-each@^0.3.5:
   version "0.3.5"
@@ -1778,6 +1799,11 @@ multiformats@^13.0.0, multiformats@^13.0.1, multiformats@^13.4.0:
   resolved "https://registry.npmjs.org/multiformats/-/multiformats-13.4.2.tgz"
   integrity sha512-eh6eHCrRi1+POZ3dA+Dq1C6jhP1GNtr9CRINMb67OKzqW9I5DUuZM/3jLPlzhgpGeiNUlEGEbkCYChXMCc/8DQ==
 
+nan@^2.4.0:
+  version "2.26.2"
+  resolved "https://registry.npmjs.org/nan/-/nan-2.26.2.tgz"
+  integrity sha512-0tTvBTYkt3tdGw22nrAy50x7gpbGCCFH3AFcyS5WiUu7Eu4vWlri1woE6qHBSfy11vksDqkiwjOnlR7WV8G1Hw==
+
 nanoassert@^2.0.0:
   version "2.0.0"
   resolved "https://registry.npmjs.org/nanoassert/-/nanoassert-2.0.0.tgz"
@@ -1896,7 +1922,7 @@ run-parallel-limit@^1.1.0:
   dependencies:
     queue-microtask "^1.2.2"
 
-rxjs@^7.0.0, rxjs@^7.4.0:
+rxjs@^7.4.0:
   version "7.8.2"
   resolved "https://registry.npmjs.org/rxjs/-/rxjs-7.8.2.tgz"
   integrity sha512-dhKf903U/PQZY6boNNtAGdWbG85WAbjT/1xYoZIC7FAY0yWapOBQVsVrDl58W86//e1VpMNBtRV4MaXfdMySFA==
