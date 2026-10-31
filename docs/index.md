@@ -20,3 +20,6 @@
 - [Aiken Cost Baseline](./spec/aiken-cost-baseline.md)
 - [Aiken Compiler Constraints](./spec/aiken-compiler-constraints.md)
 - [Aiken Migration Playbook](./spec/aiken-migration-playbook.md)
+
+## Policy proposals (not active)
+- [Canonical contract and enclave draft](./proposals/phase5-handles-personalization/README.md): operator review required.
