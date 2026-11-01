@@ -140,3 +140,31 @@ function aikenProofToJson(steps) {
     throw new Error("unknown aiken proof step");
   });
 }
+
+import { proofJsonToAikenProof } from "../mpfProofAdapter.js";
+
+test("keys accept #-hex strings and Buffers, and reject other types", () => {
+  const raw = Buffer.from(FIXTURE_POLICY_ID, "hex");
+  assert.equal(policyKey("#" + FIXTURE_POLICY_ID).toString("hex"), FIXTURE_POLICY_ID);
+  assert.equal(policyKey(raw), raw);
+  assert.equal(overrideKey(raw, Buffer.from("ab")).toString("hex"), FIXTURE_POLICY_ID + "6162");
+  assert.equal(overrideKey(FIXTURE_POLICY_ID, "#6162").toString("hex"), FIXTURE_POLICY_ID + "6162");
+  assert.throws(() => policyKey(5), /policyId must be a hex string or Buffer/);
+  assert.throws(() => overrideKey(FIXTURE_POLICY_ID, 5), /assetName must be a hex string or Buffer/);
+});
+
+test("buildPolicyIndexTrie rejects an unknown entry type", async () => {
+  await assert.rejects(buildPolicyIndexTrie([{ type: "bogus" }]), /unknown entry type: bogus/);
+});
+
+test("proofJsonToAikenProof maps branch, fork and leaf steps and rejects others", () => {
+  const out = proofJsonToAikenProof([
+    { type: "branch", skip: 1, neighbors: "aabb" },
+    { type: "fork", skip: 2, neighbor: { nibble: 3, prefix: "01", root: "02" } },
+    { type: "leaf", skip: 4, neighbor: { key: "03", value: "04" } },
+  ]);
+  assert.deepEqual(out[0], { Branch: { skip: 1, neighbors: Buffer.from("aabb", "hex") } });
+  assert.deepEqual(out[1], { Fork: { skip: 2, neighbor: { nibble: 3, prefix: Buffer.from("01", "hex"), root: Buffer.from("02", "hex") } } });
+  assert.deepEqual(out[2], { Leaf: { skip: 4, key: Buffer.from("03", "hex"), value: Buffer.from("04", "hex") } });
+  assert.throws(() => proofJsonToAikenProof([{ type: "x" }]), /unknown proof step type: x/);
+});

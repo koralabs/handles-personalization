@@ -237,3 +237,31 @@ test("rejects when required arguments are missing", async () => {
     /non-empty cborUtxos is required/
   );
 });
+
+test("rejects each missing required argument, and a non key-hash deployer (negative control: full args pass the guards above)", async () => {
+  const full = {
+    network: "preview",
+    handleName: "pers@handle_settings",
+    inlineDatumHex: "deadbeef",
+    multisigAddress: MULTISIG_ADDRESS,
+    deployerAddress: DEPLOYER_ADDRESS,
+    cborUtxos: ["00"],
+    blockfrostApiKey: "k",
+  };
+  const cases = [
+    ["network", /network is required/],
+    ["handleName", /handleName is required/],
+    ["inlineDatumHex", /inlineDatumHex is required/],
+    ["multisigAddress", /multisigAddress is required/],
+    ["deployerAddress", /deployerAddress is required/],
+    ["blockfrostApiKey", /blockfrostApiKey is required/],
+  ];
+  for (const [field, pattern] of cases) {
+    await assert.rejects(buildSettingsAttachTx({ ...full, [field]: "" }), pattern);
+  }
+  // multisig address is a script-hash address, so it is not a valid deployer wallet
+  await assert.rejects(
+    buildSettingsAttachTx({ ...full, deployerAddress: MULTISIG_ADDRESS }),
+    /must be a key-hash/
+  );
+});

@@ -552,3 +552,26 @@ test("moves a contract handle off a script with locked assets when an earlier tx
   // Negative control: the batch attaches some OTHER script — the locked version would be orphaned.
   await assert.rejects(build(["00".repeat(28)]), /still locked under it/);
 });
+
+test("fails loudly when the handle lookup is not OK, has no UTxO, or has no ADA address", async () => {
+  const settingsHandleName = "pers@handle_settings";
+  const base = buildMockFetch({ liveDatumHex: buildLiveDatumHex(), settingsHandleName });
+  const withHandleResponse = (response) => async (url, init) =>
+    String(url).includes(`/handles/${encodeURIComponent(settingsHandleName)}`) && !String(url).includes("/datum")
+      ? response()
+      : base(url, init);
+  const run = (response) =>
+    withMockedFetch(withHandleResponse(response), () =>
+      buildSettingsUpdateTx({
+        network: "preview",
+        settingsHandleName,
+        patchedDatumHex: buildPatchedDatumHex(),
+        nativeScriptCborHex: NATIVE_SCRIPT_CBOR_HEX,
+        blockfrostApiKey: "preview-test-key",
+        userAgent: "kora-test/1.0",
+      })
+    );
+  await assert.rejects(run(() => new Response("{}", { status: 503 })), /failed to look up handle pers@handle_settings: HTTP 503/);
+  await assert.rejects(run(() => new Response("{}", { status: 200 })), /has no UTxO/);
+  await assert.rejects(run(() => new Response(JSON.stringify({ utxo: `${"1".repeat(64)}#0` }), { status: 200 })), /has no resolved ADA address/);
+});

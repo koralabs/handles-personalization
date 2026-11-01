@@ -263,3 +263,28 @@ test("reference-script deployment reuses the handle when nothing is locked under
   const out = Serialization.Transaction.fromCbor(result.cborHex).toCore().body.outputs.find((o) => o.value.assets?.size);
   assert.equal(out.scriptReference.bytes, "4100");
 });
+
+test("deployment builders reject missing arguments and non key-hash change addresses", async () => {
+  const mod = await import("../deploymentTx.js");
+  const full = {
+    network: "preview",
+    contractSlug: "persdsg",
+    handleName: "x@handle_contract",
+    changeAddress: DEPLOYER_ADDRESS,
+    cborUtxos: ["00"],
+    blockfrostApiKey: "k",
+    loadProgramCborFn: () => "4e4d01000033222220051200120011",
+  };
+  for (const [field, pattern] of [
+    ["network", /network is required/],
+    ["contractSlug", /contractSlug is required/],
+    ["handleName", /handleName is required/],
+    ["changeAddress", /changeAddress is required/],
+    ["blockfrostApiKey", /blockfrostApiKey is required/],
+  ]) {
+    await assert.rejects(mod.buildReferenceScriptDeploymentTx({ ...full, [field]: "" }), pattern);
+  }
+  await assert.rejects(mod.buildReferenceScriptDeploymentTx({ ...full, cborUtxos: [] }), /non-empty cborUtxos/);
+  await assert.rejects(mod.buildReferenceScriptDeploymentTx({ ...full, changeAddress: MULTISIG_ADDRESS }), /key-hash wallet/);
+  await assert.rejects(mod.fetchNetworkParameters("preview", ""), /blockfrostApiKey is required/);
+});
