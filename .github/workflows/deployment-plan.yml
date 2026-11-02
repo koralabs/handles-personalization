@@ -24,8 +24,7 @@ jobs:
       desired_path: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.desired_path || '' }}
       change_address: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.change_address || '' }}
       cbor_utxos_json: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cbor_utxos_json || '' }}
-      node_version: "22.13"
-      timeout_minutes: 15
+      node_version: "26"      timeout_minutes: 15
       kora_user_agent: ${{ vars.KORA_USER_AGENT }}
       setup_command: |
         curl -LsSf https://install.aiken-lang.org | bash -s -- -v v1.1.22
