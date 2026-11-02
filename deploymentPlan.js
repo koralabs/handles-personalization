@@ -93,8 +93,7 @@ export const decodePzSettingsDatum = (datumHex) => {
 };
 
 // Fetches the latest live state for every contract declared in the desired
-// YAML, plus the pz_settings datum. Per-contract scripts are looked up by
-// `old_script_type` (or, if null, treated as "never deployed under that slug").
+// YAML, plus the pz_settings datum. Per-contract scripts are looked up by `script_type`.
 export const fetchLiveDeploymentState = async ({
   network,
   desired,
@@ -106,32 +105,21 @@ export const fetchLiveDeploymentState = async ({
 
   const contracts = {};
   for (const contract of desired.contracts) {
-    if (!contract.oldScriptType) {
-      contracts[contract.contractSlug] = {
-        currentScriptHash: null,
-        currentSubhandle: null,
-      };
-      continue;
-    }
-    const scriptUrl = `${baseUrl}/scripts?latest=true&type=${encodeURIComponent(contract.oldScriptType)}`;
+    const scriptUrl = `${baseUrl}/scripts?latest=true&type=${encodeURIComponent(contract.scriptType)}`;
     const scriptResponse = await fetchFn(scriptUrl, { headers });
-    if (scriptResponse.status === 404) {
-      contracts[contract.contractSlug] = {
-        currentScriptHash: null,
-        currentSubhandle: null,
-      };
-      continue;
-    }
     if (!scriptResponse.ok) {
       throw new Error(
-        `failed to load live script for ${contract.contractSlug} (type=${contract.oldScriptType}): HTTP ${scriptResponse.status}`
+        `failed to load live script for ${contract.contractSlug} (type=${contract.scriptType}): HTTP ${scriptResponse.status}`
       );
     }
-    const scriptPayload = await scriptResponse.json();
+    // /scripts is keyed by script address and `type` is a prefix match (pers also returns
+    // persdsg/perslfc/...), so pick this contract's own latest entry. No entry = not deployed.
+    const scriptPayload = Object.values(await scriptResponse.json()).find(
+      (entry) => entry.type === contract.scriptType && entry.latest
+    );
     contracts[contract.contractSlug] = {
-      currentScriptHash:
-        String(scriptPayload.validatorHash ?? scriptPayload.scriptHash ?? "").trim() || null,
-      currentSubhandle: String(scriptPayload.handle ?? "").trim() || null,
+      currentScriptHash: String(scriptPayload?.validatorHash ?? "").trim() || null,
+      currentSubhandle: String(scriptPayload?.handle ?? "").trim() || null,
     };
   }
 

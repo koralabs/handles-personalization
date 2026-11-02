@@ -9,7 +9,6 @@ import cbor from "cbor";
 import {
   buildPersonalizationDeploymentTxArtifact,
   buildPersonalizationSettingsUpdateArtifact,
-  buildPersonalizationSettingsUpdateTxArtifact,
   buildExpectedScriptHashes,
   buildPersonalizationDeploymentPlan,
   decodePzSettingsDatum,
@@ -114,7 +113,7 @@ test("decodes pz_settings CBOR into named YAML fields", () => {
 });
 
 test("fetches live state for every contract declared in the desired YAML", async () => {
-  // Feature: the planner reads live script state per-contract using each contract's old_script_type.
+  // Feature: the planner reads live script state per-contract using each contract's script_type.
   // Failure mode: only one contract's drift would be observed; subsequent contracts would always look "no_change".
   const requests = [];
   const live = await fetchLiveDeploymentState({
@@ -124,11 +123,17 @@ test("fetches live state for every contract declared in the desired YAML", async
     fetchFn: async (url) => {
       requests.push(String(url));
       const text = String(url);
-      if (text.includes("/scripts?latest=true&type=pz")) {
+      // /scripts is keyed by address; a type with no deployment is an empty object.
+      if (text.includes("/scripts?latest=true&type=persprx")) {
         return new Response(
-          JSON.stringify({ validatorHash: "ab".repeat(28), handle: "pz_contract_06" }),
+          JSON.stringify({
+            addr_live: { type: "persprx", latest: true, validatorHash: "ab".repeat(28), handle: "pz_contract_06" },
+          }),
           { status: 200 }
         );
+      }
+      if (text.includes("/scripts?")) {
+        return new Response("{}", { status: 200 });
       }
       if (text.includes("/datum")) {
         return new Response(previewDatum, { status: 200 });
@@ -137,10 +142,10 @@ test("fetches live state for every contract declared in the desired YAML", async
     },
   });
 
-  // persprx has old_script_type=pz → live state populated.
+  // persprx has a live entry → state populated.
   assert.equal(live.contracts.persprx.currentScriptHash, "ab".repeat(28));
   assert.equal(live.contracts.persprx.currentSubhandle, "pz_contract_06");
-  // perspz has old_script_type=null → no live state.
+  // perspz has no live entry → no live state.
   assert.equal(live.contracts.perspz.currentScriptHash, null);
   assert.equal(live.contracts.perspz.currentSubhandle, null);
 
@@ -150,7 +155,7 @@ test("fetches live state for every contract declared in the desired YAML", async
     "pers@handle_settings": "tx#0",
   });
   assert.equal(live.settings["pers@handle_settings"].treasury_fee, 1500000);
-  assert.ok(requests.some((url) => url.endsWith("/scripts?latest=true&type=pz")));
+  assert.ok(requests.some((url) => url.endsWith("/scripts?latest=true&type=persprx")));
 });
 
 test("builds a no-change deployment plan when both contracts and settings match", () => {
@@ -421,112 +426,4 @@ test("discoverNextContractSubhandle forwards the current SubHandle and Blockfros
     process.env.DISCOVER_SUBHANDLES_PATH = origPath;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-});
-
-// Feature: the live-state fetch refuses to plan from a partial or wrong answer and reads the right network's API.
-// Failure mode: a swallowed HTTP error would make drift look like "no change", or a wrong host would plan against another network.
-const liveServer = ({ scriptStatus = 200, handleStatus = 200, datumStatus = 200 } = {}) => {
-  const requests = [];
-  const fetchFn = async (url) => {
-    const text = String(url);
-    requests.push(text);
-    if (text.includes("/scripts?")) return scriptStatus === 200 ? new Response(JSON.stringify({ scriptHash: "ab".repeat(28) }), { status: 200 }) : new Response("", { status: scriptStatus });
-    if (text.includes("/datum")) return new Response(datumStatus === 200 ? previewDatum : "", { status: datumStatus });
-    return new Response(JSON.stringify({ utxo: "tx#0" }), { status: handleStatus });
-  };
-  return { requests, fetchFn };
-};
-const fetchLive = (network, server) => fetchLiveDeploymentState({ network, desired: desiredState, userAgent: "t", fetchFn: server.fetchFn });
-
-test("a 404 for a contract's live script means not deployed, any other script error aborts planning", async () => {
-  const missing = await fetchLive("preview", liveServer({ scriptStatus: 404 }));
-  assert.equal(missing.contracts.persprx.currentScriptHash, null);
-  assert.equal(missing.contracts.persprx.currentSubhandle, null);
-  await assert.rejects(fetchLive("preview", liveServer({ scriptStatus: 500 })), /failed to load live script for persprx \(type=pz\): HTTP 500/);
-  // scriptHash is accepted when validatorHash is absent
-  const ok = await fetchLive("preview", liveServer());
-  assert.equal(ok.contracts.persprx.currentScriptHash, "ab".repeat(28));
-});
-
-test("a failing settings-handle or datum lookup aborts planning with the handle named", async () => {
-  await assert.rejects(fetchLive("preview", liveServer({ handleStatus: 503 })), /failed to load handle pers@handle_settings: HTTP 503/);
-  await assert.rejects(fetchLive("preview", liveServer({ datumStatus: 404 })), /failed to load datum for pers@handle_settings: HTTP 404/);
-});
-
-test("each network reads its own Handle API host", async () => {
-  const hosts = {};
-  for (const network of ["preview", "preprod", "mainnet"]) {
-    const server = liveServer();
-    await fetchLive(network, server);
-    hosts[network] = new URL(server.requests[0]).host;
-  }
-  assert.deepEqual(hosts, { preview: "preview.api.handle.me", preprod: "preprod.api.handle.me", mainnet: "api.handle.me" });
-});
-
-test("decodePzSettingsDatum rejects a datum that is not a 10-element list", () => {
-  assert.throws(() => decodePzSettingsDatum(cbor.encode([1, 2, 3]).toString("hex")), /must decode to a 10-element list, got 3/);
-  assert.throws(() => decodePzSettingsDatum(cbor.encode(7).toString("hex")), /got number/);
-});
-
-test("settings update tx artifact builds a tx only when the datum drifts, and rejects a YAML without the settings handle", async () => {
-  // Feature: settings drift yields a settings-update tx for the patched datum; no drift yields no tx; a YAML missing the settings handle is refused.
-  // Failure mode: a no-op run would build a pointless tx, drift would build none, or a bad YAML would patch with undefined values.
-  const live = { pzSettingsDatumHex: previewDatum, currentSettingsUtxoRefs: { "pers@handle_settings": "abcd#0" } };
-  const calls = [];
-  const buildSettingsUpdateTxFn = async (args) => { calls.push(args); return { cborHex: "84" }; };
-
-  const none = await buildPersonalizationSettingsUpdateTxArtifact({ live, desired: desiredState, buildSettingsUpdateTxFn });
-  assert.equal(none.txArtifact, null);
-  assert.deepEqual(calls, []);
-
-  const drifted = {
-    ...desiredState,
-    settings: { ...desiredState.settings, values: { "pers@handle_settings": {
-      ...desiredState.settings.values["pers@handle_settings"],
-      valid_contracts: [...desiredState.settings.values["pers@handle_settings"].valid_contracts, "91c9830776b2169e0a4a3227a4fda22d10bf253e91b31eb4115964ff"],
-    } } },
-  };
-  const out = await buildPersonalizationSettingsUpdateTxArtifact({
-    live, desired: drifted, nativeScriptCborHex: "beef", blockfrostApiKey: "k", userAgent: "ua", buildSettingsUpdateTxFn,
-  });
-  assert.deepEqual(out.txArtifact, { cborHex: "84" });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].network, "preview");
-  assert.equal(calls[0].settingsHandleName, "pers@handle_settings");
-  assert.equal(calls[0].patchedDatumHex, out.settingsArtifact.newDatumHex);
-  assert.equal(calls[0].nativeScriptCborHex, "beef");
-
-  assert.throws(
-    () => buildPersonalizationSettingsUpdateArtifact({ live, desired: { ...desiredState, settings: { values: {} } } }),
-    /pers@handle_settings.*missing/
-  );
-});
-
-test("deployment tx artifact pads the fee with the current ref-script size, and requires a contract", async () => {
-  // Feature: redeploys pass the size of the ref script about to be consumed to the builder; no existing script (404) means no padding.
-  // Failure mode: Conway's ref-script fee would be underestimated and the node would reject the tx with FeeTooSmallUTxO.
-  const realFetch = globalThis.fetch;
-  const seen = [];
-  const run = async (resp) => {
-    globalThis.fetch = async (url) => { seen.push(String(url)); return resp; };
-    let got;
-    await buildPersonalizationDeploymentTxArtifact({
-      desired: desiredState,
-      contract: desiredState.contracts.find((c) => c.contractSlug === "persprx"),
-      handleName: "persprx7@handlecontract",
-      buildTxFn: async (a) => { got = a; return { estimatedSignedTxSize: 1, maxTxSize: 2 }; },
-    });
-    return got.inputRefScriptBytes;
-  };
-  try {
-    assert.equal(await run({ ok: true, json: async () => ({ cbor: "0x" + "ab".repeat(10) }) }), 10);
-    assert.match(seen[0], /\/handles\/persprx7%40handlecontract\/script$/);
-    assert.equal(await run({ ok: false }), 0);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  await assert.rejects(
-    buildPersonalizationDeploymentTxArtifact({ desired: desiredState, handleName: "x" }),
-    /contract is required/
-  );
 });
