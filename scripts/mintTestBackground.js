@@ -26,6 +26,7 @@ import { readFileSync } from "node:fs";
 
 import bip39 from "bip39";
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 import sodium from "libsodium-wrappers-sumo";
 
 import { Bip32PrivateKey } from "@cardano-sdk/crypto";
@@ -136,7 +137,7 @@ const buildInlineDatumHex = ({ extraMap }) => {
     1, // CIP-68 v1
     new cbor.Tagged(121, [extraMap]),
   ]);
-  return cbor.encode(datum).toString("hex");
+  return encodeCbor(datum).toString("hex");
 };
 
 // Full creator-defaults map exercising every branch the validator inspects.

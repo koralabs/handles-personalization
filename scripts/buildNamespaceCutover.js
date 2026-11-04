@@ -8,6 +8,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 import sodium from "libsodium-wrappers-sumo";
 
 import { buildSettingsUpdateTx } from "../settingsUpdateTx.js";
@@ -88,7 +89,7 @@ export const patchSettings = (datumHex, contractHashes, persdsgHash) => {
   if (!Array.isArray(fields[9])) throw new Error("settings persdsg_hashes must be a list");
   const existingPersdsg = new Set(fields[9].map((value) => Buffer.from(value).toString("hex")));
   if (!existingPersdsg.has(persdsgHash.toString("hex"))) fields[9].push(persdsgHash);
-  return Buffer.from(cbor.encode(fields)).toString("hex");
+  return Buffer.from(encodeCbor(fields)).toString("hex");
 };
 
 const fetchInputRefScriptBytes = async (network, apiKey, handle) => {

@@ -28,6 +28,7 @@
 import { Buffer } from "node:buffer";
 import { readFileSync, writeFileSync } from "node:fs";
 import cbor from "cbor";
+import { encodeCbor } from "./helpers/encodeCbor.js";
 
 import { buildSettingsUpdateTx } from "/home/jesse/src/koralabs/handles-personalization/settingsUpdateTx.js";
 import { fetchPartnersTrieRoots } from "/home/jesse/src/koralabs/handles-personalization/helpers/dynamoPartnersRoots.js";
@@ -107,13 +108,13 @@ const buildPzSettingsPatchedDatum = async (blockfrostApiKey) => {
   toAdd.forEach((h) => console.log(`    ${h}`));
   const patched = [...oldDatum];
   patched[4] = [...validContracts, ...toAdd.map((h) => Buffer.from(h, "hex"))];
-  return cbor.encode(patched).toString("hex");
+  return encodeCbor(patched).toString("hex");
 };
 
 const buildRootPatchedDatum = (rootHex, label) => {
   const buf = Buffer.from(rootHex, "hex");
   if (buf.length !== 32) throw new Error(`${label} root must be 32 bytes, got ${buf.length}`);
-  return cbor.encode(buf).toString("hex");
+  return encodeCbor(buf).toString("hex");
 };
 
 const summarizeChange = (changeUtxo) => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 
 import { buildSettingsUpdateTx } from "../settingsUpdateTx.js";
 import { Serialization } from "../helpers/cardano-sdk/index.js";
@@ -31,7 +32,7 @@ const buildLiveDatumHex = () => {
     3600000n,
     50n,
   ];
-  return cbor.encode(fields).toString("hex");
+  return encodeCbor(fields).toString("hex");
 };
 
 const buildPatchedDatumHex = () => {
@@ -47,7 +48,7 @@ const buildPatchedDatumHex = () => {
     3600000n,
     50n,
   ];
-  return cbor.encode(fields).toString("hex");
+  return encodeCbor(fields).toString("hex");
 };
 
 const handleAssetUnit = (handleName) =>

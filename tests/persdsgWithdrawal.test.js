@@ -5,6 +5,7 @@ import path from "node:path";
 import test, { after, before } from "node:test";
 
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 
 import {
     encodePersdsgObserverRedeemer,
@@ -50,7 +51,7 @@ after(() => {
 // designer, reset }`. The exact field values don't matter for these tests;
 // what matters is that the builder round-trips the structure into the
 // outer `Observe { … }` Constr without modification.
-const samplePerspzRedeemerCbor = cbor.encode(
+const samplePerspzRedeemerCbor = encodeCbor(
     new cbor.Tagged(121, ["fake redeemer payload"])
 );
 
@@ -89,7 +90,7 @@ test("encodePersdsgObserverRedeemer wraps own_ref + perspz redeemer in Constr 0"
 
     // Second field: the perspz redeemer, byte-identical to the input after
     // a round-trip through Plutus Data.
-    const reEncoded = cbor.encode(decoded.value[1]);
+    const reEncoded = encodeCbor(decoded.value[1]);
     assert.deepEqual([...reEncoded], [...samplePerspzRedeemerCbor]);
 });
 
