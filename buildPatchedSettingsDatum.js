@@ -9,6 +9,7 @@
 // txs for any desired state change.
 
 import cbor from "cbor";
+import { encodeCbor } from "./helpers/encodeCbor.js";
 
 const FIELD_NAMES = [
   "treasury_fee",
@@ -130,7 +131,7 @@ export const buildPatchedSettingsDatum = (currentDatumHex, desiredPzSettings) =>
   }
 
   return {
-    newDatumHex: cbor.encode(fields).toString("hex"),
+    newDatumHex: encodeCbor(fields).toString("hex"),
     changeLog,
     fieldNames: FIELD_NAMES,
   };

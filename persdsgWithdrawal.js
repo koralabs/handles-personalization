@@ -23,6 +23,7 @@
 //      ref-script published via scripts/deployContractRefScripts.js).
 
 import cbor from "cbor";
+import { encodeCbor } from "./helpers/encodeCbor.js";
 
 import {
     getAikenArtifactPaths,
@@ -111,7 +112,7 @@ export function encodePersdsgObserverRedeemer({ ownRef, perspzRedeemer }) {
     // ObserverRedeemer is `Constr 0 [own_ref, redeemer]` (Plutus Constr index
     // 0 → CBOR tag 121).
     const observerData = new cbor.Tagged(121, [ownRefData, perspzRedeemerData]);
-    return cbor.encode(observerData);
+    return encodeCbor(observerData);
 }
 
 /**

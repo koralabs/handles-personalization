@@ -33,6 +33,7 @@ import { Buffer } from "node:buffer";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 import sodium from "libsodium-wrappers-sumo";
 
 import { buildSettingsUpdateTx } from "../settingsUpdateTx.js";
@@ -169,7 +170,7 @@ const main = async () => {
     return;
   }
   decoded[4] = [...validContracts, ...toAdd];
-  const patchedDatumHex = Buffer.from(cbor.encode(decoded)).toString("hex");
+  const patchedDatumHex = Buffer.from(encodeCbor(decoded)).toString("hex");
   console.log(`patched valid_contracts: ${existingHashes.length} -> ${decoded[4].length} entries`);
   console.log(`  added:`);
   for (const h of toAdd) console.log(`    ${h.toString("hex")}`);

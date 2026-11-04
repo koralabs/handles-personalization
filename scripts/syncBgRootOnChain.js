@@ -18,6 +18,7 @@ import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 import sodium from "libsodium-wrappers-sumo";
 
 import { buildSettingsUpdateTx } from "../settingsUpdateTx.js";
@@ -109,7 +110,7 @@ const parseArgs = (argv) => {
 const encodeRootHexAsByteArrayDatum = (rootHex) => {
   const buf = Buffer.from(rootHex, "hex");
   if (buf.length !== 32) throw new Error(`expected 32-byte root, got ${buf.length}`);
-  return cbor.encode(buf).toString("hex");
+  return encodeCbor(buf).toString("hex");
 };
 
 const main = async () => {

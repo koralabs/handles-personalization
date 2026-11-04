@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 
 import {
   LEGACY_PROXY_MIGRATION_HASH,
@@ -12,7 +13,7 @@ const hash = (byte) => Buffer.alloc(28, byte);
 const datum = (fields = 9) => {
   const value = [1, hash(1), 2, new Map(), [hash(2)], [hash(3)], hash(4), 5, 6];
   if (fields === 10) value.push([hash(5)]);
-  return Buffer.from(cbor.encode(value)).toString("hex");
+  return Buffer.from(encodeCbor(value)).toString("hex");
 };
 
 test("namespace cutover uses the authority that controls each network's reference handles", () => {
@@ -72,6 +73,6 @@ test("namespace cutover upgrades a legacy nine-field copy to the required ten-fi
 test("namespace cutover rejects an invalid settings datum instead of manufacturing state", () => {
   // Invariant: only the known nine- or ten-field settings schema can be migrated.
   // Failure mode: malformed input is emitted as a signable multisig transaction.
-  const malformed = Buffer.from(cbor.encode([1, 2, 3])).toString("hex");
+  const malformed = Buffer.from(encodeCbor([1, 2, 3])).toString("hex");
   assert.throws(() => patchSettings(malformed, [hash(6)], hash(8)), /9- or 10-element/);
 });

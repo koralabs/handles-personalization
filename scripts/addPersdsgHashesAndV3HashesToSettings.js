@@ -29,6 +29,7 @@ import { Buffer } from "node:buffer";
 import { readFileSync, writeFileSync } from "node:fs";
 
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 import sodium from "libsodium-wrappers-sumo";
 
 import { buildSettingsUpdateTx } from "../settingsUpdateTx.js";
@@ -232,7 +233,7 @@ const main = async () => {
     return;
   }
 
-  const patchedDatumHex = Buffer.from(cbor.encode(decoded)).toString("hex");
+  const patchedDatumHex = Buffer.from(encodeCbor(decoded)).toString("hex");
 
   // 5. Build settings-update tx
   console.log(`Building settings-update tx for ${SETTINGS_HANDLE}...`);

@@ -37,6 +37,7 @@ import { Buffer } from "node:buffer";
 import process from "node:process";
 
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 
 import {
   ALLOWED_NETWORKS,
@@ -158,7 +159,7 @@ const encodeRootHexAsByteArrayDatum = (rootHex) => {
   if (buf.length !== 32) {
     throw new Error(`expected 32-byte root, got ${buf.length} bytes`);
   }
-  return cbor.encode(buf).toString("hex");
+  return encodeCbor(buf).toString("hex");
 };
 
 const utxoToCborHex = (utxo) =>

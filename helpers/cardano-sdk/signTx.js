@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 
 import cbor from "cbor";
+import { encodeCbor } from "../encodeCbor.js";
 
 import { mergeVkeysIntoTxCbor } from "./cborSplice.js";
 import { Serialization } from "./index.js";
@@ -32,7 +33,7 @@ export const signTxWithWallet = (unsignedTxCborHex, wallet) => {
 
   // CBOR-encode a witness_set with a single vkey witness:
   //   { 0 => [ [public_key, signature] ] }
-  const sigOnlyWitnessSet = cbor.encode(
+  const sigOnlyWitnessSet = encodeCbor(
     new Map([[0, [[Buffer.from(wallet.publicKey), Buffer.from(signatureBytes)]]]])
   );
 

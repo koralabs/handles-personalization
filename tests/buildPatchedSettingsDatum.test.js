@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 import { buildPatchedSettingsDatum } from "../buildPatchedSettingsDatum.js";
 
 const HEX_28 = (byte) => byte.repeat(56);
@@ -37,7 +38,7 @@ const encodeAsLiveDatum = (s) => {
     BigInt(s.subhandle_share_percent),
     s.persdsg_hashes.map(buf),
   ];
-  return cbor.encode(fields).toString("hex");
+  return encodeCbor(fields).toString("hex");
 };
 
 const decodeFields = (hex) => cbor.decodeFirstSync(Buffer.from(hex, "hex"));
@@ -112,7 +113,7 @@ test("patches the settings_cred byte string and reports old vs new", () => {
 });
 
 test("rejects a datum that is not a 9- or 10-element list", () => {
-  const garbage = cbor.encode([1, 2, 3]).toString("hex");
+  const garbage = encodeCbor([1, 2, 3]).toString("hex");
   assert.throws(() => buildPatchedSettingsDatum(garbage, baseSettings), /9- or 10-element list/);
 });
 
@@ -158,14 +159,14 @@ for (const [name, slot, value] of FIELD_CASES) {
     const before = decodeFields(live);
     const after = decodeFields(newDatumHex);
     for (let i = 0; i < before.length; i++) {
-      const same = Buffer.compare(cbor.encode(before[i]), cbor.encode(after[i])) === 0;
+      const same = Buffer.compare(encodeCbor(before[i]), encodeCbor(after[i])) === 0;
       assert.equal(same, i !== slot, `slot ${i}`);
     }
   });
 }
 
 test("accepts a 9-field legacy datum and adds persdsg_hashes", () => {
-  const legacy = cbor.encode(decodeFields(encodeAsLiveDatum(baseSettings)).slice(0, 9)).toString("hex");
+  const legacy = encodeCbor(decodeFields(encodeAsLiveDatum(baseSettings)).slice(0, 9)).toString("hex");
   const { newDatumHex, changeLog } = buildPatchedSettingsDatum(legacy, baseSettings);
   assert.deepEqual(changeLog, ["persdsg_hashes: 0 -> 1"]);
   assert.equal(decodeFields(newDatumHex).length, 10);

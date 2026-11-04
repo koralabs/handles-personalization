@@ -3,6 +3,7 @@ import test from "node:test";
 import { Buffer } from "node:buffer";
 
 import cbor from "cbor";
+import { encodeCbor } from "../helpers/encodeCbor.js";
 
 import { buildSettingsAttachTx } from "../settingsAttachTx.js";
 import { Cardano, Serialization } from "../helpers/cardano-sdk/index.js";
@@ -29,7 +30,7 @@ const buildPzSettingsDatumHex = () => {
     3600000n,
     50n,
   ];
-  return cbor.encode(fields).toString("hex");
+  return encodeCbor(fields).toString("hex");
 };
 
 const handleAssetUnit = (handleName) =>
