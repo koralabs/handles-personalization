@@ -1,12 +1,12 @@
 import cbor from "cbor";
 
-// cbor@9 `cbor.encode()` reads the Encoder stream once, and on Node 26 that returns only the first chunk
-// (a 1-byte buffer for any tagged/nested value). Drain the stream instead.
+// cbor@9 `cbor.encode()` drains its Encoder with pipe() + NoFilter.read(); on Node 26 Readable.read() returns only the
+// first buffered chunk (a 1-byte buffer for a tagged value). Read the encoder's whole buffer by length instead.
+// The huge high-water mark keeps push() from returning false, which would stop cbor's `&&` push chains early
+// (silent truncation of values larger than the default 16 KiB).
 export const encodeCbor = (value, options) => {
-  const encoder = new cbor.Encoder(options);
+  const encoder = new cbor.Encoder({ ...options, highWaterMark: 2 ** 30 });
   encoder.pushAny(value);
   encoder.end();
-  const chunks = [];
-  for (let chunk = encoder.read(); chunk !== null; chunk = encoder.read()) chunks.push(chunk);
-  return Buffer.concat(chunks);
+  return encoder.readableLength ? encoder.read(encoder.readableLength) : Buffer.alloc(0);
 };
